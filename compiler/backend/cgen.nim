@@ -718,16 +718,18 @@ proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
   fillProcLoc(m, id) # ensure that a loc exists
   if m.procs[id].params.len == 0:
     # if a prototype was emitted, the parameter list already exists
-    m.procs[id].params = prepareParameters(m, prc.typ)
+    m.procs[id].params = prepareParameters(m, prc)
 
   synchronize(p.locals, p.body.locals)
 
-  if sfPure notin prc.flags and prc.typ[0] != nil:
-    m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
+  if sfPure notin prc.flags and
+     p.body.locals.nextId() != resultId and
+     p.body[resultId].typ != VoidType:
     let
       res = resultId
-      resNode = newLocalRef(res, prc.info, prc.typ[0])
-    if not isInvalidReturnType(m, prc.typ[0]):
+      typ = m.g.env[p.body[resultId].typ]
+      resNode = newLocalRef(res, prc.info, typ)
+    if not isInvalidReturnType(m, typ):
       # declare the result symbol:
       assignLocalVar(p, resNode)
     else:
@@ -845,7 +847,7 @@ proc genProcPrototype(m: BModule, id: ProcedureId) =
 
   elif not containsOrIncl(m.declaredProtos, sym.id):
     if m.procs[id].params.len == 0:
-      m.procs[id].params = prepareParameters(m, sym.typ)
+      m.procs[id].params = prepareParameters(m, sym)
     var header = genProcHeader(m, sym, m.procs[id].params)
     block:
       if isNoReturn(m, sym) and hasDeclspec in extccomp.CC[m.config.cCompiler].props:

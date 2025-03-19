@@ -339,6 +339,23 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
       incl(result[i].flags, lfIndirect)
       result[i].storage = OnUnknown
 
+proc prepareParameters(m: BModule, prc: PSym): seq[TLoc] =
+  result = prepareParameters(m, prc.typ)
+  if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+    # add a valid enough loc that the header can be generated properly. The
+    # real loc is filled in later
+    result.add initLoc(locParam,
+      newLocalRef(LocalId(result.len),
+        prc.info,
+        m.g.graph.getSysType(prc.info, tyPointer)),
+      "colonenv_",
+      OnStack)
+    # also set an (incomplete) result loc already. Only the type is relevant
+    result[0] = initLoc(locParam,
+      newLocalRef(LocalId(0), prc.info, prc.ast[miscPos][1].typ),
+      "",
+      OnStack)
+
 proc prepareParameters(m: BModule, desc: TypeHeader): seq[TLoc] =
   assert desc.kind == tkProc
   result.newSeq(desc.numParams + 1)
@@ -437,18 +454,23 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var string,
                    locs: openArray[TLoc]) =
   ## Legacy procedure for contexts where type IDs aren't yet used.
   params = ""
-  let rty = m.addLate(t[0])
+  let rty =
+    if locs[0].lode.isNil: m.addLate(t[0])
+    else:                  m.addLate(locs[0].t)
   if isInvalidReturnType(m.g.env.types, rty):
     rettype = ~"void"
   else:
     rettype = useType(m, rty)
 
-  for i in 1..<t.len:
+  for i in 1..<locs.len:
     if locs[i].k == locNone: continue
     if params != "": params.add(~", ")
-    let ty = m.addLate(t[i])
+    let
+      ty = m.addLate(locs[i].t)
+      isNoAlias = i < t.len and sfNoalias in t.n[i].sym.flags
+    # for .musttail proc types, t.len != locs.len
     genParamDecl(m, ty, params, locs[i].r, lfIndirect in locs[i].flags,
-                 sfNoalias in t.n[i].sym.flags, weakDep=false)
+                 isNoAlias, weakDep=false)
 
   finishProcType(m, rty, t.callConv == ccClosure, tfVarargs in t.flags, params)
 

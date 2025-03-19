@@ -2411,19 +2411,23 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
     discard c.addLocal(x)
 
   # result variable:
-  if signature[0].isEmptyType():
+  if signature.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+    # use the new result symbol
+    discard c.addLocal(prc.ast[miscPos][2].sym)
+  elif signature[0].isEmptyType():
     # always reserve a slot for the result variable, even if the latter is
     # not present
     add Local()
   else:
-    add c.localToMir(prc.ast[resultPos].sym)
+    discard c.addLocal(prc.ast[resultPos].sym)
 
   # parameters:
   let params = signature.n
   for i in 1..<params.len:
     add c.paramToMir(params[i].sym)
 
-  if signature.callConv == ccClosure:
+  if signature.callConv in {ccClosure, ccMusttail} or
+     sfCallsMusttail in prc.flags:
     # environment parameter
     add c.paramToMir(prc.ast[paramsPos][^1].sym)
 
