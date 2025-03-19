@@ -6,7 +6,7 @@ discard """
 """
 
 proc generic[T](x: T): auto =
-  echo x
+  discard
 
 proc test(x: proc(x: int)) =
   x(1)
