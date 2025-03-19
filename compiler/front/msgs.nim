@@ -470,6 +470,7 @@ func astDiagToLegacyReportKind*(
   of adSemNoReturnHasReturn: rsemNoReturnHasReturn
   of adSemMisplacedDeprecation: rsemMisplacedDeprecation
   of adSemCustomUserError: rsemCustomUserError
+  of adSemMethodCantBeMusttail: rsemMethodCantBeMusttail
   of adSemFatalError: rsemFatalError
   of adSemNoUnionForJs: rsemNoUnionForJs
   of adSemBitsizeRequiresPositive: rsemBitsizeRequiresPositive

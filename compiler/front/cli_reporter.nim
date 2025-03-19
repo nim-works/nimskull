@@ -1637,6 +1637,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCustomUserError:
       result = r.str
 
+    of rsemMethodCantBeMusttail:
+      result = "method cannot use .musttail calling convention"
+
     of rsemImplicitPragmaError:
       result = "application of implicit pragma failed"
 
@@ -3214,6 +3217,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemAlignRequiresPowerOfTwo,
       adSemNoReturnHasReturn,
       adSemMisplacedDeprecation,
+      adSemMethodCantBeMusttail,
       adSemNoUnionForJs,
       adSemBitsizeRequiresPositive,
       adSemExperimentalRequiresToplevel,

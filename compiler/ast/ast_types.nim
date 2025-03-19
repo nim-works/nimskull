@@ -1127,6 +1127,7 @@ type
     adSemNoReturnHasReturn
     adSemMisplacedDeprecation
     adSemCustomUserError
+    adSemMethodCantBeMusttail
     adSemFatalError
     adSemNoUnionForJs
     adSemBitsizeRequiresPositive
@@ -1329,6 +1330,7 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
+        adSemMethodCantBeMusttail,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,
