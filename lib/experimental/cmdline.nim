@@ -34,7 +34,10 @@ type
     ## A command line parser
     flag: Table[string, Id] ## Lookup mapping of flag names to Id
     parser: Store[Id, ParserAny[T]] ## Parser to process input for Id
+    # XXX: Maybe allow name to store 2 values since that's the common case, then
+    # alias for the rest
     name: Store[Id, string] ## Canonical names for all Ids
+    alias: Table[Id, seq[string]] ## Mapping of Id to aliases
 
     # Documentation storage
     #
@@ -50,6 +53,7 @@ type
   FlagBuilder*[T] = object
     flagParser: ParserAny[T]
     flagName: string
+    aliases: seq[string]
     usage: string
     placeholder: string
 
@@ -91,7 +95,9 @@ type
   Flag* = distinct Id
 
 proc hash(x: Id): Hash {.borrow.}
-proc `==`(a, b: Id): bool {.borrow.}
+
+# FIXME: I have no idea why this has to be exported
+proc `==`*(a, b: Id): bool {.borrow.}
 proc `==`*(a, b: Flag): bool {.borrow.}
 
 func initCli*(T: typedesc): Cli[T] =
@@ -103,6 +109,16 @@ func flagBuilder*[T](cli: Cli[T]): FlagBuilder[T] =
 func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
   result = b
   result.flagName = name
+
+func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
+  result = b
+
+  # Not the fastest method, but it's expected that users will
+  # specify at most 4 of these.
+  for name in names.items:
+    if result.flagName == name or name in result.aliases:
+      continue
+    result.aliases.add names
 
 func optionalParser*[T](
   b: sink FlagBuilder[T],
@@ -166,6 +182,10 @@ func addTo*[T](b: sink FlagBuilder[T], cli: var Cli[T]): Flag {.discardable.} =
   assert b.flagName.len > 0, "Flag name must not be empty"
   if b.flagName in cli.flag:
     raise newException(ValueError, "Flag '" & b.flagName & "' already exists")
+  for alias in b.aliases.items:
+    if alias in cli.flag:
+      raise newException(ValueError, "Flag '" & alias & "' already exists")
+
   if b.flagParser.isOptional:
     assert b.flagParser.optParser != nil, "Parser must be non-nil"
   else:
@@ -176,6 +196,10 @@ func addTo*[T](b: sink FlagBuilder[T], cli: var Cli[T]): Flag {.discardable.} =
   discard cli.placeholder.add(b.placeholder)
   discard cli.parser.add(b.flagParser)
   cli.flag[b.flagName] = Id result
+  for alias in b.aliases.items:
+    cli.flag[alias] = Id result
+  if b.aliases.len > 0:
+    cli.alias[Id result] = b.aliases
 
 func flagWithName*(cli: Cli, name: string): Option[Flag] =
   try: some(Flag cli.flag[name])
@@ -183,6 +207,26 @@ func flagWithName*(cli: Cli, name: string): Option[Flag] =
 
 func nameOf*(cli: Cli, flag: Flag): lent string =
   cli.name[Id flag]
+
+iterator namesOf*(cli: Cli, flag: Flag): lent string =
+  try:
+    yield cli.name[Id flag]
+    for name in cli.alias[Id flag].items:
+      yield name
+  except KeyError:
+    discard "Flag has no aliases"
+
+func longNameOf*(cli: Cli, flag: Flag): Option[string] =
+  result = none string
+  for name in cli.namesOf(flag):
+    if name.len > 1:
+      return some name
+
+func shortNameOf*(cli: Cli, flag: Flag): Option[string] =
+  result = none string
+  for name in cli.namesOf(flag):
+    if name.len == 1:
+      return some name
 
 func usageOf*(cli: Cli, flag: Flag): lent string =
   cli.usage[Id flag]
@@ -321,9 +365,10 @@ func flagsUsage*(cli: Cli): string =
   var lines: seq[(string, string)]
   var flagPad: int
   for flag in cli.flags:
-    let dash = if cli.nameOf(flag).len == 1: "-" else: "--"
     let optional = cli.isValueOptional(flag)
     let placeholder = cli.placeholderOf(flag)
+    let short = cli.shortNameOf(flag).map(proc (v: string): string = "-" & v).get("")
+    let long = cli.longNameOf(flag).map(proc (v: string): string = "--" & v).get("")
     let valueSuffix =
       if optional:
         if placeholder == "":
@@ -336,7 +381,12 @@ func flagsUsage*(cli: Cli): string =
         else:
           " <" & placeholder & ">"
 
-    let display = dash & cli.nameOf(flag) & valueSuffix
+    var display: string
+    display.add short
+    if display != "" and long != "":
+      display.add ", "
+    display.add long
+    display.add valueSuffix
 
     flagPad = max(flagPad, display.len)
     lines.add (display, cli.usageOf(flag))

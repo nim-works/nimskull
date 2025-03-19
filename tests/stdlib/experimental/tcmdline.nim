@@ -26,11 +26,13 @@ block typicalUsage:
     var cli = initCli set[Opt]
     cli.flagBuilder
       .name("show-nonprinting")
+      .alias("v")
       .parser(bool, proc(k, v: auto, s: var auto): Action = s[ShowNonPrinting] = v)
       .describe("display non-printing characters")
       .addTo(cli)
     cli.flagBuilder
       .name("squeeze-blank")
+      .alias("s")
       .parser(bool, proc(k, v: auto, s: var auto): Action = s[SqueezeBlank] = v)
       .describe("remove repeated empty lines")
       .addTo(cli)
@@ -50,10 +52,14 @@ block typicalUsage:
       doAssert parsed.result == {}
       doAssert parsed.remaining == ["-"]
 
+    block short:
+      let parsed = cli.parse ["-sv"]
+      doAssert parsed.result == {ShowNonPrinting, SqueezeBlank}
+
     block doc:
       doAssert cli.flagsUsage == """
-  --show-nonprinting  display non-printing characters
-  --squeeze-blank     remove repeated empty lines"""
+  -v, --show-nonprinting  display non-printing characters
+  -s, --squeeze-blank     remove repeated empty lines"""
 
   block seqLike:
     ## Unix's seq clone
