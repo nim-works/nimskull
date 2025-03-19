@@ -15,6 +15,7 @@
 ## * introduces method dispatchers
 ## * performs lambda lifting for closure support
 ## * transforms 'defer' into a 'try finally' statement
+## * tail call elimination (most of it)
 
 import
   std/[
@@ -43,6 +44,7 @@ import
     semfold,
     lambdalifting,
     lowerings,
+    tailcall_elim,
     unreachable_elim
   ],
   compiler/backend/[
@@ -1414,6 +1416,114 @@ template liftDefer(c, root) =
   if c.deferDetected:
     liftDeferAux(root)
 
+proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
+  ## Forwards all ``return`` statements into complex expressions. For example:
+  ##
+  ##   return (if a: b else: c)
+  ##
+  ## becomes:
+  ##
+  ##   if a:
+  ##     return a
+  ##   else:
+  ##     return c
+  ##
+  ## This makes it so that the operand of a return is always some simple
+  ## expression, which helps with the tail-call elimination pass.
+  proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
+    if active:
+      n = newTreeI(nkReturnStmt, n.info,
+        newTreeI(nkAsgn, n.info,
+          newSymNode(owner.ast[resultPos].sym),
+          n))
+      n.flags.incl nfTransf
+      n.typ = g.noreturnType
+
+  template wrap(n: var PNode) =
+    wrap(g, owner, n, active)
+
+  template recurse(n: var PNode, active: bool) =
+    forwardReturn(g, owner, n, active)
+
+  # the implementation is simple: propagate the "active" flag to every terminal
+  # expression position and wrap the expression in a return. Complex
+  # expressions previously appearing as a `return` operand must have their
+  # type fixed-up
+  case n.kind
+  of nkSym, nkLiterals:
+    wrap(n)
+  of nkCast, nkConv, nkHiddenSubConv, nkHiddenStdConv:
+    recurse(n[1], false)
+    wrap(n)
+  of nkHiddenAddr, nkHiddenDeref, nkObjDownConv, nkObjUpConv, nkAddr,
+     nkDerefExpr, nkDotExpr, nkCheckedFieldExpr:
+    recurse(n[0], false)
+    wrap(n)
+  of nkBracketExpr:
+    recurse(n[0], false)
+    recurse(n[1], false)
+    wrap(g, owner, n, active)
+  of nkCallKinds:
+    for i in 0..<n.len:
+      recurse(n[i], false)
+    wrap(n)
+  of nkNimNodeLit, nkLambdaKinds:
+    # values, but the pass doesn't enter them
+    wrap(n)
+  of nkReturnStmt:
+    if n[0].kind != nkEmpty:
+      n = n[0][1]
+      recurse(n, true)
+  of nkStmtListExpr:
+    for i in 0..<n.len-1:
+      recurse(n[i], false)
+    if n.len > 0:
+      recurse(n[^1], active)
+      if active:
+        n.transitionSonsKind(nkStmtList)
+        n.typ = g.noreturnType
+  of nkBlockExpr:
+    recurse(n[1], active)
+    if active:
+      n.typ = g.noreturnType
+      n.transitionSonsKind(nkBlockStmt)
+  of nkCaseStmt:
+    recurse(n[0], false)
+    for i in 1..<n.len:
+      recurse(n[i], active)
+    if active:
+      n.typ = g.noreturnType
+  of nkTryStmt, nkIfStmt:
+    for i in 0..<n.len:
+      recurse(n[i], active)
+    if active:
+      n.typ = g.noreturnType
+  of nkIfExpr:
+    for i in 0..<n.len:
+      recurse(n[i], active)
+    if active:
+      n.typ = g.noreturnType
+      n.transitionSonsKind(nkIfStmt)
+  of nkElifBranch, nkElifExpr:
+    recurse(n[0], false)
+    recurse(n[1], active)
+  of nkExceptBranch, nkOfBranch, nkIdentDefs, nkElse, nkElseExpr,
+     nkPragmaBlock, nkBlockStmt, nkVarTuple:
+    recurse(n[^1], active)
+  of nkFinally:
+    recurse(n[0], false)
+  of nkLetSection, nkVarSection:
+    for i in 0..<n.len:
+      recurse(n[i], active)
+  of nkConstSection, nkTypeSection, nkMixinStmt, nkBindStmt, routineDefs,
+     nkImportStmt, nkStaticStmt, nkExportStmt, nkExportExceptStmt:
+    discard "nothing to do"
+  of nkWithoutSons - {nkSym} - nkLiterals:
+    discard "nothing to do"
+  else:
+    for i in 0..<n.len:
+      recurse(n[i], false)
+
 proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
   ## Applies the various transformations to `body` and returns the result.
   ## This step is not indempotent, and since no caching is performed, it
@@ -1424,6 +1534,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ## 2. general lowerings -- these are the ones implemented here in
   ##    ``transf``
   ## 3. the ``closureiters`` transformation
+  ## 4. tail-call elimination (where enabled)
   ##
   ## Application always happens in that exact order.
   g.config.timeTracer.traceSym(tikTransform, prc)
@@ -1438,6 +1549,9 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
     # the environment type is closed for modification, meaning that we can
     # safely create the type-bound operators now
     finishClosureIterator(c.graph, c.idgen, prc)
+
+  if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+    forwardReturn(g, prc, result, false)
 
   incl(result.flags, nfTransf)
 
