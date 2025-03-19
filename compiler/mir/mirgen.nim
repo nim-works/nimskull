@@ -1009,6 +1009,9 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     c.buildMagicCall m, rtyp:
       # skip the surrounding typedesc
       c.emitByVal typeLit(c.typeToMir(n[1].typ.skipTypes({tyTypeDesc})))
+  of mEnsureNoCleanup:
+    # TODO: implement. This'll be tricky...
+    discard
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
@@ -1168,6 +1171,10 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
       # note: the first operand may be a procedure symbol
       c.emitByName ekReassign, genOperand(c, n[1])
       arg n[2]
+  of mStoreParams:
+    c.buildMagicCall m, VoidType:
+      c.emitOperandTree n[1], sink=false
+      c.emitOperandTree n[2], sink=true
 
   # special macro related magics:
   of mExpandToAst:
