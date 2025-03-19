@@ -805,8 +805,17 @@ proc genCall(c: var TCtx, n: PNode) =
     else:
       mnkCall
 
+  # the correct return type for .musttail and trampoline procedures is
+  # that of the call, not that from the proc type:
+  let rettype =
+    if fntyp.callConv == ccMusttail or
+       (n[0].kind == nkSym and sfCallsMusttail in n[0].sym.flags):
+      n.typ
+    else:
+      fntyp[0]
+
   let hasSideEffect = tfNoSideEffect notin fntyp.flags
-  c.builder.rawBuildCall kind, c.typeToMir(fntyp[0]), hasSideEffect:
+  c.builder.rawBuildCall kind, c.typeToMir(rettype), hasSideEffect:
     genCallee(c, n[0])
     genArgs(c, n)
     if kind == mnkCheckedCall:

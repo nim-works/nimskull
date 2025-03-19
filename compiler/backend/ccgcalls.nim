@@ -42,9 +42,8 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
   genLineDir(p, ri)
   var pl = callee & ~"(" & params
   # getUniqueType() is too expensive here:
-  var typ = skipTypes(ri[0].typ, abstractInst)
-  if typ[0] != nil:
-    if isInvalidReturnType(p.module, typ[0]):
+  if not ri.typ.isEmptyType():
+    if isInvalidReturnType(p.module, ri.typ):
       if params != "": pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
@@ -52,7 +51,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
         # resetting the result location is the responsibility of the called
         # procedure
         if d.k == locNone:
-          getTemp(p, typ[0], d)
+          getTemp(p, ri.typ, d)
         pl.add(addrLoc(p.module, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
@@ -60,7 +59,7 @@ proc fixupCall(p: BProc, le, ri: CgNode, d: var TLoc,
     else:
       pl.add(~")")
       if true:
-        if d.k == locNone: getTemp(p, typ[0], d)
+        if d.k == locNone: getTemp(p, ri.typ, d)
         assert(d.t != nil)        # generate an assignment to d:
         var list: TLoc
         initLoc(list, locCall, d.lode, OnUnknown)
@@ -208,8 +207,8 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
       lineF(p, cpsStmts, PatProc & ";$n", [rdLoc(op), pl, pl.addComma, rawProc])
 
   let rawProc = getClosureType(p.module, ri[0].typ, clHalf)
-  if typ[0] != nil:
-    if isInvalidReturnType(p.module, typ[0]):
+  if not ri.typ.isEmptyType():
+    if isInvalidReturnType(p.module, ri.typ):
       if numArgs(ri) > 0: pl.add(~", ")
       # the destination is guaranteed to be either a temporary or an lvalue
       # that can be modified in-place
@@ -217,12 +216,12 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
         # resetting the result location is the responsibility of the called
         # procedure
         if d.k == locNone:
-          getTemp(p, typ[0], d)
+          getTemp(p, ri.typ, d)
         pl.add(addrLoc(p.module, d))
         genCallPattern()
         exitCall(p, ri)
     else:
-      if d.k == locNone: getTemp(p, typ[0], d)
+      if d.k == locNone: getTemp(p, ri.typ, d)
       assert(d.t != nil)        # generate an assignment to d:
       var list: TLoc
       initLoc(list, locCall, d.lode, OnUnknown)
