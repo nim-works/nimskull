@@ -1561,6 +1561,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
 
   if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
     forwardReturn(g, prc, result, false)
+    result = eliminateTailCalls(g, idgen, prc, result)
 
   incl(result.flags, nfTransf)
 

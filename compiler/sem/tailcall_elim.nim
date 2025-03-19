@@ -377,3 +377,129 @@ proc genTrampoline*(c: PContext, s: PSym) =
   s.ast[miscPos] = newTree(nkBracket,
     newSymNode(prc),
     newNodeIT(nkType, s.info, contType))
+
+# -------------- elimination transformation --------------
+
+proc newTerminalConstr(g: ModuleGraph, typ: PType, info: TLineInfo, val: PNode): PNode =
+  if val.kind == nkEmpty:
+    newTreeIT(nkObjConstr, info, typ,
+      newNodeIT(nkType, info, typ),
+      newTree(nkExprColonExpr, newSymNode(lookupInType(typ, 0)),
+        newIntLit(g, info, 1)))
+  else:
+    newTreeIT(nkObjConstr, info, typ,
+      newNodeIT(nkType, info, typ),
+      newTree(nkExprColonExpr, newSymNode(lookupInType(typ, 0)),
+        newIntLit(g, info, 1)),
+      newTree(nkExprColonExpr, newSymNode(lookupInType(typ, 2)),
+        copyTree(val)))
+
+proc eliminateTailCalls*(g: ModuleGraph, idgen: IdGenerator, prc: PSym,
+                         body: PNode): PNode =
+  ## Turns all tail-calls in `body` into sibling calls, through the use of
+  ## continuations.
+
+  # add the hidden environment parameter storing the tail-call arguments:
+  let env = newSym(skParam, getIdent(g.cache, ":env"), nextSymId(idgen), prc, prc.info)
+  env.position = prc.typ.len - 1
+  env.flags.incl sfFromGeneric
+  env.typ = g.getSysType(prc.info, tyPointer)
+  prc.ast[paramsPos].add newSymNode(env)
+
+  proc transform(n: var PNode, res: PSym, old: PNode) =
+    case n.kind
+    of nkReturnStmt:
+      if n[0].kind == nkAsgn:
+        n[0][0] = newSymNode(res)
+        transform(n[0][1], res, old)
+        if n[0][1].kind == nkStmtList:
+          # it's a sibling call, remove the assignment
+          n = n[0][1]
+        else:
+          # it's a normal return; turn it into a continuation construction
+          n[0][1] = newTerminalConstr(g, res.typ, n.info, n[0][1])
+      else:
+        # this cannot be a tail-call path, turn the return into:
+        #  return Continuation(has: true, val: result)
+        n[0] = newTree(nkAsgn,
+          newSymNode(res),
+          newTerminalConstr(g, res.typ, n.info, old))
+    of nkCallKinds:
+      for i in 0..<n.len:
+        transform(n[i], res, old)
+
+      let fntype = n[0].typ.skipTypesOrNil(abstractInst)
+      if fntype != nil and fntype.callConv == ccMusttail:
+        # transform the call into a continuation construction + store
+        let tup = newTreeIT(nkTupleConstr, n.info,
+          genParamContainer(g.config, idgen, prc, fntype))
+        for i in 1..<fntype.len:
+          case fntype[i].kind
+          of tySink, tyVar:
+            tup.add n[i]
+          elif isPassByRef(g.config, fntype.n[i].sym, fntype[0]):
+            # stored as a pointer
+            tup.add newTreeIT(nkAddr, n.info,
+              makePtrType(prc, fntype[i], idgen), n[i])
+          else:
+            tup.add n[i]
+
+        n = newTreeIT(nkStmtList, n.info, g.noreturnType,
+          newTree(nkAsgn, newSymNode(res),
+            newTreeIT(nkObjConstr, n.info, res.typ,
+              newNodeIT(nkType, n.info, res.typ),
+              newTree(nkExprColonExpr,
+                newSymNode(lookupInType(res.typ, 0)), newIntLit(g, n.info, 0)),
+              newTree(nkExprColonExpr,
+                newSymNode(lookupInType(res.typ, 1)), n[0]))),
+          newTree(nkCall,
+            newSymNode(createMagic(g, g.idgen, "store", mStoreParams)),
+            newSymNode(env),
+            tup),
+          newTree(nkCall,
+            newSymNode(createMagic(g, g.idgen, "nocleanup", mEnsureNoCleanup))),
+          newTreeIT(nkReturnStmt, n.info, g.noreturnType, g.emptyNode))
+    of nkStmtList:
+      for i in 0..<n.len-2:
+        transform(n[i], res, old)
+
+      if n.len >= 2:
+        # check whether it's a tail-call + return pair
+        transform(n[^2], res, old)
+        if n[^2].kind == nkStmtList:
+          # it is, remove the return statement
+          assert n[^1].kind == nkReturnStmt
+          n.delSon(n.len - 1)
+        else:
+          transform(n[^1], res, old)
+      else:
+        transform(n[^1], res, old)
+    of nkWithoutSons:
+      discard "nothing to do"
+    else:
+      for i in 0..<n.len:
+        transform(n[i], res, old)
+
+  # create a new result variable using the proper type
+  var nres = newSym(skResult, g.cache.getIdent("result"), nextSymId(idgen),
+                    prc, prc.info, prc.ast[miscPos][1].typ)
+
+  result = body
+  if result.typ != g.noreturnType:
+    # add a trailing return for the pass to transform:
+    result = newTreeIT(nkStmtList, result.info, g.noreturnType,
+      result,
+      newTreeIT(nkReturnStmt, result.info, g.noreturnType, g.emptyNode))
+
+  # transform the body
+  if prc.typ[0].isEmptyType():
+    transform(result, nres, g.emptyNode)
+  else:
+    transform(result, nres, prc.ast[resultPos])
+
+  # we cannot replace the return type with the correct one yet. Why? Because
+  # the transformation might happen in a compile-time evaluation context, in
+  # which case the modification would be visible to sem and macros. Store the
+  # symbol in the misc slot and let mirgen take care of the rest
+  prc.ast[miscPos].sons.setLen(3)
+  prc.ast[miscPos][2] = newSymNode(nres)
