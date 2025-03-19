@@ -1649,6 +1649,11 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
                               # otherwise casting doesn't work
   of tyTuple:
     result = (getSize(conf, pt) > conf.target.floatSize*3) or (optByRef in s.options)
+  of tyArray:
+    # always passed by reference
+    # XXX: this is a C code generator implementation detail leaking into the
+    #      language semantics
+    result = true
   else:
     result = false
 
