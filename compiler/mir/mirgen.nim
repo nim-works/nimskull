@@ -707,7 +707,12 @@ proc genCallee(c: var TCtx, n: PNode) =
     let s = n.sym
     if s.magic == mNone or s.magic in c.config.magicsToKeep:
       # reference the procedure by symbol
-      c.add procNode(c.env.procedures.add(s))
+      if (c.owner.isNil or sfGeneratedOp notin c.owner.flags) and
+         (s.typ.callConv == ccMusttail or sfCallsMusttail in s.flags):
+        # replace with the apply or trampoline procedure
+        c.add procNode(c.env.procedures.add(s.ast[miscPos][0].sym))
+      else:
+        c.add procNode(c.env.procedures.add(s))
     else:
       # don't use a symbol
       c.add MirNode(kind: mnkMagic, magic: s.magic)
@@ -2022,7 +2027,10 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   let typ = c.typeToMir(n.typ)
   case n.kind
   of pirProc:
-    c.use toValue(c.env.procedures.add(n.sym), typ)
+    if n.typ.callConv == ccMusttail or sfCallsMusttail in n.sym.flags:
+      c.use toValue(c.env.procedures.add(n.sym.ast[miscPos][0].sym), typ)
+    else:
+      c.use toValue(c.env.procedures.add(n.sym), typ)
   of pirLiteral:
     case n.orig.kind
     of nkNilLit:
