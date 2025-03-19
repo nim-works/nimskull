@@ -2103,6 +2103,12 @@ Nim supports these `calling conventions`:idx:\:
     Nim's default calling convention for procedures is `fastcall` to
     improve speed.
 
+`musttail`:idx:
+    All calls to the routine are enforced to be tail calls (refer to
+    `tail call <#tail-call>`_ ). Calling a `musttail` routine takes over the
+    current stack frame and thus requires constant memory, which places some
+    restriction on their callers. Available for all targets.
+
 Most calling conventions exist only for the Windows 32-bit platform.
 
 The default calling convention is `nimcall`, unless it is an inner proc (a
@@ -3825,7 +3831,7 @@ argument in inline calls, as well as a direct mirror of Nim's routine syntax.
   macroResults.add quote do:
     if not `ex`:
       echo `info`, ": Check failed: ", `expString`
-  
+
   # Processing a routine definition in a macro:
   rpc(router, "add") do (a, b: int) -> int:
     result = a + b
@@ -4100,6 +4106,45 @@ Overloading of the subscript operator
 
 The `[]` subscript operator for arrays/openarrays/sequences can be overloaded.
 
+
+Tail Call
+---------
+
+A tail call is a routine call that is the very last operation taking place in
+a routine's body. The following requirements must be satisfied for a call to be
+considered a tail call:
+
+* it must not appear within a `try` statement
+* it must not be affected by a `defer`
+* (for procedure with no return type) there must be no trailing statements,
+  including `return`
+* (for procedure with a return type) it must:
+  1. be the last expression of a `return`
+  2. *or* be the last expression a routine's body
+* it must not be followed by implicit destructor calls, that is, all locals
+  requiring destruction must have been destroyed prior to the call already
+
+`.musttail` Call
+----------------
+
+Since `.musttail` routine calls are always they take over their caller's stack
+frame, some restriction are placed on their arguments:
+* arguments to `sink` parameters can be arbitrary expressions, as long as
+  ownership of the value can be transferred
+* arguments to `openArray` parameters must be views into caller parameters or
+  globals
+* arguments to `var`, pass-by-reference, or pass-by-value-with-overridden-copy-
+  operator type parameters must be lvalue expressions derived from caller
+  parameters or globals
+* pass-by-value parameters without for whose type `supportsCopyMem` returns
+  `true`` act like `sink` parameters
+
+For the above `openArray` and `var` rules, whether the expressions refers to
+a location derived from a parameter or global must be visible directly from the
+argument expression, no indirection through locals is allowed.
+
+In addition, `.musttail` routines cannot be called by iterators, methods, and
+exportc'ed routines.
 
 Methods
 =============
@@ -5927,7 +5972,7 @@ as arguments if called in statement form.
     # to perform the task
   do:
     # code to undo it
-  
+
   let num = 12
   # a single colon may be used if there is no initial block
   match (num mod 3, num mod 5):
