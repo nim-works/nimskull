@@ -25,6 +25,7 @@ type
     ccFastCall = "fastcall"         ## fastcall (pass parameters in registers)
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
+    ccMusttail = "musttail"         ## procedure must be called in a tail position
 
 type
   MismatchKind* = enum

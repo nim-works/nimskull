@@ -23,7 +23,7 @@ from compiler/backend/ccgutils import mangle
 
 const
   CallConvToShort: array[TCallingConvention, string] = [
-    "ni", "st", "cd", "sa", "sy", "in", "ni", "fa", "cl", "nc"
+    "ni", "st", "cd", "sa", "sy", "in", "ni", "fa", "cl", "nc", "mt"
   ] ## every name must be unique and composed out of the same number of
     ## letters
 

@@ -65,7 +65,7 @@ from compiler/ic/ic import addCompilerProc
 
 const
   FirstCallConv* = wNimcall
-  LastCallConv* = wNoconv
+  LastCallConv* = wMusttail
 
 const
   declPragmas = {wImportc, wImportJs, wExportc, wExportNims, wExtern,

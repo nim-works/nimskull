@@ -234,7 +234,9 @@ const
     "N_STDCALL", "N_CDECL", "N_SAFECALL",
     "N_SYSCALL", # this is probably not correct for all platforms,
                  # but one can #define it to what one wants
-    "N_INLINE", "N_NOINLINE", "N_FASTCALL", "N_CLOSURE", "N_NOCONV"]
+    "N_INLINE", "N_NOINLINE", "N_FASTCALL", "N_CLOSURE", "N_NOCONV",
+    "N_NIMCALL" # musttail also maps to nimcall
+    ]
 
 proc addAbiCheck(m: BModule, t: PType, name: Rope) =
   if isDefined(m.config, "checkAbi") and (let size = getSize(m.config, t); size != szUnknownSize):
