@@ -1442,6 +1442,12 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], b)
     linefmt(p, cpsStmts, "$1 = $2;$n", [rdMType(p, a, check),
                                         rdMType(p, b, check)])
+  of mStoreParams:
+    var a, b: TLoc
+    initLocExpr(p, e[1], a)
+    initLocExpr(p, e[2], b)
+    linefmt(p, cpsStmts, "#nimCopyMem($1, $2, sizeof($3));$n",
+            [rdLoc(a), addrLoc(p.module, b), getTypeDesc(p.module, e[2].typ)])
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind
