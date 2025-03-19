@@ -212,7 +212,8 @@ proc map*[T](self: Option[T], callback: proc (input: T)) {.inline.} =
   if self.isSome:
     callback(self.val)
 
-proc map*[T, R](self: Option[T], callback: proc (input: T): R): Option[R] {.inline.} =
+proc map*[T; R: not void](self: Option[T], callback: proc (input: T): R
+                         ): Option[R] {.inline.} =
   ## Applies a `callback` function to the value of the `Option` and returns an
   ## `Option` containing the new value.
   ##
