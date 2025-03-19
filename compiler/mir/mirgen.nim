@@ -375,7 +375,7 @@ proc nameNode(c: var TCtx, s: PSym): MirNode =
   of skParam:
     MirNode(kind: mnkParam, typ: t, local: LocalId(1 + s.position))
   of skResult:
-    MirNode(kind: mnkLocal, typ: t, local: resultId)
+    MirNode(kind: mnkLocal, typ: t, local: c.localsMap[s.id])
   of skVar, skLet, skForVar:
     if sfGlobal in s.flags:
       MirNode(kind: mnkGlobal, typ: t, global: c.env.globals.add(s))
@@ -2478,6 +2478,18 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
             owner.typ
 
         addParams(c, owner, signature)
+
+        # add the old result variable, if any, as a proper variable:
+        if (signature.callConv == ccMusttail or
+            sfCallsMusttail in owner.flags) and
+           not signature[0].isEmptyType():
+          let r = owner.ast[resultPos]
+          discard c.addLocal(r.sym)
+          c.subTree mnkDef:
+            c.add nameNode(c, r.sym)
+            c.add MirNode(kind: mnkNone)
+          c.register(genLocation(c, r))
+
         # add a 'def' for each ``sink`` parameter. This simplifies further
         # processing and analysis
         let params = signature.n
