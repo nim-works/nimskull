@@ -2370,10 +2370,7 @@ proc semProcBody(c: PContext, n: PNode): PNode =
       # are not expressions:
       fixNilType(c, result)
     else:
-      var a = newNodeI(nkAsgn, n.info, 2)
-      a[0] = newSymNode(c.p.resultSym)
-      a[1] = result
-      result = semAsgn(c, a)
+      result = semReturn(c, newTreeI(nkReturnStmt, n.info, result))
   else:
     result = discardCheck(c, result, {})
 
