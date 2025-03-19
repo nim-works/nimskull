@@ -778,7 +778,16 @@ proc genArgs(c: var TCtx, n: PNode) =
         var e = exprToPmir(c, n[i], false, false)
         wantStable(e)
         genx(c, e, e.high)
-
+    elif fntyp.callConv == ccMusttail and
+         t.kind notin {tySink, tyVar} and
+         i < fntyp.len and # ignore the env argument
+         isPassByRef(c.graph.config, fntyp.n[i].sym, fntyp):
+      # pass-by-reference needs to be enforced early for musttail calls.
+      # Temporary copies must not happen under any circumstance
+      c.builder.emitByName ekNone:
+        var e = exprToPmir(c, n[i], false, false)
+        wantStable(e)
+        genx(c, e, e.high)
     else:
       genArg(c, t, n[i])
 
