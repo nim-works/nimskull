@@ -4111,18 +4111,29 @@ Tail Call
 ---------
 
 A tail call is a routine call that is the very last operation taking place in
-a routine's body. The following requirements must be satisfied for a call to be
-considered a tail call:
+a routine's body.
 
-* it must not appear within a `try` statement
-* it must not be affected by a `defer`
-* (for procedure with no return type) there must be no trailing statements,
-  including `return`
-* (for procedure with a return type) it must:
-  1. be the last expression of a `return`
-  2. *or* be the last expression a routine's body
-* it must not be followed by implicit destructor calls, that is, all locals
-  requiring destruction must have been destroyed prior to the call already
+A call is considered a tail call iff:
+* it is the *tailing expression* of a `return`, and the `return` is a
+  *tailing statement* of the routine's body
+* it is the *tailing expression* of a rotine's body
+
+A *tailing expression* is recursively defined as:
+* the body of an `if`, `elif`, or `else` branch
+* the body of an `of` branch
+* the body of an `except` clause for a `try` expression without a `finally`
+* the body of a `finally` clause
+* the last expression in a statement list, where there's no implicit destructor
+  calls at its end and no `defer` statements
+
+Everything not covered by this list is **not** a tailing expression.
+
+For example, in `if a: (if b: c else: d) else: e`, `c` and `d` are the tailing
+expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
+ `(if b: c else: d)` are the tailing expressions of the outer if-then-else.
+
+A *tailing statement* is the same as a *tailing expression*, just with a
+statement instead of an expression.
 
 `.musttail` Call
 ----------------
