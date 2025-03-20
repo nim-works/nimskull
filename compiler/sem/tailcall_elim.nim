@@ -161,8 +161,14 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
     recurse(n[1], mode + {emExpr})
   of nkTryStmt, nkHiddenTryStmt:
     recurse(n[0], mode + {emTry})
-    for i in 1..<n.len:
-      recurse(n[i], mode)
+    if n[^1].kind == nkFinally:
+      # the finally clause is executed after any of the except clauses
+      for i in 1..<n.len-1:
+        recurse(n[i], mode - {emLast})
+      recurse(n[^1], mode)
+    else:
+      for i in 1..<n.len:
+        recurse(n[i], mode)
   of nkObjConstr:
     for i in 1..<n.len:
       recurse(n[^1], mode)
