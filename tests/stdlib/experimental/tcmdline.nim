@@ -14,6 +14,8 @@ type
 proc parseCli(T: typedesc[Custom], value: string): T =
   result.i = parseCli(int, value)
 
+proc noop(k, v: auto, r: var auto): Action = discard
+
 block typicalUsage:
   ## Samples of typical command lines
 
@@ -130,12 +132,44 @@ block flags:
 
     cli.flagBuilder
       .name("flag")
-      .parser(proc (_, v: auto, r: var auto): Action = discard)
+      .parser(noop)
       .addTo(cli)
     doAssertRaises(ValueError):
       cli.flagBuilder
         .name("flag")
-        .parser(proc (_, v: auto, r: var auto): Action = discard)
+        .parser(noop)
+        .addTo(cli)
+
+  block:
+    ## Aliases also block duplicated flags
+    var cli = initCli int
+
+    cli.flagBuilder
+      .name("flag")
+      .alias("f", "some-other-alias", "a")
+      .parser(noop)
+      .addTo(cli)
+    doAssertRaises(ValueError):
+      cli.flagBuilder
+        .name("f")
+        .parser(noop)
+        .addTo(cli)
+    doAssertRaises(ValueError):
+      cli.flagBuilder
+        .name("some-other-alias")
+        .parser(noop)
+        .addTo(cli)
+    doAssertRaises(ValueError):
+      cli.flagBuilder
+        .name("unrelated")
+        .alias("some-other-alias")
+        .parser(noop)
+        .addTo(cli)
+    doAssertRaises(ValueError):
+      cli.flagBuilder
+        .name("unrelated-2")
+        .alias("still-ok", "a")
+        .parser(noop)
         .addTo(cli)
 
   block:
@@ -144,7 +178,7 @@ block flags:
 
     cli.flagBuilder
       .name("flag")
-      .parser(bool, proc (_, v: auto, r: var auto): Action = discard)
+      .parser(bool, proc (_, v: auto, r: var auto): Action = r = v)
       .addTo(cli)
 
     let parsed = cli.parse ["--", "--flag"]
@@ -273,4 +307,253 @@ block flags:
         doAssert e.result.result.f == [0.0]
         doAssert e.result.result.s == ""
 
-block docgen: discard
+block docgen:
+  block:
+    ## Just one flag
+    block:
+      ## Short flag
+      var cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .optionalParser(noop)
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .optionalParser(noop)
+        .describe("", "INT")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v[=<INT>]"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .optionalParser(noop)
+        .describe("some description")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v  some description"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .optionalParser(noop)
+        .describe("some description", "INT")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v[=<INT>]  some description"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .parser(noop)
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v <VALUE>"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .parser(noop)
+        .describe("some description")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v <VALUE>  some description"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("v")
+        .parser(noop)
+        .describe("some description", "INT")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  -v <INT>  some description"
+
+    block:
+      ## Long flag
+      var cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .optionalParser(noop)
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .optionalParser(noop)
+        .describe("", "VALUE")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag[=<VALUE>]"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .optionalParser(noop)
+        .describe("flag something", "VALUE")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag[=<VALUE>]  flag something"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .parser(noop)
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag <VALUE>"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .parser(noop)
+        .describe("flag something")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag <VALUE>  flag something"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .parser(noop)
+        .describe("flag something", "FLAG,...")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag <FLAG,...>  flag something"
+
+      cli = initCli int
+      cli.flagBuilder
+        .name("flag")
+        .optionalParser(noop)
+        .describe("flag something", "VALUE")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == "  --flag[=<VALUE>]  flag something"
+
+    block:
+      ## Aliases
+      block:
+        ## Check render ordering
+        # Use the first short and first long flag, in that exact order
+        var cli = initCli int
+        cli.flagBuilder
+          .name("flag")
+          .alias("other-long", "c")
+          .optionalParser(noop)
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag"
+
+        cli = initCli int
+        cli.flagBuilder
+          .name("c")
+          .alias("flag", "f")
+          .optionalParser(noop)
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag"
+
+      block description:
+        ## Check multi-flag description render
+        var cli = initCli int
+        cli.flagBuilder
+          .name("c")
+          .alias("flag", "f")
+          .parser(noop)
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag <VALUE>"
+
+        cli = initCli int
+        cli.flagBuilder
+          .name("c")
+          .alias("flag", "f")
+          .optionalParser(noop)
+          .describe("", "VALUE")
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag[=<VALUE>]"
+
+        cli = initCli int
+        cli.flagBuilder
+          .name("c")
+          .alias("flag", "f")
+          .optionalParser(noop)
+          .describe("flag something", "VALUE")
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag[=<VALUE>]  flag something"
+
+        cli = initCli int
+        cli.flagBuilder
+          .name("c")
+          .alias("flag", "f")
+          .parser(noop)
+          .describe("flag something", "")
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag <VALUE>  flag something"
+
+        cli = initCli int
+        cli.flagBuilder
+          .name("c")
+          .alias("flag", "f")
+          .parser(noop)
+          .describe("flag something", "FLAG,...")
+          .addTo(cli)
+
+        doAssert cli.flagsUsage == "  -c, --flag <FLAG,...>  flag something"
+
+  block:
+    ## Multiple flags
+    block:
+      ## Order by addition time
+      var cli = initCli int
+      cli.flagBuilder
+        .name("c")
+        .alias("flag", "f")
+        .parser(noop)
+        .describe("flag something", "")
+        .addTo(cli)
+
+      cli.flagBuilder
+        .name("a")
+        .optionalParser(noop)
+        .describe("show all")
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == """
+  -c, --flag <VALUE>  flag something
+  -a                  show all"""
+
+    block:
+      ## Column alignment
+      var cli = initCli int
+      cli.flagBuilder
+        .name("c")
+        .alias("flag", "f")
+        .parser(noop)
+        .describe("flag something", "")
+        .addTo(cli)
+
+      cli.flagBuilder
+        .name("a")
+        .optionalParser(noop)
+        .describe("show all")
+        .addTo(cli)
+
+      cli.flagBuilder
+        .name("yes-i-know-what-i-am-doing")
+        .parser(noop)
+        .addTo(cli)
+
+      doAssert cli.flagsUsage == """
+  -c, --flag <VALUE>                    flag something
+  -a                                    show all
+  --yes-i-know-what-i-am-doing <VALUE>"""

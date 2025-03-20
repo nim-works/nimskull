@@ -112,11 +112,12 @@ func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
 
 func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
   result = b
+  result.aliases.setLen(0)
 
   # Not the fastest method, but it's expected that users will
   # specify at most 4 of these.
   for name in names.items:
-    if result.flagName == name or name in result.aliases:
+    if name == result.flagName or name in result.aliases:
       continue
     result.aliases.add names
 
@@ -183,6 +184,7 @@ func addTo*[T](b: sink FlagBuilder[T], cli: var Cli[T]): Flag {.discardable.} =
   if b.flagName in cli.flag:
     raise newException(ValueError, "Flag '" & b.flagName & "' already exists")
   for alias in b.aliases.items:
+    assert alias != "", "Flag alias cannot be empty"
     if alias in cli.flag:
       raise newException(ValueError, "Flag '" & alias & "' already exists")
 
@@ -365,21 +367,26 @@ func flagsUsage*(cli: Cli): string =
   var lines: seq[(string, string)]
   var flagPad: int
   for flag in cli.flags:
-    let optional = cli.isValueOptional(flag)
-    let placeholder = cli.placeholderOf(flag)
-    let short = cli.shortNameOf(flag).map(proc (v: string): string = "-" & v).get("")
-    let long = cli.longNameOf(flag).map(proc (v: string): string = "--" & v).get("")
-    let valueSuffix =
-      if optional:
-        if placeholder == "":
-          ""
+    let
+      optional = cli.isValueOptional(flag)
+      placeholder = cli.placeholderOf(flag)
+      short = cli.shortNameOf(flag)
+        .map(proc (v: string): string = "-" & v)
+        .get("")
+      long = cli.longNameOf(flag)
+        .map(proc (v: string): string = "--" & v)
+        .get("")
+      valueSuffix =
+        if optional:
+          if placeholder == "":
+            ""
+          else:
+            "[=<" & placeholder & ">]"
         else:
-          "[=<" & placeholder & ">]"
-      else:
-        if placeholder == "":
-          " <VALUE>"
-        else:
-          " <" & placeholder & ">"
+          if placeholder == "":
+            " <VALUE>"
+          else:
+            " <" & placeholder & ">"
 
     var display: string
     display.add short
