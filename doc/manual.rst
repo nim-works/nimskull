@@ -4115,7 +4115,7 @@ a routine's body.
 
 A call is considered a tail call iff:
 * it is the *tailing expression* of a `return`, and the `return` is a
-  *tailing statement* of the routine's body
+  *tailing return*
 * it is the *tailing expression* of a rotine's body
 
 A *tailing expression* is recursively defined as:
@@ -4132,8 +4132,11 @@ For example, in `if a: (if b: c else: d) else: e`, `c` and `d` are the tailing
 expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
  `(if b: c else: d)` are the tailing expressions of the outer if-then-else.
 
-A *tailing statement* is the same as a *tailing expression*, just with a
-statement instead of an expression.
+A *tailing return* is defined as a `return` that is **not** placed:
+* in a `try` body
+* in a statement list with implicit destructor calls at its end
+* after a `defer` statement in a statement list
+* in an `except` clause of a `try` with a `finally` clause
 
 `.musttail` Call
 ----------------
