@@ -10,6 +10,9 @@ For developers and contributors
 - | `Debugging guide <debug.html>`_
   | Description of the built-in tools for debugging the compiler
 
+- | `Tail-call elimination <tailcallelim.html>`_
+  | High-level description of how tail call elimination works.
+
 - | `Contribution guide <contributing.html>`_
   | Contribution guide for |nimskull| projects
 
