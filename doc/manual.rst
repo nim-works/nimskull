@@ -4134,9 +4134,9 @@ expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
 
 A *tailing return* is defined as a `return` that is **not** placed:
 * in a `try` body
+* in an `except` clause of a `try` with a `finally` clause
 * in a statement list with implicit destructor calls at its end
 * after a `defer` statement in a statement list
-* in an `except` clause of a `try` with a `finally` clause
 
 `.musttail` Call
 ----------------
