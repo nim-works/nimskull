@@ -113,7 +113,10 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
     for it in n.items:
       recurse(it, mode + {emExpr})
 
-    if n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:
+    # XXX: unfolded type expression reach here, making it possible that the
+    #      callee's type is missing
+    if n[0].typ != nil and
+       n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:
       if not supportsSiblingCalls(owner):
         g.config.error(n.info, "the enclosing routine cannot call .musttail procedures")
       else:
