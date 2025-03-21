@@ -105,11 +105,15 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
     if n[0].kind == nkAsgn:
       recurse(n[0][1], mode + {emLast} - {emExpr})
   of nkCallKinds:
+    if n[0].kind == nkSym and n[0].sym.magic == mRunnableExamples:
+      # the body was not type properly, nor is it relevant for the
+      # analysis; skip
+      return
+
     for it in n.items:
       recurse(it, mode + {emExpr})
 
-    if n[0].typ != nil and
-       n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:
+    if n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:
       if not supportsSiblingCalls(owner):
         g.config.error(n.info, "the enclosing routine cannot call .musttail procedures")
       else:
