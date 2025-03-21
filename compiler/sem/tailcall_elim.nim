@@ -183,6 +183,9 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
     recurse(n[0], mode + {emExpr})
     for i in 1..<n.len:
       recurse(n[i], mode)
+  of nkForStmt:
+    recurse(n[1], mode - {emLast})
+    recurse(n[2], mode - {emLast})
   of nkWithoutSons, callableDefs, nkTypeSection, nkConstSection, nkNimNodeLit, nkSymChoices, nkBindStmt, nkMixinStmt:
     # don't enter nested routine declarations
     discard "nothing to do"
