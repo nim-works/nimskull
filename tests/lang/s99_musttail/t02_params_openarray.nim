@@ -3,6 +3,7 @@ discard """
     `.musttail` routines may use openarray parameters, with the same
     restrictions as var parameters
   '''
+  knownIssue.js: "toOpenArray for creating mutable openArrays isn't supported"
 """
 
 proc tail1(a: openArray[int]): int {.musttail.} =
@@ -32,7 +33,6 @@ proc test2(a: var array[2, int], pick: bool) =
 
 var a = [1, 2]
 test2(a, false)
-echo a
 doAssert a == [4, 2]
 
 test2(a, true)
