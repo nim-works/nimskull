@@ -266,7 +266,7 @@ proc genApply*(c: PContext, s: PSym) =
       call.add acc
 
   # pass along the type-erased environemnt pointer:
-  call.add newTreeIT(nkConv, s.info, pointerType,
+  call.add newTreeIT(nkCast, s.info, pointerType,
     newNodeIT(nkType, s.info, pointerType),
     newSymNode(param))
 
@@ -297,6 +297,7 @@ proc genTrampoline*(c: PContext, s: PSym) =
   let
     blobType    = c.graph.systemModuleType(c.cache.getIdent("ParamBlob"))
     boolTyp     = c.graph.getSysType(s.info, tyBool)
+    pointerType = c.graph.getSysType(s.info, tyPointer)
     blobPtrType = makePtrType(prc, blobType, c.idgen)
     contType =
       if s.typ[0].isEmptyType():
@@ -349,8 +350,10 @@ proc genTrampoline*(c: PContext, s: PSym) =
           newSymNode(prc.typ.n[i].sym)))
     else:
       call.add newSymNode(prc.typ.n[i].sym)
-  # also pass the address of the env local:
-  call.add newTreeIT(nkAddr, s.info, blobPtrType, newSymNode(envSym))
+  # also pass the address of the type-erased env local:
+  call.add newTreeIT(nkCast, s.info, pointerType,
+    newNodeIT(nkType, s.info, pointerType),
+    newTreeIT(nkAddr, s.info, blobPtrType, newSymNode(envSym)))
 
   # emit the trampoline:
   body.add newTree(nkVarSection,
