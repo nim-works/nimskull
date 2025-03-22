@@ -71,7 +71,7 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
   of bekPartial:
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:
-      p = startProc(g, bmod, evt.id, Body())
+      p = startProc(g, bmod, evt.id, emptyBody())
       partial[evt.sym.id] = p
 
     let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)

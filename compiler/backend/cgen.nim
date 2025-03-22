@@ -722,9 +722,7 @@ proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
 
   synchronize(p.locals, p.body.locals)
 
-  if sfPure notin prc.flags and
-     p.body.locals.nextId() != resultId and
-     p.body[resultId].typ != VoidType:
+  if sfPure notin prc.flags and p.body[resultId].typ != VoidType:
     let
       res = resultId
       typ = m.g.env[p.body[resultId].typ]

@@ -237,7 +237,7 @@ proc processEvent(g: BModuleList, inl: var InliningData,
 
     var p = getOrDefault(partial, evt.id)
     if p == nil:
-      p = startProc(g.modules[evt.module.int], evt.id, Body())
+      p = startProc(g.modules[evt.module.int], evt.id, emptyBody())
       partial[evt.id] = p
 
     let body = generateIR(g.graph, bmod.idgen, g.env, evt.sym, evt.body)
