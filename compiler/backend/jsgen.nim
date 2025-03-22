@@ -2104,6 +2104,10 @@ proc startProc*(g: PGlobals, module: BModule, id: ProcedureId,
     # parameter IDs start at 1
     setupLocalLoc(p, LocalId(s.position + 1), skParam, "this")
 
+  if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+    let s = prc.ast[paramsPos].lastSon.sym
+    setupLocalLoc(p, LocalId(s.position + 1), skParam)
+
   result = p
 
 proc finishProc*(p: PProc): string =
@@ -2135,8 +2139,13 @@ proc finishProc*(p: PProc): string =
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
 
   let
+    numParams =
+      if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+        prc.typ.len # has an additional hidden parameter
+      else:
+        prc.typ.len - 1
     name   = p.g.procs[p.env.procedures[prc]]
-    header = generateHeader(toOpenArray(p.locals.base, 1, prc.typ.len-1))
+    header = generateHeader(toOpenArray(p.locals.base, 1, numParams))
 
   var def: Rope
   if not prc.constraint.isNil:
