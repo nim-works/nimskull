@@ -45,7 +45,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/front/[
     options,
@@ -2084,7 +2085,7 @@ proc startProc*(g: PGlobals, module: BModule, id: ProcedureId,
   discard ensureMangledName(p, id)
 
   # setup the loc for the the result variable:
-  if prc.typ[0] != nil and sfPure notin prc.flags:
+  if p.fullBody[resultId].typ != VoidType and sfPure notin prc.flags:
     setupLocalLoc(p, resultId, skResult)
 
   # setup the locs for the parameters:
@@ -2113,7 +2114,7 @@ proc finishProc*(p: PProc): string =
     returnStmt = ""
     resultAsgn = ""
 
-  if prc.typ[0] != nil and sfPure notin prc.flags:
+  if p.fullBody[resultId].typ != VoidType and sfPure notin prc.flags:
     let
       loc {.cursor.} = p.locals[resultId]
       mname = loc.name
