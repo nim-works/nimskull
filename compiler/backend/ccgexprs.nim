@@ -1787,7 +1787,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkGotoStmt:
     linefmt(p, cpsStmts, "goto $1;$n", [n[0].label])
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkBranch,
-     cnkLabel, cnkField, cnkStmtList, cnkResume:
+     cnkLabel, cnkField, cnkStmtList, cnkResume, cnkTailCall:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

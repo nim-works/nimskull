@@ -2865,7 +2865,7 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
     genProcLit(c, n, dest)
   of cnkConst, cnkGlobal, cnkLocal:
     genSym(c, n, dest)
-  of cnkCall, cnkCheckedCall:
+  of cnkCall, cnkCheckedCall, cnkTailCall:
     let magic = getMagic(c.env, n)
     if magic != mNone:
       genMagic(c, n, dest, magic)

@@ -2594,7 +2594,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
     discard "terminators or endings for which no special handling is needed"
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding,
      cnkResume, cnkBranch, cnkAstLit, cnkLabel, cnkStmtList, cnkCaseStmt,
-     cnkField:
+     cnkField, cnkTailCall:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

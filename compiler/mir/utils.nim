@@ -447,6 +447,14 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
       # jump target:
       result.add ") -> "
       targetToStr()
+  of mnkTailCall:
+    tree "tail ":
+      inc i # skip the immediate value
+      calleeToStr(nodes, i, result, c)
+      result.add "("
+      commaSeparated n.len - 2:
+        argToStr()
+      result.add ")"
   of UnaryOps:
     const Map = [mnkNeg: "-"]
     tree Map[n.kind]:

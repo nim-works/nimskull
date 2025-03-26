@@ -388,7 +388,11 @@ proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode =
   ## Translate a valid call-like tree to the CG IR.
   let info = cr.info
-  result = newExpr((if n.kind == mnkCall: cnkCall else: cnkCheckedCall),
+  result = newExpr((case n.kind
+                    of mnkCall:        cnkCall
+                    of mnkCheckedCall: cnkCheckedCall
+                    of mnkTailCall:    cnkTailCall
+                    else: unreachable()),
                    info, cl.map(n.typ))
   tree.skip(cr) # skip the immediate value
   result.add calleeToIr(tree, cl, cr)
@@ -711,7 +715,7 @@ proc exprToIr(tree: MirBody, cl: var TranslateCl,
       discard enter(tree, cr) # enter the binding tree
       let f = newFieldNode(lookupInType(typ, get(tree, cr).field))
       res.add newTree(cnkBinding, cr.info, [f, argToIr(tree, cl, cr)[1]])
-  of mnkCall, mnkCheckedCall:
+  of mnkCall, mnkCheckedCall, mnkTailCall:
     callToIr(tree, cl, n, cr)
   of UnaryOps:
     const Map = [mnkNeg: cnkNeg]
