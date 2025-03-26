@@ -257,11 +257,6 @@ func newLocalRef*(id: LocalId, info: TLineInfo, typ: PType): CgNode =
 
 proc `==`*(x, y: BlockId): bool {.borrow.}
 
-proc emptyBody*(): Body =
-  ## Constructs and returns an empty procedure body.
-  result = Body()
-  discard result.locals.add(Local()) # reserve the result slot
-
 proc merge*(dest: var Body, source: Body): CgNode =
   ## Merges `source` into `dest` by appending the former to the latter.
   ## Returns the node representing the code from `source` after it

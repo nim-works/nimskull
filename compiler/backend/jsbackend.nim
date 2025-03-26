@@ -69,13 +69,14 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
     let s = g.env[evt.cnst]
     genConstant(g, modules[moduleId(s).FileIndex], evt.cnst)
   of bekPartial:
+    let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:
-      p = startProc(g, bmod, evt.id, emptyBody())
+      p = startProc(g, bmod, evt.id, body)
+      genPartial(p, p.fullBody.code)
       partial[evt.sym.id] = p
-
-    let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
-    genPartial(p, merge(p.fullBody, body))
+    else:
+      genPartial(p, merge(p.fullBody, body))
   of bekProcedure:
     let
       body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
