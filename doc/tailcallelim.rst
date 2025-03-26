@@ -12,6 +12,7 @@ Transformation
 --------------
 
 The following `.musttail` procedures:
+
 .. code-block:: nim
 
   proc a(): int {.musttail.} =
@@ -32,10 +33,10 @@ are transformed into the internal equivalent of:
     var result': int
     result' = 1
     result' = 2
-    return Continuation[int](has: true, val: result')
+    return Continuation[int](done: true, result: result')
 
   proc b(env: pointer): Continuation[int] =
-    return Continuation[int](has: false, next: a)
+    return Continuation[int](done: false, next: a)
 
 A `Continuation` is either terminal (it stores the procedure's result) or
 non-terminal (it stores the procedure to continue with).
@@ -55,26 +56,26 @@ type, thunks and a separate parameter storage are used:
   # become:
 
   proc a(x, y: int, env: pointer): Continuation[int] {.musttail.} =
-    x + y
+    return Continuation[int](done: true, result: x + y)
 
   proc a_apply(env: ptr (int, int)): Continuation[int] {.musttail.} =
-    a(env[][0], env[][1])
+    return a(env[][0], env[][1])
 
   proc b(env: pointer): Continuation[int] {.musttail.} =
     store env, (1, 2)
-    return Continuation[int](has: false, next: a_apply)
+    return Continuation[int](done: false, next: a_apply)
 
 `store` is a magic procedure responsible for writing the argument tuple to the
 storage in a type-safe fashion.
 
 The storage is fixed in size and allocated on the stack. This gets around
 having to use heap allocation, but it also puts a hard limit on the maximum
-possible space occupied by parameters.
+available space occupied by parameters.
 
 How parameters are stored depends on their type and passing mode:
-* `sink` parameters are always stored in full
+* `sink` parameters are always stored as owning values
 * `var` parameters are stored as pointers
-* all pass-by-reference parameters are stored as *pointer*
+* all pass-by-reference parameters are stored as pointers
 * everything else uses shallow copies
 
 Since `sink` parameters may internally be passed by reference, a temporary
@@ -85,41 +86,33 @@ parameter).
 Invocation From Non- `.musttail` Routines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To guarantee sibling-calls when calling `.musttail` procedures within
-non- `.musttail` ones, the caller also has to be transformed to return a
-`Continuation`.
+When a `.musttail` routine is called from a routine that is not a `.musttail`
+routine, no guaranteed tail call (and thus sibling call) takes places.
 
-All calls to the original procedure are then replaced with calls to a
-synthesized trampoline procedure. Example:
+The caller receives the `Continuation` returned by the `.musttail` callee and
+"trampolines" it to completion. Example:
 
 .. code-block:: nim
 
-  proc a(): int {.musttail.} =
-    return
+  proc a(x, y: int): int {.musttail.} =
+    x + y
 
-  proc b(x, y: int): int =
-    a()
-
-  discard b(1, 2)
+  proc b(): int =
+    result = a(4, 5)
+    echo result
 
 becomes:
 
 .. code-block:: nim
 
-  proc a(env: pointer): Continuation[int] =
-    return Continuation[int](has: true, val: 0)
+  proc a(x, y: int, env: pointer): Continuation[int] =
+    return Continuation[int](done: true, result: x + y)
 
-  proc b(x, y: int, env: pointer): Continuation[int] =
-    return Continuation[int](has: false, next: a)
-
-  proc b_trampoline(x, y: int): int =
-    var env = default(Storage)
-    var cont = b(x, y, addr env)
-    while not cont.has:
+  proc b(): int =
+    var env: Storage
+    var cont = a(4, 5, addr env)
+    while not cont.done:
       cont = cont.next(addr env)
-    return cont.val
+    result = cont.val
 
-  discard b_trampoline(1, 2)
-
-This is not possible for all routines (e.g.: methods, iterators, exportc'ed
-ones), which is the reason why `.musttail` calls are disallowed within those.
+    echo result
