@@ -4,6 +4,7 @@ discard """
     restrictions as var parameters
   '''
   knownIssue.js: "toOpenArray for creating mutable openArrays isn't supported"
+  knownIssue.vm: "toOpenArray is not supported"
 """
 
 proc tail1(a: openArray[int]): int {.musttail.} =
