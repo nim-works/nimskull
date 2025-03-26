@@ -97,7 +97,7 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
     for it in n.items:
       recurse(it, mode + {emExpr})
 
-    # XXX: unfolded type expression reach here, making it possible that the
+    # XXX: unfolded type expressions reach here, making it possible that the
     #      callee's type is missing
     if n[0].typ != nil and
        n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:

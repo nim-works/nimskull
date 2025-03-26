@@ -1884,8 +1884,8 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
     g.config.features = oldFeatures
 
-  verifyTailCalls(g, s, body)
   if s.typ.callConv == ccMusttail:
+    verifyTailCalls(g, s, body)
     genApply(c, s)
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
@@ -1898,4 +1898,3 @@ proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   initEffects(g, effects, module, t, c)
   t.isTopLevel = isTopLevel
   track(t, n)
-  verifyTailCalls(g, module, n)
