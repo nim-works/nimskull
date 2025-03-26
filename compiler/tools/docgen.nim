@@ -709,27 +709,26 @@ proc getRoutineBody(n: PNode): PNode =
     ## foo
     result = 3
 =>
-  result =
-    ## foo
-    3;
+  ## foo
+  result = 3
 
   proc someType*(): int =
     ## foo
     3
 =>
-  ## foo
-  result = 3;
+  return
+    result =
+      ## foo
+      3
 
   so we normalize the results to get to the statement list containing the
   (0 or more) doc comments and runnableExamples.
   ]##
   result = n[bodyPos]
 
-  # This won't be transformed: result.id = 10. Namely result[0].kind != nkSym.
-  if result.kind == nkAsgn and result[0].kind == nkSym and
-                               n.len > bodyPos+1 and n[bodyPos+1].kind == nkSym:
-    doAssert result.len == 2
-    result = result[1]
+  if result.kind == nkReturnStmt:
+    doAssert result[0].kind == nkAsgn
+    result = result[0][1]
 
 proc getAllRunnableExamples(d: PDoc, n: PNode, dest: var ItemPre) =
   var n = n
