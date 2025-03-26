@@ -139,7 +139,8 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
      nkIdentDefs, nkVarTuple:
     # special-cased so that only the last node is scanned
     recurse(n[^1])
-  of nkOfBranch, nkBlockExpr, nkBlockStmt, nkPragmaBlock, nkPragmaExpr:
+  of nkOfBranch, nkBlockExpr, nkBlockStmt, nkPragmaBlock, nkPragmaExpr,
+     nkElse, nkElseExpr:
     # expressions within are tailing expressions
     recurse(n[^1], next)
   of nkExceptBranch, nkFinally:
