@@ -2111,7 +2111,7 @@ proc startProc*(g: PGlobals, module: BModule, id: ProcedureId,
     # parameter IDs start at 1
     setupLocalLoc(p, LocalId(s.position + 1), skParam, "this")
 
-  if prc.typ.callConv == ccMusttail:
+  if prc.typ.callConv == ccTailcall:
     let s = prc.ast[paramsPos].lastSon.sym
     setupLocalLoc(p, LocalId(s.position + 1), skParam)
 
@@ -2146,8 +2146,8 @@ proc finishProc*(p: PProc): string =
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
 
   let
-    # musttail routines have an additional hidden parameter
-    numParams = prc.typ.len - ord(prc.typ.callConv != ccMusttail)
+    # tailcall routines have an additional hidden parameter
+    numParams = prc.typ.len - ord(prc.typ.callConv != ccTailcall)
     name   = p.g.procs[p.env.procedures[prc]]
     header = generateHeader(toOpenArray(p.locals.base, 1, numParams))
 

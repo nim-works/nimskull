@@ -1884,7 +1884,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
     g.config.features = oldFeatures
 
-  if s.typ.callConv == ccMusttail:
+  if s.typ.callConv == ccTailcall:
     verifyTailCalls(g, s, body)
     genApply(c, s)
 

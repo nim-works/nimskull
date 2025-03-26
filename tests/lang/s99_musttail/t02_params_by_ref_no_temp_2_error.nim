@@ -5,6 +5,6 @@ discard """
 
 type Large = array[255, int]
 
-proc p(x: Large): int {.musttail.} = x[0]
-proc test(): int {.musttail.} =
+proc p(x: Large): int {.tailcall.} = x[0]
+proc test(): int {.tailcall.} =
   p(default(Large))

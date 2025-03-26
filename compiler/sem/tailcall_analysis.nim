@@ -39,7 +39,7 @@ from compiler/ast/reports_sem import SemReport, reportAst, reportSym
 
 proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
   ## Analyses the `i`-th argument `n` for an call to a procedure with type
-  ## `formal`. Reports an error for arguments not adhering to the .musttail
+  ## `formal`. Reports an error for arguments not adhering to the .tailcall
   ## call rules.
   proc isValid(owner, s: PSym): bool =
     (sfGlobal in s.flags) or (s.kind == skParam and s.owner == owner)
@@ -66,7 +66,7 @@ proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
       discard "acts like a sink parameter"
 
 proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
-  ## Runs the analysis to make sure all .musttail calls are proper tail calls.
+  ## Runs the analysis to make sure all .tailcall calls are proper tail calls.
   ## Reports an error for every violation. `next` is following expression/
   ## statement (or nil), `problem` the closest problematic try/except/finally/
   ## defer (or nil).
@@ -89,7 +89,7 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
     # XXX: unfolded type expressions reach here, making it possible that the
     #      callee's type is missing
     if n[0].typ != nil and
-       n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:
+       n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
       if problem != nil:
         let rep =
           case problem.kind

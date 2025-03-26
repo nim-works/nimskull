@@ -25,7 +25,8 @@ type
     ccFastCall = "fastcall"         ## fastcall (pass parameters in registers)
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
-    ccMusttail = "musttail"         ## procedure must be called in a tail position
+    ccTailcall = "tailcall"         ## procedure supports guaranteed tail call
+                                    ## elimination
 
 type
   MismatchKind* = enum
@@ -1133,7 +1134,7 @@ type
     adSemNoReturnHasReturn
     adSemMisplacedDeprecation
     adSemCustomUserError
-    adSemMethodCantBeMusttail
+    adSemMethodCantBeTailcall
     adSemFatalError
     adSemNoUnionForJs
     adSemBitsizeRequiresPositive
@@ -1336,7 +1337,7 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
-        adSemMethodCantBeMusttail,
+        adSemMethodCantBeTailcall,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,

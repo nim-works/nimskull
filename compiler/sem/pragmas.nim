@@ -65,7 +65,7 @@ from compiler/ic/ic import addCompilerProc
 
 const
   FirstCallConv* = wNimcall
-  LastCallConv* = wMusttail
+  LastCallConv* = wTailcall
 
 const
   declPragmas = {wImportc, wImportJs, wExportc, wExportNims, wExtern,
@@ -1391,9 +1391,9 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         assert(sym != nil)
         assert sym.typ != nil
         let cc = wordToCallConv(k)
-        if sym.kind == skMethod and cc == ccMusttail:
+        if sym.kind == skMethod and cc == ccTailcall:
           result = c.config.newError(it,
-            PAstDiag(kind: adSemMethodCantBeMusttail))
+            PAstDiag(kind: adSemMethodCantBeTailcall))
         else:
           result = it
           sym.typ.callConv = cc

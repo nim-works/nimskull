@@ -235,7 +235,7 @@ const
     "N_SYSCALL", # this is probably not correct for all platforms,
                  # but one can #define it to what one wants
     "N_INLINE", "N_NOINLINE", "N_FASTCALL", "N_CLOSURE", "N_NOCONV",
-    "N_NIMCALL" # musttail also maps to nimcall
+    "N_NIMCALL" # tailcall also maps to nimcall
     ]
 
 proc addAbiCheck(m: BModule, t: PType, name: Rope) =
@@ -341,7 +341,7 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
 
 proc prepareParameters(m: BModule, prc: PSym): seq[TLoc] =
   result = prepareParameters(m, prc.typ)
-  if prc.typ.callConv == ccMusttail:
+  if prc.typ.callConv == ccTailcall:
     # add a valid enough loc that the header can be generated properly. The
     # real loc is filled in later
     result.add initLoc(locParam,
@@ -468,7 +468,7 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var string,
     let
       ty = m.addLate(locs[i].t)
       isNoAlias = i < t.len and sfNoalias in t.n[i].sym.flags
-    # for .musttail proc types, t.len != locs.len
+    # for .tailcall proc types, t.len != locs.len
     genParamDecl(m, ty, params, locs[i].r, lfIndirect in locs[i].flags,
                  isNoAlias, weakDep=false)
 

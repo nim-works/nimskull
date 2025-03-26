@@ -2103,9 +2103,9 @@ Nim supports these `calling conventions`:idx:\:
     Nim's default calling convention for procedures is `fastcall` to
     improve speed.
 
-`musttail`:idx:
+`tailcall`:idx:
     All calls to the routine are enforced to be tail calls (refer to
-    `tail call <#tail-call>`_ ). Calling a `musttail` routine takes over the
+    `tail call <#tail-call>`_ ). Calling a `tailcall` routine takes over the
     current stack frame and thus requires constant memory, which places some
     restriction on their callers. Available for all targets.
 
@@ -4137,16 +4137,16 @@ A *tailing return* is defined as a `return` that is **not** placed:
 * in a statement list with implicit destructor calls at its end
 * after a `defer` statement in a statement list
 
-`.musttail` Call
+`.tailcall` Call
 ----------------
 
-When a `.musttail` routine is called in a routine that doesn't use the
-`.musttail` calling convention itself:
+When a `.tailcall` routine is called in a routine that doesn't use the
+`.tailcall` calling convention itself:
 * the call doesn't have to be a tail call
 * the callee is not guaranteed to take over the caller's stack frame
 * no restrictions are placed on the arguments
 
-When a `.musttail` routine is called in a routine that does use the `.musttail`
+When a `.tailcall` routine is called in a routine that does use the `.tailcall`
 calling convention:
 * the call must be a tail call
 * the callee is guaranteed to take over the caller's stack frame

@@ -1,6 +1,6 @@
 discard """
   description: '''
-    Pass-by-reference parameters of `.musttail` cannot take arguments
+    Pass-by-reference parameters of `.tailcall` cannot take arguments
     pointing to local stack frame data
   '''
 """
@@ -10,26 +10,26 @@ type Large = object
   pad: array[255, int]
   val: int
 
-proc p(x: Large): int {.musttail.} =
+proc p(x: Large): int {.tailcall.} =
   x.val
 
 # arguments can be parameters:
-proc test(x: Large): int {.musttail.} =
+proc test(x: Large): int {.tailcall.} =
   p(x)
 
 doAssert test(Large(val: 1)) == 1
 
 # arguments can be projections of parameters:
-proc test_field_projection(a: (Large, int)): int {.musttail.} =
+proc test_field_projection(a: (Large, int)): int {.tailcall.} =
   p(a[0])
 
-proc test_array_projection(a: array[2, Large]): int {.musttail.} =
+proc test_array_projection(a: array[2, Large]): int {.tailcall.} =
   p(a[0])
 
-proc test_deref_projection(a: ref Large): int {.musttail.} =
+proc test_deref_projection(a: ref Large): int {.tailcall.} =
   p(a[])
 
-proc test_var_param(a: var Large): int {.musttail.} =
+proc test_var_param(a: var Large): int {.tailcall.} =
   p(a)
 
 doAssert test_field_projection((Large(val: 1), 0)) == 1
@@ -39,7 +39,7 @@ var global = Large(val: 1)
 doAssert test_var_param(global) == 1
 
 # arguments can be globals (or projections of globals):
-proc test_global(): int {.musttail.} =
+proc test_global(): int {.tailcall.} =
   p(global)
 
 doAssert test_global() == 1

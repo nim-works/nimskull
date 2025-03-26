@@ -2633,8 +2633,8 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
-  if s.typ.callConv == ccMusttail:
-    prepareMusttailProc(c, n.info, s.typ)
+  if s.typ.callConv == ccTailcall:
+    prepareTailcallProc(c, n.info, s.typ)
 
   # To ease macro generation that produce forwarded .async procs we now
   # allow a bit redundancy in the pragma declarations. The rule is

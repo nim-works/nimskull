@@ -2,5 +2,5 @@ discard """
   action: reject
 """
 
-iterator iter() {.musttail.} =
+iterator iter() {.tailcall.} =
   discard

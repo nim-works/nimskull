@@ -5,11 +5,11 @@ discard """
   '''
 """
 
-proc p(a, b: int): int {.musttail.} =
+proc p(a, b: int): int {.tailcall.} =
   a + b
 
 # arguments may be locals:
-proc test(): int {.musttail.} =
+proc test(): int {.tailcall.} =
   var x = 1
   var y = 2
   p(x, y)
@@ -17,13 +17,13 @@ proc test(): int {.musttail.} =
 doAssert test() == 3
 
 # arguments may be temporaries:
-proc test(a, b: int): int {.musttail.} =
+proc test(a, b: int): int {.tailcall.} =
   p(a * 3, b * 4)
 
 doAssert test(1, 2) == 11
 
 # arguments may be constants:
-proc testConstants(): int {.musttail.} =
+proc testConstants(): int {.tailcall.} =
   p(1, 2)
 
 doAssert testConstants() == 3

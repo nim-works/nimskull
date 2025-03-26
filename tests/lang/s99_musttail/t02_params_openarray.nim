@@ -1,19 +1,19 @@
 discard """
   description: '''
-    `.musttail` routines may use openarray parameters, with the same
+    `.tailcall` routines may use openarray parameters, with the same
     restrictions as var parameters
   '''
   knownIssue.js: "toOpenArray for creating mutable openArrays isn't supported"
   knownIssue.vm: "toOpenArray is not supported"
 """
 
-proc tail1(a: openArray[int]): int {.musttail.} =
+proc tail1(a: openArray[int]): int {.tailcall.} =
   a[0]
 
-proc tail2(a: openArray[int]): int {.musttail.} =
+proc tail2(a: openArray[int]): int {.tailcall.} =
   tail1(toOpenArray(a, 1, 1))
 
-proc test1(a: array[2, int], pick: bool): int {.musttail.} =
+proc test1(a: array[2, int], pick: bool): int {.tailcall.} =
   if pick: tail2(a)
   else:    tail1(a)
 
@@ -22,13 +22,13 @@ doAssert test1([1, 2], true)  == 2
 
 # mutable openarrays work too:
 
-proc tail1m(a: var openArray[int]) {.musttail.} =
+proc tail1m(a: var openArray[int]) {.tailcall.} =
   a[0] = 4
 
-proc tail2m(a: var openArray[int]) {.musttail.} =
+proc tail2m(a: var openArray[int]) {.tailcall.} =
   tail_1m(toOpenArray(a, 1, 1))
 
-proc test2(a: var array[2, int], pick: bool) {.musttail.} =
+proc test2(a: var array[2, int], pick: bool) {.tailcall.} =
   if pick: tail2m(a)
   else:    tail1m(a)
 

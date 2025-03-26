@@ -2,8 +2,8 @@ discard """
   action: reject
 """
 
-proc p() {.musttail.} = discard
+proc p() {.tailcall.} = discard
 
-proc test() {.musttail.} =
+proc test() {.tailcall.} =
   p()
   echo "x"

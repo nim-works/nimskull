@@ -1,5 +1,5 @@
 discard """
-  description: "`sink` parameters are fully supported by `.musttail` routines"
+  description: "`sink` parameters are fully supported by `.tailcall` routines"
 """
 
 type Data = object
@@ -9,18 +9,18 @@ type Data = object
 proc `=copy`(a: var Data, b: Data) =
   a = b
 
-proc testm(a: sink Data): Data {.musttail.} =
+proc testm(a: sink Data): Data {.tailcall.} =
   a
 
 # arguments can be locals (when movable):
-proc test(): Data {.musttail.} =
+proc test(): Data {.tailcall.} =
   var x = Data(val: 3)
   testm(x)
 
 doAssert test() == Data(val: 3)
 
 # arguments can be temporaries:
-proc testTemp(): Data {.musttail.} =
+proc testTemp(): Data {.tailcall.} =
   proc temp(): Data = Data(val: 1)
 
   testm(temp())
@@ -28,7 +28,7 @@ proc testTemp(): Data {.musttail.} =
 doAssert testTemp() == Data(val: 1)
 
 # arguments can be constants:
-proc testConstants(): Data {.musttail.} =
+proc testConstants(): Data {.tailcall.} =
   testm(Data(val: 1))
 
 doAssert testConstants() == Data(val: 1)

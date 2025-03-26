@@ -819,11 +819,11 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
     # object/union types are not de-duplicated
     rec.close(env, unique)
   of tyProc:
-    # special case: .musttail procedure type's are lowered early. They're
+    # special case: .tailcall procedure type's are lowered early. Their
     # original shape does not exist at and past the MIR stage
-    if t.callConv == ccMusttail:
+    if t.callConv == ccTailcall:
       # the correct return type is stored hidden in the the effects list. A
-      # .musttail proc type becomes:
+      # .tailcall proc type becomes:
       #   `proc(pointer): Continuation[...] {.nimcall.}`
       let ret = typeref(t.n[0][3].typ)
       var prc = env.openProc(tkProc, ccNimCall, ret, false)

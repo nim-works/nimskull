@@ -3,7 +3,7 @@ Overview
 --------
 
 This document describes how the portable tail-call elimination used for
-calls to `.musttail` routines works.
+calls to `.tailcall` routines works.
 
 Tail-call elimination refers to the process of turning a tail-call into a
 sibling-call, that is, a call that re-uses the same stack frame as the caller.
@@ -11,16 +11,16 @@ sibling-call, that is, a call that re-uses the same stack frame as the caller.
 Transformation
 --------------
 
-The following `.musttail` procedures:
+The following `.tailcall` procedures:
 
 .. code-block:: nim
 
-  proc a(): int {.musttail.} =
+  proc a(): int {.tailcall.} =
     result = 1
     result = 2
     return
 
-  proc b(): int {.musttail.} =
+  proc b(): int {.tailcall.} =
     return a()
 
 are transformed into the internal equivalent of:
@@ -41,27 +41,27 @@ are transformed into the internal equivalent of:
 A `Continuation` is either terminal (it stores the procedure's result) or
 non-terminal (it stores the procedure to continue with).
 
-Since `.musttail` routines are allowed to call other `.musttail` routines with
+Since `.tailcall` routines are allowed to call other `.tailcall` routines with
 arbitrary signatures, but `Continuation` can only store procedures of a single
 type, thunks and a separate parameter storage are used:
 
 .. code-block:: nim
 
-  proc a(x, y: int): int {.musttail.} =
+  proc a(x, y: int): int {.tailcall.} =
     x + y
 
-  proc b(): int {.musttail.} =
+  proc b(): int {.tailcall.} =
     a(1, 2)
 
   # become:
 
-  proc a(x, y: int, env: pointer): Continuation[int] {.musttail.} =
+  proc a(x, y: int, env: pointer): Continuation[int] {.tailcall.} =
     return Continuation[int](done: true, result: x + y)
 
-  proc a_apply(env: ptr (int, int)): Continuation[int] {.musttail.} =
+  proc a_apply(env: ptr (int, int)): Continuation[int] {.tailcall.} =
     return a(env[][0], env[][1])
 
-  proc b(env: pointer): Continuation[int] {.musttail.} =
+  proc b(env: pointer): Continuation[int] {.tailcall.} =
     store env, (1, 2)
     return Continuation[int](done: false, next: a_apply)
 
@@ -83,18 +83,18 @@ location has to be allocated for them, as the `env` may be modified by the
 callee (which would clobber the storage already in use by a `sink`
 parameter).
 
-Invocation From Non- `.musttail` Routines
+Invocation From Non- `.tailcall` Routines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When a `.musttail` routine is called from a routine that is not a `.musttail`
+When a `.tailcall` routine is called from a routine that is not a `.tailcall`
 routine, no guaranteed tail call (and thus sibling call) takes places.
 
-The caller receives the `Continuation` returned by the `.musttail` callee and
+The caller receives the `Continuation` returned by the `.tailcall` callee and
 "trampolines" it to completion. Example:
 
 .. code-block:: nim
 
-  proc a(x, y: int): int {.musttail.} =
+  proc a(x, y: int): int {.tailcall.} =
     x + y
 
   proc b(): int =

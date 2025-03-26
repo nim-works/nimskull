@@ -4,5 +4,5 @@ discard """
 
 type Large = array[1024, int]
 
-proc p(x: sink Large) {.musttail.} =
+proc p(x: sink Large) {.tailcall.} =
   discard

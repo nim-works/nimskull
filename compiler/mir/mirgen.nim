@@ -137,7 +137,7 @@ type
     goGenTypeExpr ## don't omit type expressions
     goIsCompileTime ## whether the code is meant to be run at compile-time.
                     ## Affects handling of ``.compileTime`` globals
-    goTailCallElim  ## enables elimination of eligible `.musttail` calls
+    goTailCallElim  ## enables elimination of eligible `.tailcall` calls
 
   TranslationConfig* = object
      ## Extra configuration for the AST -> MIR translation.
@@ -184,7 +184,7 @@ const
 func tailCallElimActive(c: TCtx): bool =
   ## Whether tail-call elimination is enabled in the current context.
   c.owner != nil and c.owner.kind in routineKinds and
-    c.owner.typ.callConv == ccMusttail and
+    c.owner.typ.callConv == ccTailcall and
     goTailCallElim in c.config.options
 
 func isHandleLike(t: PType): bool =
@@ -786,11 +786,11 @@ proc genArgs(c: var TCtx, n: PNode) =
         var e = exprToPmir(c, n[i], false, false)
         wantStable(e)
         genx(c, e, e.high)
-    elif fntyp.callConv == ccMusttail and
+    elif fntyp.callConv == ccTailcall and
          t.kind notin {tySink, tyVar} and
          i < fntyp.len and # ignore the env argument
          isPassByRef(c.graph.config, fntyp.n[i].sym, fntyp):
-      # pass-by-reference needs to be enforced early for musttail calls.
+      # pass-by-reference needs to be enforced early for tailcall calls.
       # Temporary copies must not happen under any circumstance
       c.builder.emitByName ekNone:
         var e = exprToPmir(c, n[i], false, false)
@@ -810,10 +810,10 @@ proc genCall(c: var TCtx, n: PNode) =
   let fntyp = n[0].typ.skipTypes(abstractInst)
   let kind = callKind(c, n[0])
 
-  # the correct return type for .musttail routines is that of the call, not
+  # the correct return type for .tailcall routines is that of the call, not
   # that from the proc type:
   let rettype =
-    if fntyp.callConv == ccMusttail:
+    if fntyp.callConv == ccTailcall:
       n.typ
     else:
       fntyp[0]
@@ -1255,10 +1255,10 @@ proc genParamContainerSetup(c: var TCtx, n: PNode, dst: Value) =
 proc genCallOrMagic(c: var TCtx, n: PNode) =
   if n[0].kind == nkSym and (let s = n[0].sym; s.magic != mNone):
     genMagic(c, n, s.magic)
-  elif n[0].typ.skipTypes(abstractInst).callConv == ccMusttail and
+  elif n[0].typ.skipTypes(abstractInst).callConv == ccTailcall and
        (c.owner.isNil or sfGeneratedOp notin c.owner.flags) and
        goTailCallElim in c.config.options:
-    # a call to a ``.musttail`` routine from outside a ``.musttail`` routine.
+    # a call to a ``.tailcall`` routine from outside a ``.tailcall`` routine.
     # Emit:
     #   var params: ParamBlob
     #   var cont = callee(..., addr params)
@@ -1288,7 +1288,7 @@ proc genCallOrMagic(c: var TCtx, n: PNode) =
           if callKind(c, n[0]) == mnkCheckedCall:
             raiseExit(c)
     else:
-      # it's a dynamic call. `.musttail` procedure pointers point to the apply
+      # it's a dynamic call. `.tailcall` procedure pointers point to the apply
       # procedure, not the actual procedure. Therefore, the parameters need to
       # be passed via the blob
       if n.len > 1:
@@ -2184,7 +2184,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   let typ = c.typeToMir(n.typ)
   case n.kind
   of pirProc:
-    if goTailCallElim in c.config.options and n.typ.callConv == ccMusttail:
+    if goTailCallElim in c.config.options and n.typ.callConv == ccTailcall:
       c.use toValue(c.env.procedures.add(n.sym.ast[miscPos][0].sym), typ)
     else:
       c.use toValue(c.env.procedures.add(n.sym), typ)
@@ -2655,7 +2655,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
     # up separately. For ease of processing, a logical scope is always opened,
     # even when there's no result variable
     discard c.blocks.startScope()
-    if owner.typ.callConv == ccMusttail and not owner.typ[0].isEmptyType():
+    if owner.typ.callConv == ccTailcall and not owner.typ[0].isEmptyType():
       c.subTree mnkScope: discard
       # add the user-visible result variable as a proper variable:
       let r = owner.ast[resultPos]
@@ -2748,7 +2748,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
               c.add nameNode(c, owner.ast[resultPos].sym)
 
     c.blocks.closeScope(c.builder, 0, true)
-    if owner.typ.callConv == ccMusttail and not owner.typ[0].isEmptyType():
+    if owner.typ.callConv == ccTailcall and not owner.typ[0].isEmptyType():
       # close the physical the result scope
       c.subTree mnkEndScope: discard
     c.closeBlock()

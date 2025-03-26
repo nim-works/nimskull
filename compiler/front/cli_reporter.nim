@@ -497,7 +497,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
                "compile-time context") % [r.ast.render]
 
     of rsemNoTailingExpression:
-      result = "call to .musttail routine is not the tailing expression of " &
+      result = "call to .tailcall routine is not the tailing expression of " &
                "a return"
 
     of rsemArgumentMustBorrowFromParameter:
@@ -1392,7 +1392,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
                [conf $ r.ast.info]
 
     of rsemTrailingStatementPreventsTailCall:
-      result = "a call to a .musttail must not be followed by statement ($1)" %
+      result = "a call to a .tailcall must not be followed by statement ($1)" %
                [conf $ r.ast.info]
 
     of rsemCannotInferTypeOfLiteral:
@@ -1668,8 +1668,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCustomUserError:
       result = r.str
 
-    of rsemMethodCantBeMusttail:
-      result = "method cannot use .musttail calling convention"
+    of rsemMethodCantBeTailcall:
+      result = "method cannot use .tailcall calling convention"
 
     of rsemImplicitPragmaError:
       result = "application of implicit pragma failed"
@@ -2104,7 +2104,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "parameters take up too much storage"
 
     of rsemParameterCannotBeIncomplete:
-      result = ("size of .musttail parameter must be known, but it's not " &
+      result = ("size of .tailcall parameter must be known, but it's not " &
                 "for $1") % r.symstr
 
     of rsemGenericInstantiationTooNested:
@@ -3255,7 +3255,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemAlignRequiresPowerOfTwo,
       adSemNoReturnHasReturn,
       adSemMisplacedDeprecation,
-      adSemMethodCantBeMusttail,
+      adSemMethodCantBeTailcall,
       adSemNoUnionForJs,
       adSemBitsizeRequiresPositive,
       adSemExperimentalRequiresToplevel,

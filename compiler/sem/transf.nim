@@ -1139,13 +1139,13 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     else:
       result = s
 
-    if result[0].typ != nil and result[0].typ.callConv == ccMusttail and
+    if result[0].typ != nil and result[0].typ.callConv == ccTailcall and
        sfGeneratedOp notin getCurrOwner(c).flags and
        getCurrOwner(c).typ != nil and
-       getCurrOwner(c).typ.callConv == ccMusttail and
+       getCurrOwner(c).typ.callConv == ccTailcall and
        result.typ.isEmptyType():
-      # make the live of downstream processing easier by turning
-      # `musttail_voidcall(...)` into `return musttail_voidcall()`
+      # make the life of downstream processing easier by turning
+      # `tailcall_voidcall(...)` into `return tailcall_voidcall()`
       result = newTreeI(nkReturnStmt, result.info, result)
 
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
@@ -1442,7 +1442,7 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     if active:
       if n.kind in nkCallKinds and
-         n[0].typ != nil and n[0].typ.callConv == ccMusttail:
+         n[0].typ != nil and n[0].typ.callConv == ccTailcall:
         n = newTreeI(nkReturnStmt, n.info, n)
       else:
         n = newTreeI(nkReturnStmt, n.info,
@@ -1568,7 +1568,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
     # safely create the type-bound operators now
     finishClosureIterator(c.graph, c.idgen, prc)
 
-  if prc.typ.callConv == ccMusttail:
+  if prc.typ.callConv == ccTailcall:
     forwardReturn(g, prc, result, false)
     # add the hidden environment parameter:
     let env = newSym(skParam, getIdent(g.cache, ":env"), nextSymId(c.idgen),

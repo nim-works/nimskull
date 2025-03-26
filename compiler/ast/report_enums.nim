@@ -666,7 +666,7 @@ type
       ## where dynlib pragma requires an importc pragma to exist on the same
       ## symbol
       ## xxx: pragmas shouldn't require each other, that's just bad design
-    rsemMethodCantBeMusttail
+    rsemMethodCantBeTailcall
 
     rsemWrappedError
       ## there is no meaningful error to construct, but there is an error

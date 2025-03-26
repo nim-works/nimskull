@@ -1906,7 +1906,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, result.n[3])
   closeScope(c)
 
-proc prepareMusttailProc(c: PContext, info: TLineInfo, typ: PType) =
+proc prepareTailcallProc(c: PContext, info: TLineInfo, typ: PType) =
   let
     cont = systemModuleType(c.graph, c.cache.getIdent("Continuation"))
     invoc = newTypeS(tyGenericInvocation, c)
@@ -1945,9 +1945,9 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
 
-  # instantiat the type of the continuation for .musttail procedures
-  if result.callConv == ccMusttail:
-    prepareMusttailProc(c, n.info, result)
+  # instantiat the type of the continuation for .tailcall procedures
+  if result.callConv == ccTailcall:
+    prepareTailcallProc(c, n.info, result)
 
   when true:
     # check if we got any errors and if so report them
