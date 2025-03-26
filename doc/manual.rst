@@ -4120,6 +4120,7 @@ A call is considered a tail call iff:
 
 A *tailing expression* is recursively defined as:
 * the body of an `if`, `elif`, or `else` branch
+* the body of a `block`
 * the body of an `of` branch
 * the last expression in a statement list, where there's no implicit destructor
   calls at its end and no `defer` statements
