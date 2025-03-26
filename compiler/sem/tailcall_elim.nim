@@ -163,7 +163,8 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
   of nkForStmt:
     recurse(n[1], mode - {emLast})
     recurse(n[2], mode - {emLast})
-  of nkWithoutSons, callableDefs, nkTypeSection, nkConstSection, nkNimNodeLit, nkSymChoices, nkBindStmt, nkMixinStmt:
+  of nkWithoutSons, callableDefs, nkTypeSection, nkConstSection, nkNimNodeLit,
+     nkSymChoices, nkBindStmt, nkMixinStmt:
     # don't enter nested routine declarations
     discard "nothing to do"
   else:
@@ -215,7 +216,9 @@ proc genApply*(c: PContext, s: PSym) =
       call.add newTreeIT(nkDerefExpr, s.info, tupType[i-1].lastSon, acc)
     elif s.typ[i].skipTypes(abstractInst).kind == tyVar:
       # a deref/addr pair is required
-      call.add newTreeIT(nkHiddenAddr, s.info, tupType[i-1], newTreeIT(nkHiddenDeref, s.info, tupType[i-1].lastSon, acc))
+      call.add newTreeIT(nkHiddenAddr, s.info, tupType[i-1],
+        newTreeIT(nkHiddenDeref, s.info, tupType[i-1].lastSon,
+          acc))
     else:
       call.add acc
 
