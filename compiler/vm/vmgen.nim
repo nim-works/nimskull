@@ -1061,10 +1061,13 @@ proc genCall(c: var TCtx; n: CgNode; dest: var TDest) =
   if n.kind == cnkCheckedCall:
     c.registerEh(n[^1])
 
-  if res.isUnset:
-    c.gABC(n, opcIndCall, 0, x, operands)
+  if n.kind == cnkTailCall:
+    c.gABC(n, opcTailCall, 0, x, operands)
   else:
-    c.gABC(n, opcIndCallAsgn, res, x, operands)
+    if res.isUnset:
+      c.gABC(n, opcIndCall, 0, x, operands)
+    else:
+      c.gABC(n, opcIndCallAsgn, res, x, operands)
 
   if res != dest:
     if dest.isUnset:
