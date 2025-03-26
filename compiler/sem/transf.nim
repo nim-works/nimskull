@@ -1140,14 +1140,14 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     else:
       result = s
 
-    # make the live of further processing easier by injecting return statements
-    # immediately after void .musttail calls
     if result[0].typ != nil and result[0].typ.callConv == ccMusttail and
-       result.typ.isNil and
-       sfGeneratedOp notin getCurrOwner(c).flags:
-      result = newTreeI(nkStmtList, result.info,
-        result,
-        newTreeI(nkReturnStmt, result.info, c.graph.emptyNode))
+       sfGeneratedOp notin getCurrOwner(c).flags and
+       getCurrOwner(c).typ != nil and
+       getCurrOwner(c).typ.callConv == ccMusttail and
+       result.typ.isEmptyType():
+      # make the live of downstream processing easier by turning
+      # `musttail_voidcall(...)` into `return musttail_voidcall()`
+      result = newTreeI(nkReturnStmt, result.info, result)
 
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
   if n[0].isInfixAs() and not isImportedException(n[0][1].typ, c.graph.config):
@@ -1438,13 +1438,18 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   ##     return c
   ##
   ## This makes it so that the operand of a return is always some simple
-  ## expression, which helps with the tail-call elimination pass.
+  ## expression, which helps with the tail-call elimination pass. In addition,
+  ## `return result = tail()` is turned into `return tail()`.
   proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     if active:
-      n = newTreeI(nkReturnStmt, n.info,
-        newTreeI(nkAsgn, n.info,
-          newSymNode(owner.ast[resultPos].sym),
-          n))
+      if n.kind in nkCallKinds and
+         n[0].typ != nil and n[0].typ.callConv == ccMusttail:
+        n = newTreeI(nkReturnStmt, n.info, n)
+      else:
+        n = newTreeI(nkReturnStmt, n.info,
+          newTreeI(nkAsgn, n.info,
+            newSymNode(owner.ast[resultPos].sym),
+            n))
       n.flags.incl nfTransf
       n.typ = g.noreturnType
 
@@ -1480,9 +1485,14 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     # values, but the pass doesn't enter them
     wrap(n)
   of nkReturnStmt:
-    if n[0].kind != nkEmpty:
+    case n[0].kind
+    of nkAsgn:
       n = n[0][1]
       recurse(n, true)
+    of nkCallKinds:
+      recurse(n[0], false)
+    else:
+      discard "nothing to do"
   of nkStmtListExpr:
     for i in 0..<n.len-1:
       recurse(n[i], false)
