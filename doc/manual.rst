@@ -4121,8 +4121,6 @@ A call is considered a tail call iff:
 A *tailing expression* is recursively defined as:
 * the body of an `if`, `elif`, or `else` branch
 * the body of an `of` branch
-* the body of an `except` clause for a `try` expression without a `finally`
-* the body of a `finally` clause
 * the last expression in a statement list, where there's no implicit destructor
   calls at its end and no `defer` statements
 
@@ -4130,11 +4128,11 @@ Everything not covered by this list is **not** a tailing expression.
 
 For example, in `if a: (if b: c else: d) else: e`, `c` and `d` are the tailing
 expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
- `(if b: c else: d)` are the tailing expressions of the outer if-then-else.
+`(if b: c else: d)` are the tailing expressions of the outer if-then-else.
 
 A *tailing return* is defined as a `return` that is **not** placed:
 * in a `try` body
-* in an `except` clause of a `try` with a `finally` clause
+* in an `except` or `finally` clause
 * in a statement list with implicit destructor calls at its end
 * after a `defer` statement in a statement list
 
