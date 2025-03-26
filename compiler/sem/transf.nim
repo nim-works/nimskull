@@ -15,7 +15,7 @@
 ## * introduces method dispatchers
 ## * performs lambda lifting for closure support
 ## * transforms 'defer' into a 'try finally' statement
-## * tail call elimination (most of it)
+## * preparations for tail call elimination
 
 import
   std/[
@@ -44,7 +44,6 @@ import
     semfold,
     lambdalifting,
     lowerings,
-    tailcall_elim,
     unreachable_elim
   ],
   compiler/backend/[
@@ -1571,7 +1570,13 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
 
   if prc.typ.callConv == ccMusttail:
     forwardReturn(g, prc, result, false)
-    result = eliminateTailCalls(g, idgen, prc, result)
+    # add the hidden environment parameter:
+    let env = newSym(skParam, getIdent(g.cache, ":env"), nextSymId(c.idgen),
+                     prc, prc.info)
+    env.position = prc.typ.len - 1
+    env.flags.incl sfFromGeneric
+    env.typ = g.getSysType(prc.info, tyPointer)
+    prc.ast[paramsPos].add newSymNode(env)
 
   incl(result.flags, nfTransf)
 

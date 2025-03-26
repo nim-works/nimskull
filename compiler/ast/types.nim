@@ -1663,3 +1663,22 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
      classifyViewType(retType) == immutableView:
     result = pt.kind notin {tyVar, tyOpenArray, tyVarargs, tyRef, tyPtr,
                             tyPointer}
+
+proc newParamTuple*(config: ConfigRef, idgen: IdGenerator, owner: PSym,
+                    fntype: PType): PType =
+  ## Synthesizes a tuple type to hold the parameters for a call to procedure
+  ## with the given `fntype`, as needed by tail-call elimination.
+  # XXX: this procedure doesn't belong here
+  assert fntype.kind == tyProc
+
+  result = newType(tyTuple, nextTypeId(idgen), owner)
+  for i in 1..<fntype.len:
+    let typ = fntype[i]
+    if typ.kind == tySink:
+      result.rawAddSon(typ.lastSon)
+    elif isPassByRef(config, fntype.n[i].sym, fntype[0]):
+      let p = newType(tyPtr, nextTypeId(idgen), owner)
+      p.rawAddSon(typ)
+      result.rawAddSon(p)
+    else:
+      result.rawAddSon(typ)

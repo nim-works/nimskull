@@ -180,6 +180,11 @@ const
     ## The expression that are treated as complex and which are transformed
     ## into assignments-to-temporaries
 
+func tailCallElimActive(c: TCtx): bool =
+  ## Whether tail-call elimination is enabled in the current context.
+  c.owner != nil and c.owner.kind in routineKinds and
+    c.owner.typ.callConv == ccMusttail
+
 func isHandleLike(t: PType): bool =
   t.skipTypes(abstractInst).kind in {tyPtr, tyRef, tyLent, tyVar, tyOpenArray}
 
@@ -1218,6 +1223,37 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     # no special transformation for the other magics:
     genCall(c, n)
 
+proc genParamContainerSetup(c: var TCtx, n: PNode, dst: Value) =
+  ## Generates the parameter container setup for the tail-call elimination,
+  ## plus the store into the storage identified by `dst`.
+  assert n.len > 1, "no parameters"
+  let fntype = n[0].typ.skipTypes(abstractInst)
+  # creating a parameter tuple using the graph's IdGenerator yields types
+  # with degenerate IDs. Let's hope these types don't end up anywhere
+  # problematic...
+  let typ = c.typeToMir(newParamTuple(c.graph.config, c.graph.idgen,
+                                      c.owner, fntype))
+  let tup = c.wrapTemp typ:
+    c.buildTree mnkTupleConstr, typ:
+      for i in 1..<n.len:
+        case fntype[i].kind
+        of tySink, tyVar:
+          c.emitOperandTree n[i], sink=true
+        elif isPassByRef(c.graph.config, fntype.n[i].sym, fntype[0]):
+          let pt = c.env.types[c.env.types.lookupField(typ, int32(i - 1))].typ
+          c.subTree mnkConsume:
+            c.wrapAndUse pt:
+              c.buildTree mnkAddr, pt:
+                genLvalueOperand(c, n[i], false)
+        else:
+          c.emitOperandTree n[i], sink=false
+
+  c.buildStmt mnkVoid:
+    c.buildMagicCall mStoreParams, VoidType:
+      c.emitByVal dst
+      c.subTree mnkConsume:
+        c.use tup
+
 proc genCallOrMagic(c: var TCtx, n: PNode) =
   if n[0].kind == nkSym and (let s = n[0].sym; s.magic != mNone):
     genMagic(c, n, s.magic)
@@ -1241,13 +1277,30 @@ proc genCallOrMagic(c: var TCtx, n: PNode) =
     let addrTmp = c.wrapTemp PointerType:
       c.buildTree mnkAddr, PointerType:
         c.use blob
-    let cont = c.wrapTemp contTyp:
-      c.builder.rawBuildCall callKind(c, n[0]), contTyp, true:
-        genCallee(c, n[0])
-        genArgs(c, n)
-        c.emitByVal addrTmp
-        if callKind(c, n[0]) == mnkCheckedCall:
-          raiseExit(c)
+
+    var cont: Value
+    if n[0].kind == nkSym and n[0].sym.kind in routineKinds:
+      # it's a static call
+      cont = c.wrapTemp contTyp:
+        c.builder.rawBuildCall callKind(c, n[0]), contTyp, true:
+          genCallee(c, n[0])
+          genArgs(c, n)
+          c.emitByVal addrTmp
+          if callKind(c, n[0]) == mnkCheckedCall:
+            raiseExit(c)
+    else:
+      # it's a dynamic call. `.musttail` procedure pointers point to the apply
+      # procedure, not the actual procedure. Therefore, the parameters need to
+      # be passed via the blob
+      if n.len > 1:
+        genParamContainerSetup(c, n, addrTmp)
+
+      cont = c.wrapTemp contTyp:
+        c.builder.rawBuildCall callKind(c, n[0]), contTyp, true:
+          c.genArgExpression(n[0], sink=false)
+          c.emitByVal addrTmp
+          if callKind(c, n[0]) == mnkCheckedCall:
+            raiseExit(c)
 
     let loop = c.allocLabel()
     let exit = c.allocLabel()
@@ -1398,12 +1451,41 @@ proc genRaise(c: var TCtx, n: PNode) =
   c.buildStmt mnkRaise:
     raiseExit(c)
 
+proc genSiblingCall(c: var TCtx, n: PNode) =
+  ## Generates a non-native sibling call for call `n`.
+  let typ = c.typeToMir(c.owner.ast[miscPos][1].typ)
+  # initialize the continuation:
+  c.buildStmt mnkInit:
+    c.add MirNode(kind: mnkLocal, local: resultId, typ: typ)
+    c.buildTree mnkObjConstr, typ:
+      c.subTree mnkBinding:
+        c.add MirNode(kind: mnkField, field: 0)
+        c.subTree mnkConsume:
+          c.use intLiteral(c.env, 0, BoolType)
+      c.subTree mnkBinding:
+        c.add MirNode(kind: mnkField, field: 1)
+        c.emitOperandTree n[0], sink=true
+
+  # set up and store the parameter container
+  if n.len > 1:
+    genParamContainerSetup(c, n, c.genLocation(c.owner.ast[paramsPos].lastSon))
+
+  tailExit(c.blocks, c.builder)
+
 proc genReturn(c: var TCtx, n: PNode) =
   assert n.kind == nkReturnStmt
-  if n[0].kind != nkEmpty:
-    gen(c, n[0])
+  # when eliminating tail calls, normal returns jump to the pre-exit
+  # continuation setup label
+  let target = if tailCallElimActive(c): 2 else: 0
 
-  blockExit(c.blocks, c.graph, c.env, c.builder, 0)
+  if n[0].kind == nkEmpty:
+    blockExit(c.blocks, c.graph, c.env, c.builder, target)
+  elif n[0].kind in nkCallKinds:
+    # it's a tail call that must be turned into a sibling call
+    genSiblingCall(c, n[0])
+  else:
+    gen(c, n[0])
+    blockExit(c.blocks, c.graph, c.env, c.builder, target)
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -2504,9 +2586,10 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
     discard c.addLocal(x)
 
   # result variable:
-  if signature.callConv == ccMusttail:
-    # use the new result symbol
-    discard c.addLocal(prc.ast[miscPos][2].sym)
+  if tailCallElimActive(c):
+    # create a new result variable using a continuation type
+    add Local(name: c.graph.cache.getIdent("result"),
+              typ: c.typeToMir(signature.n[0][3].typ))
   elif signature[0].isEmptyType():
     # always reserve a slot for the result variable, even if the latter is
     # not present
@@ -2519,7 +2602,7 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
   for i in 1..<params.len:
     add c.paramToMir(params[i].sym)
 
-  if signature.callConv in {ccClosure, ccMusttail}:
+  if signature.callConv in {ccClosure} or tailCallElimActive(c):
     # environment parameter
     add c.paramToMir(prc.ast[paramsPos][^1].sym)
 
@@ -2541,14 +2624,40 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
   var c = initCtx(graph, config, owner, move env)
   c.sp.active = (body, c.sp.map.add(body))
 
+  proc signature(s: PSym): PType =
+    if s.kind == skMacro: s.internal
+    else:                 s.typ
+
   let
     needsTerminate = sfNeverRaises in owner.flags
+    needsContConstr = tailCallElimActive(c)
     needsCleanup = (c.injectDestructors and
+                    not needsContConstr and
                     owner.kind in routineKinds and
                     owner.typ[0] != nil and
                     hasDestructor(owner.typ[0]))
     doesReturn = doesReturn(body)
       ## whether the body "falls through"
+
+  if owner.kind in routineKinds:
+    # before emitting anything else, register the paramters and result
+    addParams(c, owner, signature(owner))
+
+  if needsContConstr:
+    c.blocks.add Block(kind: bkBlock)
+    # use a dedicated scope for the result var, so that it can be cleaned
+    # up separately. For ease of processing, a logical scope is always opened,
+    # even when there's no result variable
+    discard c.blocks.startScope()
+    if owner.typ.callConv == ccMusttail and not owner.typ[0].isEmptyType():
+      c.subTree mnkScope: discard
+      # add the user-visible result variable as a proper variable:
+      let r = owner.ast[resultPos]
+      discard c.addLocal(r.sym)
+      c.subTree mnkDef:
+        c.add nameNode(c, r.sym)
+        c.add MirNode(kind: mnkNone)
+      c.register(genLocation(c, r))
 
   c.withBlock bkBlock: # the target for return statements
     if needsTerminate:
@@ -2563,23 +2672,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
       if owner.kind in routineKinds:
         # the procedure backing a macro has its own internal signature; use that
         # beyond this point
-        let signature =
-          if owner.kind == skMacro:
-            owner.internal
-          else:
-            owner.typ
-
-        addParams(c, owner, signature)
-
-        # add the old result variable, if any, as a proper variable:
-        if signature.callConv == ccMusttail and
-           not signature[0].isEmptyType():
-          let r = owner.ast[resultPos]
-          discard c.addLocal(r.sym)
-          c.subTree mnkDef:
-            c.add nameNode(c, r.sym)
-            c.add MirNode(kind: mnkNone)
-          c.register(genLocation(c, r))
+        let signature = signature(owner)
 
         # add a 'def' for each ``sink`` parameter. This simplifies further
         # processing and analysis
@@ -2629,6 +2722,30 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
           discard
       c.subTree mnkEndStruct:
         c.add labelNode(b.id.unsafeGet)
+
+  if needsContConstr:
+    # TODO: only emit the construction when there are normal exits
+    let typ = c.typeToMir(owner.ast[miscPos][1].typ)
+    c.buildStmt mnkInit:
+      c.add MirNode(kind: mnkLocal, local: resultId, typ: typ)
+      c.buildTree mnkObjConstr, typ:
+        c.subTree mnkBinding:
+          c.add MirNode(kind: mnkField, field: 0)
+          c.subTree mnkConsume:
+            c.use intLiteral(c.env, 1, BoolType)
+        if not owner.typ[0].isEmptyType():
+          c.subTree mnkBinding:
+            c.add MirNode(kind: mnkField, field: 2)
+            # the result variable can be moved out of unconditionally, since
+            # we know there'll be no further use
+            c.subTree mnkConsume:
+              c.add nameNode(c, owner.ast[resultPos].sym)
+
+    c.blocks.closeScope(c.builder, 0, true)
+    if owner.typ.callConv == ccMusttail and not owner.typ[0].isEmptyType():
+      # close the physical the result scope
+      c.subTree mnkEndScope: discard
+    c.closeBlock()
 
   env = c.env
 
