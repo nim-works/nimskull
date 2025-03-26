@@ -66,6 +66,7 @@ import
     ast,
     astalgo,
     astmsgs, # for generating the field error message
+    idents,
     trees,
     types,
     wordrecg
@@ -707,12 +708,7 @@ proc genCallee(c: var TCtx, n: PNode) =
     let s = n.sym
     if s.magic == mNone or s.magic in c.config.magicsToKeep:
       # reference the procedure by symbol
-      if (c.owner.isNil or sfGeneratedOp notin c.owner.flags) and
-         s.typ.callConv == ccMusttail:
-        # replace with the apply or trampoline procedure
-        c.add procNode(c.env.procedures.add(s.ast[miscPos][0].sym))
-      else:
-        c.add procNode(c.env.procedures.add(s))
+      c.add procNode(c.env.procedures.add(s))
     else:
       # don't use a symbol
       c.add MirNode(kind: mnkMagic, magic: s.magic)
@@ -796,14 +792,16 @@ proc genArgs(c: var TCtx, n: PNode) =
     else:
       genArg(c, t, n[i])
 
+proc callKind(c: TCtx, n: PNode): range[mnkCall..mnkCheckedCall] =
+  if canRaise(optPanics in c.graph.config.globalOptions, n):
+    mnkCheckedCall
+  else:
+    mnkCall
+
 proc genCall(c: var TCtx, n: PNode) =
   ## Generates and emits the MIR code for a call expression.
   let fntyp = n[0].typ.skipTypes(abstractInst)
-  let kind: range[mnkCall..mnkCheckedCall] =
-    if canRaise(optPanics in c.graph.config.globalOptions, n[0]):
-      mnkCheckedCall
-    else:
-      mnkCall
+  let kind = callKind(c, n[0])
 
   # the correct return type for .musttail routines is that of the call, not
   # that from the proc type:
@@ -1223,6 +1221,69 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
 proc genCallOrMagic(c: var TCtx, n: PNode) =
   if n[0].kind == nkSym and (let s = n[0].sym; s.magic != mNone):
     genMagic(c, n, s.magic)
+  elif n[0].typ.skipTypes(abstractInst).callConv == ccMusttail and
+       (c.owner.isNil or sfGeneratedOp notin c.owner.flags):
+    # a call to a ``.musttail`` routine from outside a ``.musttail`` routine.
+    # Emit:
+    #   var params: ParamBlob
+    #   var cont = callee(..., addr params)
+    #   while not cont.done:
+    #     cont = cont.next(addr params)
+    #   cont.val
+    let
+      contTyp = c.typeToMir(n[0].typ.skipTypes(abstractInst).n[0][3].typ)
+      nextTyp = c.env.types[c.env.types.lookupField(contTyp, 1)].typ
+      blobTyp = c.graph.systemModuleType(c.graph.cache.getIdent("ParamBlob"))
+      blob = c.allocTemp(c.typeToMir(blobTyp))
+    c.buildStmt mnkDef:
+      c.use blob
+      c.add MirNode(kind: mnkNone)
+    let addrTmp = c.wrapTemp PointerType:
+      c.buildTree mnkAddr, PointerType:
+        c.use blob
+    let cont = c.wrapTemp contTyp:
+      c.builder.rawBuildCall callKind(c, n[0]), contTyp, true:
+        genCallee(c, n[0])
+        genArgs(c, n)
+        c.emitByVal addrTmp
+        if callKind(c, n[0]) == mnkCheckedCall:
+          raiseExit(c)
+
+    let loop = c.allocLabel()
+    let exit = c.allocLabel()
+    c.buildStmt mnkLoopJoin:
+      c.add labelNode(loop)
+    let cond = c.wrapTemp BoolType:
+      c.buildTree mnkCopy, BoolType:
+        c.builder.pathNamed(BoolType, 0):
+          c.use cont
+    c.buildIf (c.use cond;):
+      c.buildStmt mnkGoto:
+        c.add labelNode(exit)
+
+    let tmp = c.wrapTemp contTyp:
+      c.builder.rawBuildCall mnkCheckedCall, contTyp, true:
+        c.builder.pathNamed nextTyp, 1:
+          c.builder.pathVariant contTyp, 0:
+            c.use cont
+        c.emitByVal addrTmp
+        raiseExit(c)
+    c.buildStmt mnkAsgn:
+      c.use cont
+      c.buildTree mnkMove, contTyp:
+        c.use tmp
+    c.buildStmt mnkLoop:
+      c.add labelNode(loop)
+    c.buildStmt mnkJoin:
+      c.add labelNode(exit)
+
+    let ret = n[0].typ.skipTypes(abstractInst)[0]
+    if not ret.isEmptyType():
+      # it's not a void call; extract the result from the continuation
+      c.buildTree mnkMove, c.typeToMir(ret):
+        c.builder.pathNamed(c.typeToMir(ret), 2):
+          c.builder.pathVariant(contTyp, 0):
+            c.use cont
   else:
     genCall(c, n)
 
