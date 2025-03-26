@@ -175,7 +175,10 @@ proc tailExit*(c; bu) =
       last = start
     of bkBlock:
       discard "ignore"
-    of bkTryExcept, bkTryFinally, bkExcept, bkFinally:
+    of bkTryExcept:
+      # for the convenience of mirgen, these are not disallowed
+      discard
+    of bkTryFinally, bkExcept, bkFinally:
       unreachable()
 
   bu.subTree mnkGoto:
