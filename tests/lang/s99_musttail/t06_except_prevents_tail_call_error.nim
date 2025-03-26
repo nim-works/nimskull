@@ -7,5 +7,5 @@ proc p() {.musttail.} = discard
 proc test() {.musttail.} =
   try:
     discard
-  finally:
+  except:
     p()
