@@ -438,7 +438,6 @@ const
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
   sfCustomPragma*  = sfRegister       ## symbol is custom pragma template
-  sfCallsMusttail* = sfTemplateParam  ## routine calls .musttail routine
 
 const
   # getting ready for the future expr/stmt merge

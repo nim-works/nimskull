@@ -1559,7 +1559,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
     # safely create the type-bound operators now
     finishClosureIterator(c.graph, c.idgen, prc)
 
-  if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+  if prc.typ.callConv == ccMusttail:
     forwardReturn(g, prc, result, false)
     result = eliminateTailCalls(g, idgen, prc, result)
 

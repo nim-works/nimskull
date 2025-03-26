@@ -341,7 +341,7 @@ proc prepareParameters(m: BModule, t: PType): seq[TLoc] =
 
 proc prepareParameters(m: BModule, prc: PSym): seq[TLoc] =
   result = prepareParameters(m, prc.typ)
-  if prc.typ.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+  if prc.typ.callConv == ccMusttail:
     # add a valid enough loc that the header can be generated properly. The
     # real loc is filled in later
     result.add initLoc(locParam,

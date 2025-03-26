@@ -708,7 +708,7 @@ proc genCallee(c: var TCtx, n: PNode) =
     if s.magic == mNone or s.magic in c.config.magicsToKeep:
       # reference the procedure by symbol
       if (c.owner.isNil or sfGeneratedOp notin c.owner.flags) and
-         (s.typ.callConv == ccMusttail or sfCallsMusttail in s.flags):
+         s.typ.callConv == ccMusttail:
         # replace with the apply or trampoline procedure
         c.add procNode(c.env.procedures.add(s.ast[miscPos][0].sym))
       else:
@@ -805,11 +805,10 @@ proc genCall(c: var TCtx, n: PNode) =
     else:
       mnkCall
 
-  # the correct return type for .musttail and trampoline procedures is
-  # that of the call, not that from the proc type:
+  # the correct return type for .musttail routines is that of the call, not
+  # that from the proc type:
   let rettype =
-    if fntyp.callConv == ccMusttail or
-       (n[0].kind == nkSym and sfCallsMusttail in n[0].sym.flags):
+    if fntyp.callConv == ccMusttail:
       n.typ
     else:
       fntyp[0]
@@ -2036,7 +2035,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   let typ = c.typeToMir(n.typ)
   case n.kind
   of pirProc:
-    if n.typ.callConv == ccMusttail or sfCallsMusttail in n.sym.flags:
+    if n.typ.callConv == ccMusttail:
       c.use toValue(c.env.procedures.add(n.sym.ast[miscPos][0].sym), typ)
     else:
       c.use toValue(c.env.procedures.add(n.sym), typ)
@@ -2444,7 +2443,7 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
     discard c.addLocal(x)
 
   # result variable:
-  if signature.callConv == ccMusttail or sfCallsMusttail in prc.flags:
+  if signature.callConv == ccMusttail:
     # use the new result symbol
     discard c.addLocal(prc.ast[miscPos][2].sym)
   elif signature[0].isEmptyType():
@@ -2459,8 +2458,7 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
   for i in 1..<params.len:
     add c.paramToMir(params[i].sym)
 
-  if signature.callConv in {ccClosure, ccMusttail} or
-     sfCallsMusttail in prc.flags:
+  if signature.callConv in {ccClosure, ccMusttail}:
     # environment parameter
     add c.paramToMir(prc.ast[paramsPos][^1].sym)
 
@@ -2513,8 +2511,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         addParams(c, owner, signature)
 
         # add the old result variable, if any, as a proper variable:
-        if (signature.callConv == ccMusttail or
-            sfCallsMusttail in owner.flags) and
+        if signature.callConv == ccMusttail and
            not signature[0].isEmptyType():
           let r = owner.ast[resultPos]
           discard c.addLocal(r.sym)
