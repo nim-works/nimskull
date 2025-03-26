@@ -4,7 +4,7 @@ discard """
 
 proc p() {.musttail.} = discard
 
-proc test() =
+proc test() {.musttail.} =
   try:
     p()
   finally:

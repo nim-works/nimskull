@@ -4,6 +4,6 @@ discard """
 
 proc p() {.musttail.} = discard
 
-proc test() =
+proc test() {.musttail.} =
   defer: echo ""
   p()

@@ -6,6 +6,6 @@ discard """
 type Large = object
   val: array[255, int]
 
-proc testm(x: Large): int {.musttail.} = x.val[0]
-proc test(): int =
-  testm(Large())
+proc p(x: Large): int {.musttail.} = x.val[0]
+proc test(): int {.musttail.} =
+  p(Large())

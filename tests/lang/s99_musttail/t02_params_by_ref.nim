@@ -10,27 +10,27 @@ type Large = object
   pad: array[255, int]
   val: int
 
-proc testm(x: Large): int {.musttail.} =
+proc p(x: Large): int {.musttail.} =
   x.val
 
 # arguments can be parameters:
-proc test(x: Large): int =
-  testm(x)
+proc test(x: Large): int {.musttail.} =
+  p(x)
 
 doAssert test(Large(val: 1)) == 1
 
 # arguments can be projections of parameters:
-proc test_field_projection(a: (Large, int)): int =
-  testm(a[0])
+proc test_field_projection(a: (Large, int)): int {.musttail.} =
+  p(a[0])
 
-proc test_array_projection(a: array[2, Large]): int =
-  testm(a[0])
+proc test_array_projection(a: array[2, Large]): int {.musttail.} =
+  p(a[0])
 
-proc test_deref_projection(a: ref Large): int =
-  testm(a[])
+proc test_deref_projection(a: ref Large): int {.musttail.} =
+  p(a[])
 
-proc test_var_param(a: var Large): int =
-  testm(a)
+proc test_var_param(a: var Large): int {.musttail.} =
+  p(a)
 
 doAssert test_field_projection((Large(val: 1), 0)) == 1
 doAssert test_array_projection([Large(val: 1), Large(val: 2)]) == 1
@@ -39,7 +39,7 @@ var global = Large(val: 1)
 doAssert test_var_param(global) == 1
 
 # arguments can be globals (or projections of globals):
-proc test_global(): int =
-  testm(global)
+proc test_global(): int {.musttail.} =
+  p(global)
 
 doAssert test_global() == 1

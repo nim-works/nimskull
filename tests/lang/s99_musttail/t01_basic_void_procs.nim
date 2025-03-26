@@ -4,12 +4,7 @@ discard """
 """
 
 proc a() {.musttail.} = echo "a"
-proc test_a() =
-  a()
-
 func b() {.musttail.} = debugEcho "b"
-proc test_b() =
-  b()
 
-test_a()
-test_b()
+a()
+b()

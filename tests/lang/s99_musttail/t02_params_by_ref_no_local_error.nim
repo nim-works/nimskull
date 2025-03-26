@@ -5,7 +5,7 @@ discard """
 
 type Large = array[255, int]
 
-proc testm(x: Large): int {.musttail.} = x[0]
-proc test(): int =
+proc p(x: Large): int {.musttail.} = x[0]
+proc test(): int {.musttail.} =
   var x: Large
-  testm(x)
+  p(x)

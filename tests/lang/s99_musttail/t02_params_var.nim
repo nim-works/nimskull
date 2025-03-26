@@ -7,7 +7,7 @@ discard """
 proc tail1(a: var int) {.musttail.} =
   a = 3
 
-proc test1(a: var int) =
+proc test1(a: var int) {.musttail.} =
   tail1(a)
 
 var x = 0
@@ -19,9 +19,6 @@ doAssert x == 3
 proc tail2(a: var (int, int)) {.musttail.} =
   tail1(a[1])
 
-proc test2(a: var (int, int)) =
-  tail2(a)
-
 var y = (1, 2)
-test2(y)
+tail2(y)
 doAssert y == (1, 3)

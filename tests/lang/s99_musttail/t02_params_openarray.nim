@@ -12,7 +12,7 @@ proc tail1(a: openArray[int]): int {.musttail.} =
 proc tail2(a: openArray[int]): int {.musttail.} =
   tail1(toOpenArray(a, 1, 1))
 
-proc test1(a: array[2, int], pick: bool): int =
+proc test1(a: array[2, int], pick: bool): int {.musttail.} =
   if pick: tail2(a)
   else:    tail1(a)
 
@@ -27,7 +27,7 @@ proc tail1m(a: var openArray[int]) {.musttail.} =
 proc tail2m(a: var openArray[int]) {.musttail.} =
   tail_1m(toOpenArray(a, 1, 1))
 
-proc test2(a: var array[2, int], pick: bool) =
+proc test2(a: var array[2, int], pick: bool) {.musttail.} =
   if pick: tail2m(a)
   else:    tail1m(a)
 

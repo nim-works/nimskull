@@ -5,6 +5,6 @@ discard """
 
 type Large = array[255, int]
 
-proc testm(x: Large): int {.musttail.} = x[0]
-proc test(): int =
-  testm(default(Large))
+proc p(x: Large): int {.musttail.} = x[0]
+proc test(): int {.musttail.} =
+  p(default(Large))
