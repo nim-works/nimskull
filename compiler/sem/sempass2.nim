@@ -1888,6 +1888,10 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     verifyTailCalls(g, s, body)
     genApply(c, s)
 
+    # create the type-bound ops for the continuation type:
+    let cont = s.typ.n[0][3].typ.skipTypes(skipForHooks)
+    createTypeBoundOps(c.graph, c, cont, s.info, c.idgen)
+
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   if n.kind in {nkPragma, nkMacroDef, nkTemplateDef, nkProcDef, nkFuncDef,
                 nkTypeSection, nkConverterDef, nkMethodDef, nkIteratorDef}:
