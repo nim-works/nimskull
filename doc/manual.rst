@@ -2104,10 +2104,10 @@ Nim supports these `calling conventions`:idx:\:
     improve speed.
 
 `tailcall`:idx:
-    All calls to the routine are enforced to be tail calls (refer to
-    `tail call <#tail-call>`_ ). Calling a `tailcall` routine takes over the
-    current stack frame and thus requires constant memory, which places some
-    restriction on their callers. Available for all targets.
+    When a call to the routine appears in another `tailcall` routine, the call
+    must be a `tail call <#tail-call>`_ (with some additional restrictions)
+    and is guaranteed to not allocate a new stack frame. Otherwise it behaves
+    like a `nimcall` routine.
 
 Most calling conventions exist only for the Windows 32-bit platform.
 
