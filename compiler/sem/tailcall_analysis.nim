@@ -1,5 +1,6 @@
-## Implements the tail call analysis. Refer to this `document <tailcallelim.html>`_
-## for a high-level overview of how tail-call elimination works.
+## Implements tail call analysis, as well as synthesis of procedures needed for
+## portable tail-call elimination (refer to this `document <tailcallelim.html>`_
+## for how it works).
 ##
 ## The `apply` helper procedure is synthesized during semantic analysis already,
 ## as `sem` is best equipped to create new global symbols. The synthesized

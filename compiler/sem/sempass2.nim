@@ -43,7 +43,7 @@ import
     guards,
     semdata,
     nilcheck,
-    tailcall_elim
+    tailcall_analysis
   ]
 
 from compiler/ast/reports_sem import SemReport,
