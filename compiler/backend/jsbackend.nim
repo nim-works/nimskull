@@ -37,7 +37,7 @@ import
     ropes
   ]
 
-from compiler/mir/mirbridge import canonicalize
+from compiler/mir/mirbridge import canonicalize, GenOption
 
 type
   BModuleList = SeqMap[FileIndex, BModule]
@@ -122,7 +122,8 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## writes it to the output file.
   let
     globals = newGlobals(graph)
-    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
+    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics,
+                                                     options: {goTailCallElim}))
 
   var
     modules: BModuleList

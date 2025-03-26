@@ -432,7 +432,8 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   # ----- main event processing -----
   let
-    config = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
+    config = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics,
+                                                      options: {goTailCallElim}))
 
   var
     inl:       InliningData

@@ -137,6 +137,7 @@ type
     goGenTypeExpr ## don't omit type expressions
     goIsCompileTime ## whether the code is meant to be run at compile-time.
                     ## Affects handling of ``.compileTime`` globals
+    goTailCallElim  ## enables elimination of eligible `.musttail` calls
 
   TranslationConfig* = object
      ## Extra configuration for the AST -> MIR translation.
@@ -183,7 +184,8 @@ const
 func tailCallElimActive(c: TCtx): bool =
   ## Whether tail-call elimination is enabled in the current context.
   c.owner != nil and c.owner.kind in routineKinds and
-    c.owner.typ.callConv == ccMusttail
+    c.owner.typ.callConv == ccMusttail and
+    goTailCallElim in c.config.options
 
 func isHandleLike(t: PType): bool =
   t.skipTypes(abstractInst).kind in {tyPtr, tyRef, tyLent, tyVar, tyOpenArray}
@@ -1254,7 +1256,8 @@ proc genCallOrMagic(c: var TCtx, n: PNode) =
   if n[0].kind == nkSym and (let s = n[0].sym; s.magic != mNone):
     genMagic(c, n, s.magic)
   elif n[0].typ.skipTypes(abstractInst).callConv == ccMusttail and
-       (c.owner.isNil or sfGeneratedOp notin c.owner.flags):
+       (c.owner.isNil or sfGeneratedOp notin c.owner.flags) and
+       goTailCallElim in c.config.options:
     # a call to a ``.musttail`` routine from outside a ``.musttail`` routine.
     # Emit:
     #   var params: ParamBlob
@@ -1478,7 +1481,14 @@ proc genReturn(c: var TCtx, n: PNode) =
     blockExit(c.blocks, c.graph, c.env, c.builder, target)
   elif n[0].kind in nkCallKinds:
     # it's a tail call that must be turned into a sibling call
-    genSiblingCall(c, n[0])
+    if goTailCallElim in c.config.options:
+      genSiblingCall(c, n[0])
+    else:
+      c.buildStmt mnkVoid:
+        c.builder.rawBuildCall mnkTailCall, VoidType, false:
+          genCallee(c, n[0][0])
+          genArgs(c, n[0])
+      tailExit(c.blocks, c.builder)
   else:
     gen(c, n[0])
     blockExit(c.blocks, c.graph, c.env, c.builder, target)
@@ -2174,7 +2184,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   let typ = c.typeToMir(n.typ)
   case n.kind
   of pirProc:
-    if n.typ.callConv == ccMusttail:
+    if goTailCallElim in c.config.options and n.typ.callConv == ccMusttail:
       c.use toValue(c.env.procedures.add(n.sym.ast[miscPos][0].sym), typ)
     else:
       c.use toValue(c.env.procedures.add(n.sym), typ)
