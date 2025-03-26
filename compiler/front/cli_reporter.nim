@@ -2100,6 +2100,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemParameterNotPointerToPartial:
       result = "parameter '$1' is not a pointer to a partial object" % r.ast.render
 
+    of rsemParametersTooLarge:
+      result = "parameters take up too much storage"
+
+    of rsemParameterCannotBeIncomplete:
+      result = ("size of .musttail parameter must be known, but it's not " &
+                "for $1") % r.symstr
+
     of rsemGenericInstantiationTooNested:
       result = "generic instantiation too nested"
 

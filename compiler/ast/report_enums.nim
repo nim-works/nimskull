@@ -454,6 +454,9 @@ type
     # one of course, I mean who needs this, right?
     rsemParameterNotPointerToPartial
 
+    rsemParametersTooLarge
+    rsemParameterCannotBeIncomplete
+
     # Statements
     rsemDiscardingVoid
     rsemDiscardingProc

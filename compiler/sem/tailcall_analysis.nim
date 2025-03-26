@@ -33,7 +33,7 @@ import
   ]
 
 from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports_sem import SemReport, reportAst
+from compiler/ast/reports_sem import SemReport, reportAst, reportSym
 
 # -------------- analysis --------------
 
@@ -174,6 +174,9 @@ proc verifyTailCalls*(g: ModuleGraph, owner: PSym, body: PNode) =
 proc genApply*(c: PContext, s: PSym) =
   ## Generates the 'apply' procedure for routine `s`. The apply procedure
   ## adapts `s` to the signature expected by the `Continuation` object.
+  ##
+  ## Also makes sure that the tuple for storing the parameter doesn't exceed
+  ## the maximum allowed space; an error is reported if it does.
   var apply = newSym(s.kind, s.name, nextSymId(c.idgen), s, s.info, nil)
   apply.flags.incl sfInjectDestructors
   apply.flags.incl sfGeneratedOp
@@ -187,6 +190,22 @@ proc genApply*(c: PContext, s: PSym) =
                    apply, s.info, paramType)
     res   = newSym(skResult, c.cache.getIdent("result"), nextSymId(c.idgen),
                    apply, s.info, contType)
+
+  # check the parameter tuple:
+  block:
+    let
+      size = getSize(c.config, tupType)
+      max = getSize(c.config,
+        c.graph.systemModuleType(c.cache.getIdent("ParamBlob")))
+    if size < 0:
+      # some incomplete type; disallowed. Report an error for every
+      # problematic parameter
+      for i in 0..<tupType.len:
+        if getSize(c.config, tupType[i]) < 0:
+          c.config.localReport(s.typ.n[i + 1].info,
+            reportSym(rsemParameterCannotBeIncomplete, s.typ.n[i + 1].sym))
+    elif size > max:
+      c.config.localReport(s.info, SemReport(kind: rsemParametersTooLarge))
 
   # setup the procedure type:
   apply.typ = newProcType(s.info, nextTypeId(c.idgen), s)
