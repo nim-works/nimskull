@@ -4152,8 +4152,7 @@ calling convention:
 * several static restriction are placed on the arguments
 
 The static restrictions are as follows:
-* arguments to `sink` parameters can be arbitrary expressions, as long as
-  ownership of the value can be transferred
+* arguments to `sink` parameters can be arbitrary expressions
 * arguments to `openArray` parameters must be views into caller parameters or
   globals
 * arguments to `var` and pass-by-reference parameters must be lvalue
