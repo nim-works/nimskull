@@ -4141,24 +4141,32 @@ A *tailing return* is defined as a `return` that is **not** placed:
 `.musttail` Call
 ----------------
 
-Since `.musttail` routine calls are always they take over their caller's stack
-frame, some restriction are placed on their arguments:
+When a `.musttail` routine is called in a routine that doesn't use the
+`.musttail` calling convention itself:
+* the call doesn't have to be a tail call
+* the callee is not guaranteed to take over the caller's stack frame
+* no restrictions are placed on the arguments
+
+When a `.musttail` routine is called in a routine that does use the `.musttail`
+calling convention:
+* the call must be a tail call
+* the callee is guaranteed to take over the caller's stack frame
+* several static restriction are placed on the arguments
+
+The static restrictions are as follows:
 * arguments to `sink` parameters can be arbitrary expressions, as long as
   ownership of the value can be transferred
 * arguments to `openArray` parameters must be views into caller parameters or
   globals
-* arguments to `var`, pass-by-reference, or pass-by-value-with-overridden-copy-
-  operator type parameters must be lvalue expressions derived from caller
-  parameters or globals
-* pass-by-value parameters without for whose type `supportsCopyMem` returns
-  `true`` act like `sink` parameters
+* arguments to `var` and pass-by-reference parameters must be lvalue
+  expressions derived from caller parameters or globals
+* pass-by-value parameters act like `sink` parameters when `supportsCopyMem`
+  returns `true` for the type, otherwise they act like pass-by-reference
+  parameters
 
 For the above `openArray` and `var` rules, whether the expressions refers to
 a location derived from a parameter or global must be visible directly from the
 argument expression, no indirection through locals is allowed.
-
-In addition, `.musttail` routines cannot be called by iterators, methods, and
-exportc'ed routines.
 
 Methods
 =============
