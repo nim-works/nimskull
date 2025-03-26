@@ -492,13 +492,16 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       result.add("; routine: ", r.symstr)
 
-    of rsemCleanupPreventsTailCall:
-      result = "'$1' requires cleanup that prevents a tail call" %
-               [r.ast.render]
-
     of rsemUnavailableLocation:
       result = ("accessed location '$1' doesn't exist in the current " &
                "compile-time context") % [r.ast.render]
+
+    of rsemNoTailingExpression:
+      result = "call to .musttail routine is not the tailing expression of " &
+               "a return"
+
+    of rsemArgumentMustBorrowFromParameter:
+      result = "argument doesn't borrow from parameter or global"
 
     of rsemIllegalCallconvCapture:
       let s = r.symbols[0]
@@ -1367,6 +1370,30 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotReraise:
       result = "an exception can only be re-raised within the scope of an" &
                " except, with no finally in-between"
+
+    of rsemCleanupPreventsTailCall:
+      result = "'$1' requires cleanup that prevents a tail call" %
+               [r.ast.render]
+
+    of rsemDeferPreventsTailCall:
+      result = "cannot tail call because of 'defer' (at $1)" %
+               [conf $ r.ast.info]
+
+    of rsemFinallyPreventsTailCall:
+      result = "tail call must not be enclosed in 'finally' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemExceptPreventsTailCall:
+      result = "tail call must not be enclosed in 'except' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemTryPreventsTailCall:
+      result = "tail call must not be enclosed in 'try' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemTrailingStatementPreventsTailCall:
+      result = "a call to a .musttail must not be followed by statement ($1)" %
+               [conf $ r.ast.info]
 
     of rsemCannotInferTypeOfLiteral:
       result = "cannot infer the type of the $1" % r.typ.kind.toHumanStr

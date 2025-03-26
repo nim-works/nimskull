@@ -25,23 +25,14 @@ import
     semdata
   ],
   compiler/front/[
-    msgs,
-    options
+    msgs
+  ],
+  compiler/utils/[
+    idioms
   ]
 
 from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports_sem import SemReport, reportStr
-
-type
-  Mode = enum
-    emDefer
-    emTry
-    emExpr
-    emLast
-
-proc error(config: ConfigRef, info: TLineInfo, msg: string) =
-  # TODO: use dedicated reports
-  config.localReport(info, reportStr(rsemUserError, msg))
+from compiler/ast/reports_sem import SemReport, reportAst
 
 # -------------- analysis --------------
 
@@ -59,120 +50,122 @@ proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
     let root = getRoot(n)
     # globals and our own parameters are okay, everything else is not
     if not isValid(owner, root):
-      g.config.error(n.info, "argument must borrow from a parameter or global")
+      g.config.localReport(n.info,
+        SemReport(kind: rsemArgumentMustBorrowFromParameter))
   else:
     if isPassByRef(g.config, formal.n[i].sym, formal[0]) or
         hasDestructor(formal[i]):
       # pass-by-value arguments with custom copy behaviour cannot safely be
       # shallow-copied and thus must be borrowed too
       let root = getRoot(n)
-      if root.isNil:
-        g.config.error(n.info, "argument must be lvalue expression")
-      elif not isValid(owner, root):
-        g.config.error(n.info, "argument must borrow from a parameter or global")
+      if root.isNil or not isValid(owner, root):
+        g.config.localReport(n.info,
+          SemReport(kind: rsemArgumentMustBorrowFromParameter))
     else:
       discard "acts like a sink parameter"
 
-proc verifyTailCalls(g: ModuleGraph, owner: PSym, n: PNode, mode: set[Mode]) =
+proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
   ## Runs the analysis to make sure all .musttail calls are proper tail calls.
-  ## Reports an error for every violation. `mode` is used to describe the
-  ## current context.
-  template recurse(n: PNode, mode: set[Mode]) =
-    verifyTailCalls(g, owner, n, mode)
+  ## Reports an error for every violation. `next` is following expression/
+  ## statement (or nil), `problem` the closest problematic try/except/finally/
+  ## defer (or nil).
+  template recurse(x: PNode, next = n, p = problem) =
+    verifyTailCalls(g, owner, x, next, p)
 
-  # note: the `emExpr` mode only needs to be activated only on the
-  # statement -> expression edge
   case n.kind
   of nkReturnStmt:
     if n[0].kind == nkAsgn:
-      recurse(n[0][1], mode + {emLast} - {emExpr})
+      recurse(n[0][1], next=nil)
   of nkCallKinds:
     if n[0].kind == nkSym and n[0].sym.magic == mRunnableExamples:
-      # the body was not type properly, nor is it relevant for the
+      # the body was not typed properly, nor is it relevant for the
       # analysis; skip
       return
 
     for it in n.items:
-      recurse(it, mode + {emExpr})
+      recurse(it) # arguments are not tailing expressions
 
     # XXX: unfolded type expressions reach here, making it possible that the
     #      callee's type is missing
     if n[0].typ != nil and
        n[0].typ.skipTypes(abstractInst).callConv == ccMusttail:
-      if emDefer in mode:
-        g.config.error( n.info, "defer prevents tail call")
-      elif emTry in mode:
-        g.config.error(n.info, "try prevents tail call")
-      elif emExpr in mode:
-        g.config.error(n.info, "enclosing expression prevents tail call")
-      elif emLast notin mode:
-        g.config.error(n.info, "trailing statements prevents tail call")
+      if problem != nil:
+        let rep =
+          case problem.kind
+          of nkDefer: rsemDeferPreventsTailCall
+          of nkExceptBranch: rsemExceptPreventsTailCall
+          of nkFinally: rsemFinallyPreventsTailCall
+          of nkTryStmt: rsemTryPreventsTailCall
+          else: unreachable()
+
+        g.config.localReport(n.info, reportAst(rep, problem))
+      elif next != nil:
+        if n.typ.isEmptyType():
+          # it's a void call
+          g.config.localReport(n.info,
+            reportAst(rsemTrailingStatementPreventsTailCall, next))
+        else:
+          g.config.localReport(n.info,
+            SemReport(kind: rsemNoTailingExpression))
       else:
-        # trailing cleanup errors are detected at a later stage
+        # trailing cleanup is detected at a later stage
         discard "all good"
 
-      # make sure the arguments have an acceptable shape
+      # make sure the arguments adhere to the rules
       for i in 1..<n.len:
         checkArg(g, owner, n[i], i, n[0].typ.skipTypes(abstractInst))
   of nkStmtList, nkStmtListExpr:
-    var tmp = mode - {emLast}
+    var problem = problem
     for i in 0..<n.len-1:
-      recurse(n[i], tmp)
+      recurse(n[i], n[i + 1], problem)
       if n[i].kind == nkDefer:
-        tmp = tmp + {emDefer}
+        problem = n[i]
 
     if n.len > 0:
       # the defer also applies to the trailing statement
-      recurse(n[^1], mode + tmp)
+      recurse(n[^1], next, problem)
+  of nkElifBranch, nkElifExpr, nkCaseStmt:
+    recurse(n[0])
+    for i in 1..<n.len:
+      recurse(n[i], next)
+  of nkIfStmt, nkIfExpr:
+    for it in n.items:
+      recurse(it, next)
   of nkDotExpr, nkCheckedFieldExpr:
-    recurse(n[0], mode)
-  of nkBracketExpr:
-    recurse(n[0], mode)
-    recurse(n[1], mode)
-  of nkAddr, nkDerefExpr, nkHiddenAddr, nkCast, nkConv, nkHiddenStdConv,
-     nkHiddenSubConv, nkObjDownConv, nkObjUpConv, nkExprColonExpr, nkBlockExpr,
-     nkBlockStmt, nkOfBranch, nkExceptBranch, nkPragmaBlock, nkPragmaExpr:
-    recurse(n[^1], mode)
-  of nkDiscardStmt, nkRaiseStmt:
-    recurse(n[0], mode + {emExpr})
-  of nkIdentDefs, nkVarTuple:
-    recurse(n[0], mode + {emExpr})
-  of nkYieldStmt:
-    if n.len > 0:
-      recurse(n[0], mode + {emExpr})
-  of nkAsgn, nkFastAsgn:
-    recurse(n[0], mode + {emExpr})
-    recurse(n[1], mode + {emExpr})
+    # special-cased so that only the first node is scanned
+    recurse(n[0])
+  of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkExprColonExpr,
+     nkIdentDefs, nkVarTuple:
+    # special-cased so that only the last node is scanned
+    recurse(n[^1])
+  of nkOfBranch, nkBlockExpr, nkBlockStmt, nkPragmaBlock, nkPragmaExpr:
+    # expressions within are tailing expressions
+    recurse(n[^1], next)
+  of nkExceptBranch, nkFinally:
+    # tail calls are not possible within
+    recurse(n[^1], next, n)
   of nkTryStmt, nkHiddenTryStmt:
-    recurse(n[0], mode + {emTry})
-    if n[^1].kind == nkFinally:
-      # the finally clause is executed after any of the except clauses
-      for i in 1..<n.len-1:
-        recurse(n[i], mode - {emLast})
-      recurse(n[^1], mode)
-    else:
-      for i in 1..<n.len:
-        recurse(n[i], mode)
+    recurse(n[0], next, n)
+    for i in 1..<n.len:
+      recurse(n[i], next)
   of nkObjConstr:
     for i in 1..<n.len:
-      recurse(n[^1], mode)
-  of nkElifBranch, nkElifExpr, nkCaseStmt:
-    recurse(n[0], mode + {emExpr})
-    for i in 1..<n.len:
-      recurse(n[i], mode)
+      recurse(n[^1])
   of nkForStmt:
-    recurse(n[1], mode - {emLast})
-    recurse(n[2], mode - {emLast})
+    recurse(n[1])
+    recurse(n[2])
   of nkWithoutSons, callableDefs, nkTypeSection, nkConstSection, nkNimNodeLit,
      nkSymChoices, nkBindStmt, nkMixinStmt:
     # don't enter nested routine declarations
     discard "nothing to do"
   else:
+    # default processing; all immediate children are not tailing expressions
     for it in n.items:
-      recurse(it, mode)
+      recurse(it)
 
 proc verifyTailCalls*(g: ModuleGraph, owner: PSym, body: PNode) =
-  verifyTailCalls(g, owner, body, {emLast})
+  # start with no problem and no next expression/statement
+  verifyTailCalls(g, owner, body, nil, nil)
 
 # ------------- routine generation -------------
 

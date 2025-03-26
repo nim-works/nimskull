@@ -501,6 +501,12 @@ type
     rsemUnexpectedPragmaInDefinitionOf
     rsemMisplacedRunnableExample
     rsemCannotReraise
+    rsemCleanupPreventsTailCall
+    rsemDeferPreventsTailCall
+    rsemExceptPreventsTailCall
+    rsemFinallyPreventsTailCall
+    rsemTryPreventsTailCall
+    rsemTrailingStatementPreventsTailCall
 
     # Expressions
     rsemConstantOfTypeHasNoValue
@@ -574,8 +580,9 @@ type
     rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
-    rsemCleanupPreventsTailCall
     rsemUnavailableLocation
+    rsemNoTailingExpression
+    rsemArgumentMustBorrowFromParameter
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
