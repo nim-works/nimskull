@@ -574,6 +574,7 @@ type
     rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
+    rsemCleanupPreventsTailCall
     rsemUnavailableLocation
 
     # Identifier Lookup

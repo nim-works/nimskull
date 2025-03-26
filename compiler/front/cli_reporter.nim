@@ -492,6 +492,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       result.add("; routine: ", r.symstr)
 
+    of rsemCleanupPreventsTailCall:
+      result = "'$1' requires cleanup that prevents a tail call" %
+               [r.ast.render]
+
     of rsemUnavailableLocation:
       result = ("accessed location '$1' doesn't exist in the current " &
                "compile-time context") % [r.ast.render]
