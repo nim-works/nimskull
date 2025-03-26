@@ -171,12 +171,11 @@ jobs:
       - name: Run tester
         run: |
           if ! ./koch.py test --batch:"$TEST_BATCH" --tryFailing all; then
-            oldExitCode=$?
             # XXX: Move this to either koch or testament since it's useful.
             echo ===
             echo Errors occured during tests:
             bin/nim r tools/ci_testresults
-            exit $oldExitCode
+            exit 1
           fi
         env:
           TEST_BATCH: ${{ matrix.batch.idx }}_${{ matrix.num-batch }}
