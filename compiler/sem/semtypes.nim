@@ -1945,7 +1945,7 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
 
-  # instantiat the type of the continuation for .tailcall procedures
+  # instantiate the type of the continuation for .tailcall procedures
   if result.callConv == ccTailcall:
     prepareTailcallProc(c, n.info, result)
 

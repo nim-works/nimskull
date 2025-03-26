@@ -4116,7 +4116,7 @@ a routine's body.
 A call is considered a tail call iff:
 * it is the *tailing expression* of a `return`, and the `return` is a
   *tailing return*
-* it is the *tailing expression* of a rotine's body
+* it is the *tailing expression* of a routine's body
 
 A *tailing expression* is recursively defined as:
 * the body of an `if`, `elif`, or `else` branch

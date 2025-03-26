@@ -38,7 +38,7 @@ from compiler/ast/reports_sem import SemReport, reportAst, reportSym
 # -------------- analysis --------------
 
 proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
-  ## Analyses the `i`-th argument `n` for an call to a procedure with type
+  ## Analyses the `i`-th argument `n` for a call to a procedure with type
   ## `formal`. Reports an error for arguments not adhering to the .tailcall
   ## call rules.
   proc isValid(owner, s: PSym): bool =
