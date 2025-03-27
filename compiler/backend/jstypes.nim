@@ -77,9 +77,10 @@ proc genObjectInfo(p: PProc, typ: PType, name: Rope) =
   var s = ("var $1 = {size: 0, kind: $2, base: null, node: null, " &
            "finalizer: null};$n") % [name, rope(ord(kind))]
   prepend(p.g.typeInfo, s)
+  let tid = ord(p.g.env.types.add(typ))
   p.g.typeInfo.addf("var NNI$1 = $2;$n",
-       [rope(typ.id), genObjectFields(p, typ, typ.n)])
-  p.g.typeInfo.addf("$1.node = NNI$2;$n", [name, rope(typ.id)])
+       [$tid, genObjectFields(p, typ, typ.n)])
+  p.g.typeInfo.addf("$1.node = NNI$2;$n", [name, $tid])
   if (typ.kind == tyObject) and (typ[0] != nil):
     p.g.typeInfo.addf("$1.base = $2;$n",
          [name, genTypeInfo(p, typ[0].skipTypes(skipPtrs))])
@@ -98,9 +99,10 @@ proc genTupleInfo(p: PProc, typ: PType, name: Rope) =
   var s = ("var $1 = {size: 0, kind: $2, base: null, node: null, " &
            "finalizer: null};$n") % [name, rope(ord(typ.kind))]
   prepend(p.g.typeInfo, s)
+  let tid = ord(p.g.env.types.add(typ))
   p.g.typeInfo.addf("var NNI$1 = $2;$n",
-       [rope(typ.id), genTupleFields(p, typ)])
-  p.g.typeInfo.addf("$1.node = NNI$2;$n", [name, rope(typ.id)])
+       [$tid, genTupleFields(p, typ)])
+  p.g.typeInfo.addf("$1.node = NNI$2;$n", [name, $tid])
 
 proc genEnumInfo(p: PProc, typ: PType, name: Rope) =
   var s = ""
@@ -111,21 +113,23 @@ proc genEnumInfo(p: PProc, typ: PType, name: Rope) =
     let extName = if field.ast == nil: field.name.s else: field.ast.strVal
     s.addf("\"$1\": {kind: 1, offset: $1, typ: $2, name: $3, len: 0, sons: null}",
          [rope(field.position), name, makeJSString(extName)])
+  let tid = ord(p.g.env.types.add(typ))
   var n = ("var NNI$1 = {kind: 2, offset: 0, typ: null, " &
-      "name: null, len: $2, sons: {$3}};$n") % [rope(typ.id), rope(typ.n.len), s]
+      "name: null, len: $2, sons: {$3}};$n") % [$tid, rope(typ.n.len), s]
   s = ("var $1 = {size: 0, kind: $2, base: null, node: null, " &
        "finalizer: null};$n") % [name, rope(ord(typ.kind))]
   prepend(p.g.typeInfo, s)
   p.g.typeInfo.add(n)
-  p.g.typeInfo.addf("$1.node = NNI$2;$n", [name, rope(typ.id)])
+  p.g.typeInfo.addf("$1.node = NNI$2;$n", [name, $tid])
   if typ[0] != nil:
     p.g.typeInfo.addf("$1.base = $2;$n",
          [name, genTypeInfo(p, typ[0])])
 
 proc genTypeInfo(p: PProc, typ: PType): Rope =
   let t = typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
-  result = "NTI$1" % [rope(t.id)]
-  if containsOrIncl(p.g.typeInfoGenerated, t.id): return
+  let id = ord(p.g.env.types.add(t))
+  result = "NTI" & $id
+  if containsOrIncl(p.g.typeInfoGenerated, id): return
   case t.kind
   of tyDistinct:
     result = genTypeInfo(p, t[0])

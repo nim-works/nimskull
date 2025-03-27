@@ -45,7 +45,8 @@ import
   ],
   compiler/mir/[
     mirenv,
-    mirtrees
+    mirtrees,
+    mirtypes
   ],
   compiler/front/[
     options,
