@@ -626,17 +626,16 @@ proc procTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     for i in 1..<f.len:
       checkParam(f[i], a[i])
 
-    if f[0] != nil and a[0] != nil:
-      # both have return types
-      if a[0].kind == tyUntyped:
-        # special handling for the return type: if `a` is 'auto' we first
-        # instantiate the procedure passed as the argument
-        result = isBothMetaConvertible
-      else:
-        checkParam(f[0], a[0])
-    elif a[0] != f[0]:
-      # one has a void return type while the other doesn't
-      return isNone
+    let
+      aret = if a[0] == nil: c.c.voidType else: a[0]
+      fret = if f[0] == nil: c.c.voidType else: f[0]
+
+    if aret.kind == tyUntyped:
+      # special handling for the return type: if `a` is 'auto' we first
+      # instantiate the procedure passed as the argument
+      result = isBothMetaConvertible
+    else:
+      checkParam(fret, aret)
 
     result = getProcConvMismatch(c.c.config, f, a, result)[1]
 
