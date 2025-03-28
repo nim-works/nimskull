@@ -275,11 +275,11 @@ func fn2(): int =
     doAssert a2 == """
 func fn1(): int =
   ## comment
-  result = 1
+  return 1
 
 func fn2(): int =
   ## comment
-  result = 1"""
+  return 1"""
 
 static: main()
 main()
