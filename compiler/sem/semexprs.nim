@@ -2369,11 +2369,17 @@ proc semProcBody(c: PContext, n: PNode): PNode =
       #   # comment
       # are not expressions:
       fixNilType(c, result)
+    elif result.kind == nkStmtListExpr:
+      # in order to preserve doc comments, apply the return to the last
+      # statement in the list, not to the whole list
+      result.transitionSonsKind(nkStmtList)
+      result.typ = nil
+      let last = semReturn(c, newTreeI(nkReturnStmt, n.info, result[^1]))
+      result[^1] = last
+      if last.kind == nkError:
+        result = c.config.wrapError(result)
     else:
-      var a = newNodeI(nkAsgn, n.info, 2)
-      a[0] = newSymNode(c.p.resultSym)
-      a[1] = result
-      result = semAsgn(c, a)
+      result = semReturn(c, newTreeI(nkReturnStmt, n.info, result))
   else:
     result = discardCheck(c, result, {})
 
