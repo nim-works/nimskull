@@ -701,36 +701,6 @@ proc getAllRunnableExamplesImpl(d: PDoc; n: PNode, dest: var ItemPre,
     # change this to `rsStart` if you want to keep generating doc comments
     # and runnableExamples that occur after some code in routine
 
-proc getRoutineBody(n: PNode): PNode =
-  ##[
-  nim transforms these quite differently:
-
-  proc someType*(): int =
-    ## foo
-    result = 3
-=>
-  result =
-    ## foo
-    3;
-
-  proc someType*(): int =
-    ## foo
-    3
-=>
-  ## foo
-  result = 3;
-
-  so we normalize the results to get to the statement list containing the
-  (0 or more) doc comments and runnableExamples.
-  ]##
-  result = n[bodyPos]
-
-  # This won't be transformed: result.id = 10. Namely result[0].kind != nkSym.
-  if result.kind == nkAsgn and result[0].kind == nkSym and
-                               n.len > bodyPos+1 and n[bodyPos+1].kind == nkSym:
-    doAssert result.len == 2
-    result = result[1]
-
 proc getAllRunnableExamples(d: PDoc, n: PNode, dest: var ItemPre) =
   var n = n
   var state = rsStart
@@ -739,7 +709,7 @@ proc getAllRunnableExamples(d: PDoc, n: PNode, dest: var ItemPre) =
   dest.add genComment(d, n)
   case n.kind
   of routineDefs:
-    n = n.getRoutineBody
+    n = n[bodyPos]
     case n.kind
     of nkCommentStmt, nkCallKinds: fn(n, topLevel = false)
     else:
