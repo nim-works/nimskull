@@ -501,7 +501,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
                "a return"
 
     of rsemArgumentMustBorrowFromParameter:
-      result = "argument doesn't borrow from parameter or global"
+      result = "argument doesn't borrow from parameter, global, or ptr " &
+               "dereference"
 
     of rsemIllegalCallconvCapture:
       let s = r.symbols[0]

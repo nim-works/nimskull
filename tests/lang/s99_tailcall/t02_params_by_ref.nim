@@ -38,6 +38,13 @@ doAssert test_deref_projection((ref Large)(val: 1)) == 1
 var global = Large(val: 1)
 doAssert test_var_param(global) == 1
 
+# arguments can be projections of pointer dereferences:
+proc test_ptr_projection(x: Large): int {.tailcall.} =
+  var pt = addr x
+  p(pt[])
+
+doAssert test_ptr_projection(Large(val: 1)) == 1
+
 # arguments can be globals (or projections of globals):
 proc test_global(): int {.tailcall.} =
   p(global)

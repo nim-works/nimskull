@@ -37,20 +37,36 @@ from compiler/ast/reports_sem import SemReport, reportAst, reportSym
 
 # -------------- analysis --------------
 
+proc isValidLvalueExpr(n: PNode): bool =
+  ## Computes whether `n` is an lvalue expression that may be passed to a var
+  ## or pass-by-reference parameter.
+  case n.kind
+  of nkSym:
+    n.sym.kind == skParam or sfGlobal in n.sym.flags
+  of nkDerefExpr:
+    if n[0].typ.skipTypes(abstractInst).kind == tyPtr:
+      true
+    else:
+      isValidLvalueExpr(n[0])
+  of nkDotExpr, nkBracketExpr, nkHiddenDeref, nkObjUpConv,
+     nkObjDownConv, nkCheckedFieldExpr, nkHiddenAddr, nkAddr:
+    isValidLvalueExpr(n[0])
+  of nkHiddenStdConv, nkHiddenSubConv, nkConv:
+    isValidLvalueExpr(n[1])
+  of nkCallKinds:
+    getMagic(n) == mSlice and isValidLvalueExpr(n[1])
+  else:
+    false
+
 proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
   ## Analyses the `i`-th argument `n` for a call to a procedure with type
   ## `formal`. Reports an error for arguments not adhering to the .tailcall
   ## call rules.
-  proc isValid(owner, s: PSym): bool =
-    (sfGlobal in s.flags) or (s.kind == skParam and s.owner == owner)
-
   case formal[i].kind
   of tySink:
     discard "all expressions are admitted"
   of tyVar:
-    let root = getRoot(n)
-    # globals and our own parameters are okay, everything else is not
-    if not isValid(owner, root):
+    if not isValidLvalueExpr(n):
       g.config.localReport(n.info,
         SemReport(kind: rsemArgumentMustBorrowFromParameter))
   else:
@@ -58,8 +74,7 @@ proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
         hasDestructor(formal[i]):
       # pass-by-value arguments with custom copy behaviour cannot safely be
       # shallow-copied and thus must be borrowed too
-      let root = getRoot(n)
-      if root.isNil or not isValid(owner, root):
+      if not isValidLvalueExpr(n):
         g.config.localReport(n.info,
           SemReport(kind: rsemArgumentMustBorrowFromParameter))
     else:

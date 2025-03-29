@@ -4157,7 +4157,7 @@ The static restrictions are as follows:
 * arguments to `openArray` parameters must be views into caller parameters or
   globals
 * arguments to `var` and pass-by-reference parameters must be lvalue
-  expressions derived from caller parameters or globals
+  expressions derived from caller parameters, globals, or `ptr` dereferences
 * pass-by-value parameters act like `sink` parameters when `supportsCopyMem`
   returns `true` for the type, otherwise they act like pass-by-reference
   parameters
