@@ -1552,7 +1552,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ## 2. general lowerings -- these are the ones implemented here in
   ##    ``transf``
   ## 3. the ``closureiters`` transformation
-  ## 4. tail-call elimination (where enabled)
+  ## 4. tail-call preprocessing (where enabled)
   ##
   ## Application always happens in that exact order.
   g.config.timeTracer.traceSym(tikTransform, prc)

@@ -1222,9 +1222,10 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     genCall(c, n)
 
 proc genParamContainerSetup(c: var TCtx, n: PNode, dst: Value) =
-  ## Generates the parameter container setup for the tail-call elimination,
-  ## plus the store into the storage identified by `dst`.
-  assert n.len > 1, "no parameters"
+  ## Given call `n`, generates and emits the parameter container setup for the
+  ## tail-call elimination, plus the store into the storage identified by
+  ## `dst`.
+  assert n.len > 1, "no arguments"
   let fntype = n[0].typ.skipTypes(abstractInst)
   # creating a parameter tuple using the graph's IdGenerator yields types
   # with degenerate IDs. Let's hope these types don't end up anywhere
@@ -2593,7 +2594,7 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
 
   # result variable:
   if tailCallElimActive(c):
-    # create a new result variable using a continuation type
+    # create a new result variable using the continuation type
     add Local(name: c.graph.cache.getIdent("result"),
               typ: c.typeToMir(signature.n[0][3].typ))
   elif signature[0].isEmptyType():

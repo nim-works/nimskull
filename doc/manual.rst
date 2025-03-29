@@ -4131,10 +4131,10 @@ For example, in `if a: (if b: c else: d) else: e`, `c` and `d` are the tailing
 expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
 `(if b: c else: d)` are the tailing expressions of the outer if-then-else.
 
-A *tailing return* is defined as a `return` that is **not** placed:
-* in a `try` body
-* in an `except` or `finally` clause
-* in a statement list with implicit destructor calls at its end
+A *tailing return* is defined as a `return` that is **not** placed in:
+* a `try` body
+* an `except` or `finally` clause
+* a statement list with implicit destructor calls at its end
 * after a `defer` statement in a statement list
 
 `.tailcall` Call
@@ -4144,15 +4144,15 @@ When a `.tailcall` routine is called in a routine that doesn't use the
 `.tailcall` calling convention itself:
 * the call doesn't have to be a tail call
 * the callee is not guaranteed to take over the caller's stack frame
-* no restrictions are placed on the arguments
+* no constraints are placed on the arguments
 
 When a `.tailcall` routine is called in a routine that does use the `.tailcall`
 calling convention:
 * the call must be a tail call
 * the callee is guaranteed to take over the caller's stack frame
-* several static restriction are placed on the arguments
+* several static constraints are placed on the arguments
 
-The static restrictions are as follows:
+The static constraints are as follows:
 * arguments to `sink` parameters can be arbitrary expressions
 * arguments to `openArray` parameters must be views into caller parameters or
   globals

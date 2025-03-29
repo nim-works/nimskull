@@ -1666,8 +1666,8 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
 
 proc newParamTuple*(config: ConfigRef, idgen: IdGenerator, owner: PSym,
                     fntype: PType): PType =
-  ## Synthesizes a tuple type to hold the parameters for a call to procedure
-  ## with the given `fntype`, as needed by tail-call elimination.
+  ## Synthesizes a tuple type to hold the parameters for a call to a procedure
+  ## with the type `fntype`, as needed by tail-call elimination.
   # XXX: this procedure doesn't belong here
   assert fntype.kind == tyProc
 

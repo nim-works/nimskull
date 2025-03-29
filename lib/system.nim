@@ -3067,7 +3067,7 @@ proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "T
 
 type
   ParamBlob = object
-    ## The type to use for the storage of sibling-call arguments.
+    ## The type to use for the storage of parameters.
     data: array[256, byte]
 
   Continuation[T] = object

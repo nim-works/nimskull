@@ -82,7 +82,7 @@ proc checkArg(g: ModuleGraph, owner: PSym, n: PNode, i: int, formal: PType) =
 
 proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
   ## Runs the analysis to make sure all .tailcall calls are proper tail calls.
-  ## Reports an error for every violation. `next` is following expression/
+  ## Reports an error for every violation. `next` is the following expression/
   ## statement (or nil), `problem` the closest problematic try/except/finally/
   ## defer (or nil).
   template recurse(x: PNode, next = n, p = problem) =
@@ -138,7 +138,7 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
         problem = n[i]
 
     if n.len > 0:
-      # the defer also applies to the trailing statement
+      # the defer also applies to the trailing statement/expression
       recurse(n[^1], next, problem)
   of nkElifBranch, nkElifExpr, nkCaseStmt:
     recurse(n[0])

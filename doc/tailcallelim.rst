@@ -53,7 +53,9 @@ type, thunks and a separate parameter storage are used:
   proc b(): int {.tailcall.} =
     a(1, 2)
 
-  # become:
+are transformed into:
+
+.. code-block:: nim
 
   proc a(x, y: int, env: pointer): Continuation[int] {.tailcall.} =
     return Continuation[int](done: true, result: x + y)
