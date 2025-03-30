@@ -1,5 +1,9 @@
 discard """
   description: "`sink` parameters are fully supported by `.tailcall` routines"
+  knownIssue.vm: '''
+    `vmgen` doesn't handle `sink` parameters properly, leading to a run-time
+    access violation
+  '''
 """
 
 type Data = object
