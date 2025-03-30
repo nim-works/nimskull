@@ -123,8 +123,12 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## writes it to the output file.
   let
     globals = newGlobals(graph)
-    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics,
-                                                     options: {goTailCallElim}))
+    bconf = BackendConfig(
+      tconfig: TranslationConfig(
+        magicsToKeep: NonMagics,
+        options: {goTailCallElim}
+      )
+    )
 
   var
     modules: BModuleList

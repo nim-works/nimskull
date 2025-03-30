@@ -501,7 +501,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
                "a return"
 
     of rsemArgumentMustBorrowFromParameter:
-      result = "argument doesn't borrow from parameter, global, or ptr " &
+      result = "argument doesn't borrow from parameter, global, or pointer " &
                "dereference"
 
     of rsemIllegalCallconvCapture:

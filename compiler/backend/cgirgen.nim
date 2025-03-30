@@ -387,13 +387,13 @@ proc calleeToIr(tree: MirBody, cl: var TranslateCl, cr: var TreeCursor): CgNode 
 proc callToIr(tree: MirBody, cl: var TranslateCl, n: MirNode,
               cr: var TreeCursor): CgNode =
   ## Translate a valid call-like tree to the CG IR.
-  let info = cr.info
-  result = newExpr((case n.kind
-                    of mnkCall:        cnkCall
-                    of mnkCheckedCall: cnkCheckedCall
-                    of mnkTailCall:    cnkTailCall
-                    else: unreachable()),
-                   info, cl.map(n.typ))
+  let kind =
+    case n.kind
+    of mnkCall:        cnkCall
+    of mnkCheckedCall: cnkCheckedCall
+    of mnkTailCall:    cnkTailCall
+    else:              unreachable()
+  result = newExpr(kind, cr.info, cl.map(n.typ))
   tree.skip(cr) # skip the immediate value
   result.add calleeToIr(tree, cl, cr)
 
