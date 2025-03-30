@@ -199,10 +199,10 @@ proc genApply*(c: PContext, s: PSym) =
   let
     contType    = s.typ.n[0][3].typ # use the hidden type
     tupType     = newParamTuple(c.config, c.idgen, apply, s.typ)
-    paramType   = makePtrType(apply, tupType, c.idgen)
+    tupPtrType  = makePtrType(apply, tupType, c.idgen)
     pointerType = c.graph.getSysType(s.info, tyPointer)
     param = newSym(skParam, c.cache.getIdent(":env"), nextSymId(c.idgen),
-                   apply, s.info, paramType)
+                   apply, s.info, pointerType)
     res   = newSym(skResult, c.cache.getIdent("result"), nextSymId(c.idgen),
                    apply, s.info, contType)
 
@@ -227,12 +227,15 @@ proc genApply*(c: PContext, s: PSym) =
   apply.typ.n[0] = s.typ.n[0] # inherit the effects
   apply.typ.n.add newSymNode(param)
   apply.typ[0] = contType
-  apply.typ.rawAddSon(paramType, propagateHasAsgn=false)
+  apply.typ.rawAddSon(pointerType, propagateHasAsgn=false)
 
   var call = newTreeIT(nkCall, s.info, contType, newSymNode(s))
   for i in 1..<s.typ.len:
     let acc = newTreeIT(nkBracketExpr, s.info, tupType[i-1],
-      newTreeIT(nkDerefExpr, s.info, paramType.lastSon, newSymNode(param)),
+      newTreeIT(nkDerefExpr, s.info, tupType,
+        newTreeIT(nkCast, s.info, tupPtrType,
+          newNodeIT(nkType, s.info, tupPtrType),
+          newSymNode(param))),
       newIntLit(c.graph, s.info, i-1))
     if s.typ[i].kind == tySink:
       # owning arguments *must* be moved explicitly. The move analyser
@@ -251,10 +254,8 @@ proc genApply*(c: PContext, s: PSym) =
     else:
       call.add acc
 
-  # pass along the type-erased environemnt pointer:
-  call.add newTreeIT(nkCast, s.info, pointerType,
-    newNodeIT(nkType, s.info, pointerType),
-    newSymNode(param))
+  # pass along the environemnt pointer:
+  call.add newSymNode(param)
 
   apply.ast = newProcNode(nkProcDef, s.info,
     body = newTree(nkAsgn, newSymNode(res), call),
