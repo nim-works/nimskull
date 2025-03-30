@@ -216,6 +216,9 @@ proc isCastable(c: PContext; dst, src: PType): bool =
     return false
   if skipTypes(dst, abstractInst).kind == tyBuiltInTypeClass:
     return false
+  if skipTypes(src, abstractInst).kind == tyOpenArray:
+    # always castable from for backwards compatibility
+    return true
   let conf = c.config
   if conf.selectedGC in {gcArc, gcOrc}:
     let d = skipTypes(dst, abstractInst)

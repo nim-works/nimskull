@@ -251,7 +251,8 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
       typ.paddingAtEnd = szIllegalRecursion
       return
     typ.align = int16(conf.target.ptrSize)
-    if typ.kind == tySequence and optSeqDestructors in conf.globalOptions:
+    if (typ.kind == tySequence and optSeqDestructors in conf.globalOptions) or
+       (base.skipTypes(abstractInst).kind == tyOpenArray):
       typ.size = conf.target.ptrSize * 2
     else:
       typ.size = conf.target.ptrSize
@@ -427,6 +428,11 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
       typ.size = szUnknownSize
       typ.align = szUnknownSize
       typ.paddingAtEnd = szUnknownSize
+  of tyOpenArray:
+    # the size is that of a reified openArray
+    typ.align = int16(conf.target.ptrSize)
+    typ.size = conf.target.ptrSize * 2
+    typ.paddingAtEnd = 0
   else:
     typ.size = szUnknownSize
     typ.align = szUnknownSize
