@@ -1,5 +1,5 @@
 discard """
-  reject: true
+  action: reject
 """
 
 type Large = array[1024, int]

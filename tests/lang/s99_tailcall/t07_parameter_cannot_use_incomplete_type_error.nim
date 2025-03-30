@@ -1,5 +1,5 @@
 discard """
-  reject: true
+  action: reject
 """
 
 type Imported {.importc.} = object
