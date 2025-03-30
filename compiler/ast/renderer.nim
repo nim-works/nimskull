@@ -507,7 +507,9 @@ proc lsub(g: TSrcGen; n: PNode): int =
   of nkFinally: result = lsub(g, n[0]) + len("finally:_")
   of nkGenericParams: result = lcomma(g, n) + 2
   of nkFormalParams:
-    result = lcomma(g, n, 1) + 2
+    # don't render the transf-introduced hidden parameter
+    let e = if n[^1].kind == nkSym: -2 else: -1
+    result = lcomma(g, n, 1, e) + 2
     if n[0].kind != nkEmpty: result += lsub(g, n[0]) + 2
   of nkExceptBranch:
     result = lcomma(g, n, 0, -2) + lsub(g, lastSon(n)) + len("except_:_")
@@ -1621,7 +1623,11 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
       put(g, tkBracketRi, "]")
   of nkFormalParams:
     put(g, tkParLe, "(")
-    gsemicolon(g, n, 1)
+    if n[^1].kind == nkSym:
+      # don't render transf-introduced hidden parameters
+      gsemicolon(g, n, 1, -2)
+    else:
+      gsemicolon(g, n, 1)
     put(g, tkParRi, ")")
     if n.len > 0 and n[0].kind != nkEmpty:
       putWithSpace(g, tkColon, ":")
