@@ -134,10 +134,10 @@ proc reportDiagnostics(g: ModuleGraph, types: TypeEnv, body: MirBody,
         SemReport(kind: rsemCopiesToSink, ast: ast)
       of ldkCleanupPreventsTailCall:
         let ent = body.sourceFor(diag.entity)
-        if body.code[diag.entity].kind == mnkLocal:
-          SemReport(kind: rsemCleanupPreventsTailCall, sym: ent.sym)
-        else:
+        if body.code[diag.entity].kind == mnkTemp:
           SemReport(kind: rsemCleanupPreventsTailCall, ast: ent)
+        else:
+          SemReport(kind: rsemCleanupPreventsTailCall, sym: ent.sym)
 
     localReport(g.config, ast.info, rep)
 

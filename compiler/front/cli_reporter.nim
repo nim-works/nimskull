@@ -1377,8 +1377,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         result = "cannot tail call; local '$1' requires cleanup" %
                  [r.symstr]
       else:
-        result = ("cannot tail call; temporary requires cleanup (comes " &
-                 "from $1)") % [conf $ r.ast.info]
+        result = ("cannot tail call; temporary requires cleanup [comes " &
+                 "from: $1]") % [conf $ r.ast.info]
 
     of rsemDeferPreventsTailCall:
       result = "cannot tail call because of 'defer' (at $1)" %
