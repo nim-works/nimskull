@@ -1195,10 +1195,10 @@ proc genArgNoParam(p: PProc, n: CgNode, r: var TCompRes) =
   else:
     r.res.add(a.res)
 
-proc genArg(p: PProc, n: CgNode, param: PSym, r: var TCompRes; emitted: ptr int = nil) =
+proc genArg(p: PProc, n: CgNode, param: PType, r: var TCompRes; emitted: ptr int = nil) =
   var a: TCompRes
   gen(p, n, a)
-  if skipTypes(param.typ, abstractVar).kind in {tyOpenArray, tyVarargs} and
+  if skipTypes(param, abstractVar).kind in {tyOpenArray, tyVarargs} and
       a.typ == etyBaseIndex:
     r.res.add("$1[$2]" % [a.address, a.res])
   elif a.typ == etyBaseIndex:
@@ -1230,7 +1230,7 @@ proc genArgs(p: PProc, n: CgNode, r: var TCompRes; start=1) =
     if paramType.isNil:
       genArgNoParam(p, it, r)
     else:
-      genArg(p, it, paramType.sym, r, addr emitted)
+      genArg(p, it, paramType.sym.typ, r, addr emitted)
     inc emitted
     hasArgs = true
   r.res.add(")")
@@ -1253,7 +1253,7 @@ proc genOtherArg(p: PProc; n: CgNode; i: int; typ: PType;
   if paramType.isNil:
     genArgNoParam(p, it, r)
   else:
-    genArg(p, it, paramType.sym, r)
+    genArg(p, it, paramType.sym.typ, r)
   inc generated
 
 proc genPatternCall(p: PProc; n: CgNode; pat: string; typ: PType;
@@ -1317,7 +1317,16 @@ proc genInfixCall(p: PProc, n: CgNode, r: var TCompRes) =
 
 proc genCall(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n[0], r)
-  genArgs(p, n, r)
+  if n[0].kind != cnkProc and
+     n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
+    # an indirect tailcall call. The signature doesn't match reality, so we
+    # manually handle the argument
+    # XXX: this is fundamentally a hack
+    r.res.add "("
+    genArg(p, n[1], p.module.graph.getSysType(n[1].info, tyPointer), r, nil)
+    r.res.add ")"
+  else:
+    genArgs(p, n, r)
   if n.typ != nil:
     let t = mapType(n.typ)
     if t == etyBaseIndex:
