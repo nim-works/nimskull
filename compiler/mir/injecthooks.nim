@@ -49,6 +49,7 @@ type
     ldkPassCopyToSink       ## a copy is introduced in a consume context
     ldkUnavailableTypeBound ## a type-bound operator is requested but not
                             ## available
+    ldkCleanupPreventsTailCall
 
   LocalDiag = object
     ## A temporary diagnostic representation that is later turned into a
@@ -57,7 +58,7 @@ type
     case kind: LocalDiagKind
     of ldkUnavailableTypeBound:
       op: TTypeAttachedOp
-    of ldkPassCopyToSink:
+    of ldkPassCopyToSink, ldkCleanupPreventsTailCall:
       discard
 
 const
@@ -129,6 +130,8 @@ proc reportDiagnostics(g: ModuleGraph, types: TypeEnv, body: MirBody,
                   sym: owner)
       of ldkPassCopyToSink:
         SemReport(kind: rsemCopiesToSink, ast: ast)
+      of ldkCleanupPreventsTailCall:
+        SemReport(kind: rsemCleanupPreventsTailCall, ast: ast)
 
     localReport(g.config, ast.info, rep)
 
@@ -282,6 +285,18 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
           bu.emitByName ekMutate:
             bu.emitFrom(tree, tree.child(i, 0))
 
+    of mnkMagic:
+      if n.magic == mEnsureNoCleanup:
+        # make sure there's no destroy operation following the marker
+        let
+          stmt = tree.parent(tree.parent(i))
+          next = tree.sibling(stmt)
+        if tree[next].kind == mnkDestroy:
+          diags.add LocalDiag(pos: tree.child(next, 0),
+                              kind: ldkCleanupPreventsTailCall)
+
+        # remove the marker:
+        changes.remove(tree, stmt)
     else:
       discard "nothing to do"
 

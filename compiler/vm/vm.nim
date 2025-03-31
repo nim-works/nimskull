@@ -1984,6 +1984,44 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         # -1 for the following 'inc pc'
         pc = newPc-1
 
+    of opcTailCall:
+      # largely the same implementation as `opcIndCall`, but doesn't support
+      # callbacks and replaces the current stack frame
+      let
+        rb = instr.regB
+        rc = instr.regC
+      checkHandle(regs[rb])
+      let fPtr = deref(regs[rb].handle).callableVal
+
+      if unlikely(fPtr.isNil):
+        raiseVmError(VmEvent(kind: vmEvtNilAccess))
+
+      let entry {.cursor.} = c.functions[int toFuncIndex(fPtr)]
+      assert entry.sig == regs[rb].handle.typ.routineSig
+      assert entry.kind == ckDefault
+      if entry.start < 0:
+        # the procedure entry is a stub. Yield back control to the VM's
+        # callsite, so that it can decide what do to
+        return YieldReason(kind: yrkMissingProcedure,
+                            entry: toFuncIndex(fPtr))
+
+      let (newPc, regCount) = (entry.start, entry.regCount.int)
+      if newPc < pc: handleJmpBack()
+
+      # note: the code generator is reponsible for making sure the argument
+      # window doesn't overlap with the parameter registers
+      for i in 1..<rc:
+        # move, don't assign. This makes sure owning locs stay as such
+        regs[i] = move regs[rb + i]
+
+      # clean up the current frame:
+      cleanUpLocations(c.memory, t.regs, t.sframes[^1].start + rc)
+
+      t.sframes[^1].prc = entry.sym
+      # make space for the registers and refresh the view:
+      t.regs.setLen(t.sframes[^1].start + regCount)
+      updateRegsAlias()
+      pc = newPc - 1 # -1 to undo the following 'inc pc'
     of opcTJmp:
       # jump Bx if A != 0
       let rbx = instr.regBx - wordExcess - 1 # -1 for the following 'inc pc'

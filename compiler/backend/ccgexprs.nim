@@ -1442,6 +1442,12 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     initLocExpr(p, e[2], b)
     linefmt(p, cpsStmts, "$1 = $2;$n", [rdMType(p, a, check),
                                         rdMType(p, b, check)])
+  of mStoreParams:
+    var a, b: TLoc
+    initLocExpr(p, e[1], a)
+    initLocExpr(p, e[2], b)
+    linefmt(p, cpsStmts, "#nimCopyMem($1, $2, sizeof($3));$n",
+            [rdLoc(a), addrLoc(p.module, b), getTypeDesc(p.module, e[2].typ)])
   else:
     when defined(debugMagics):
       echo p.prc.name.s, " ", p.prc.id, " ", p.prc.flags, " ", p.prc.ast[genericParamsPos].kind
@@ -1781,7 +1787,7 @@ proc expr(p: BProc, n: CgNode, d: var TLoc) =
   of cnkGotoStmt:
     linefmt(p, cpsStmts, "goto $1;$n", [n[0].label])
   of cnkInvalid, cnkType, cnkAstLit, cnkMagic, cnkRange, cnkBinding, cnkBranch,
-     cnkLabel, cnkField, cnkStmtList, cnkResume:
+     cnkLabel, cnkField, cnkStmtList, cnkResume, cnkTailCall:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =

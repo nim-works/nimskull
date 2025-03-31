@@ -25,6 +25,8 @@ type
     ccFastCall = "fastcall"         ## fastcall (pass parameters in registers)
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
+    ccTailcall = "tailcall"         ## procedure supports guaranteed tail call
+                                    ## elimination
 
 type
   MismatchKind* = enum
@@ -848,6 +850,12 @@ type
     mCopyInternal
       ## copyInternal(a, b); copies backend-specific internal data stored
       ## on non-pure objects from a to b
+    mStoreParams
+      ## storeParams(p, tup): savely stores the tuple in the storage pointed
+      ## to by `p`
+    mEnsureNoCleanup
+      ## destructor calls following an ensureNoCleanup call result in a
+      ## compiler error
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -1126,6 +1134,7 @@ type
     adSemNoReturnHasReturn
     adSemMisplacedDeprecation
     adSemCustomUserError
+    adSemMethodCantBeTailcall
     adSemFatalError
     adSemNoUnionForJs
     adSemBitsizeRequiresPositive
@@ -1328,6 +1337,7 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
+        adSemMethodCantBeTailcall,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,

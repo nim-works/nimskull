@@ -19,6 +19,9 @@ import
   compiler/modules/[
     magicsys,
     modulegraphs
+  ],
+  compiler/utils/[
+    idioms
   ]
 
 type
@@ -151,6 +154,35 @@ proc blockExit*(c; graph: ModuleGraph; env: var MirEnv; bu; targetBlock: int) =
   # no intercepting finally exists
   bu.subTree mnkGoto:
     bu.add labelNode(bu.requestLabel(c.blocks[targetBlock]))
+
+proc tailExit*(c; bu) =
+  ## Emits the tentative cleanup logic after a tail call. The caller has to
+  ## guarantee that there are no enclosing except, finally, or try clauses.
+  var last = c.toDestroy.high
+  if last >= 0:
+    # add a marker for the later "no trailing cleanup" pass
+    bu.subTree mnkVoid:
+      bu.buildMagicCall mEnsureNoCleanup, VoidType:
+        discard
+
+  for i in countdown(c.blocks.high, 0):
+    let b {.cursor.} = c.blocks[i]
+    case b.kind
+    of bkScope:
+      let start = last - b.numRegistered
+      for j in countdown(last, start + 1):
+        bu.emitDestroy(c.toDestroy[j].entity)
+      last = start
+    of bkBlock:
+      discard "ignore"
+    of bkTryExcept:
+      # for the convenience of mirgen, these are not disallowed
+      discard
+    of bkTryFinally, bkExcept, bkFinally:
+      unreachable()
+
+  bu.subTree mnkGoto:
+    bu.add labelNode(bu.requestLabel(c.blocks[0]))
 
 template add*(c: var BlockCtx; b: Block) =
   c.blocks.add b

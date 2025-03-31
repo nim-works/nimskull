@@ -234,15 +234,15 @@ proc processEvent(g: BModuleList, inl: var InliningData,
   of bekPartial:
     # register inline dependencies:
     let inlineId = handleInline(inl, g.env, evt.module, evt.sym, evt.body.code)
+    let body = generateIR(g.graph, bmod.idgen, g.env, evt.sym, evt.body)
 
     var p = getOrDefault(partial, evt.id)
     if p == nil:
-      p = startProc(g.modules[evt.module.int], evt.id, Body())
+      p = startProc(g.modules[evt.module.int], evt.id, body)
+      genPartial(p, p.body.code)
       partial[evt.id] = p
-
-    let body = generateIR(g.graph, bmod.idgen, g.env, evt.sym, evt.body)
-    # emit into the procedure:
-    genPartial(p, merge(p.body, body))
+    else:
+      genPartial(p, merge(p.body, body))
 
     processLate(bmod, discovery, inl, evt.module, inlineId)
   of bekProcedure:
@@ -432,7 +432,12 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
 
   # ----- main event processing -----
   let
-    config = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
+    config = BackendConfig(
+      tconfig: TranslationConfig(
+        magicsToKeep: NonMagics,
+        options: {goTailCallElim}
+      )
+    )
 
   var
     inl:       InliningData

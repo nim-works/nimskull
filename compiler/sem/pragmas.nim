@@ -65,7 +65,7 @@ from compiler/ic/ic import addCompilerProc
 
 const
   FirstCallConv* = wNimcall
-  LastCallConv* = wNoconv
+  LastCallConv* = wTailcall
 
 const
   declPragmas = {wImportc, wImportJs, wExportc, wExportNims, wExtern,
@@ -1390,9 +1390,14 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of FirstCallConv..LastCallConv:
         assert(sym != nil)
         assert sym.typ != nil
-        result = it
-        sym.typ.callConv = wordToCallConv(k)
-        sym.typ.flags.incl tfExplicitCallConv
+        let cc = wordToCallConv(k)
+        if sym.kind == skMethod and cc == ccTailcall:
+          result = c.config.newError(it,
+            PAstDiag(kind: adSemMethodCantBeTailcall))
+        else:
+          result = it
+          sym.typ.callConv = cc
+          sym.typ.flags.incl tfExplicitCallConv
       of wIncompleteStruct:
         result = noVal(c, it)
         assert sym.typ != nil

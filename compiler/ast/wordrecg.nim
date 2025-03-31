@@ -57,7 +57,7 @@ type
     wLinksys = "linksys", wDeprecated = "deprecated", wVarargs = "varargs", wCallconv = "callconv",
     wDebugger = "debugger", wNimcall = "nimcall", wStdcall = "stdcall", wCdecl = "cdecl",
     wSafecall = "safecall", wSyscall = "syscall", wInline = "inline", wNoInline = "noinline",
-    wFastcall = "fastcall", wClosure = "closure", wNoconv = "noconv",
+    wFastcall = "fastcall", wClosure = "closure", wNoconv = "noconv", wTailcall = "tailcall"
     wOn = "on", wOff = "off", wChecks = "checks", wRangeChecks = "rangeChecks",
     wBoundChecks = "boundChecks", wOverflowChecks = "overflowChecks", wNilChecks = "nilChecks",
     wFloatChecks = "floatChecks", wNanChecks = "nanChecks", wInfChecks = "infChecks",

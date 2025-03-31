@@ -2103,6 +2103,12 @@ Nim supports these `calling conventions`:idx:\:
     Nim's default calling convention for procedures is `fastcall` to
     improve speed.
 
+`tailcall`:idx:
+    When a call to the routine appears in another `tailcall` routine, the call
+    must be a `tail call <#tail-call>`_ (with some additional restrictions)
+    and is guaranteed to not allocate a new stack frame. Otherwise it behaves
+    like a `nimcall` routine.
+
 Most calling conventions exist only for the Windows 32-bit platform.
 
 The default calling convention is `nimcall`, unless it is an inner proc (a
@@ -3825,7 +3831,7 @@ argument in inline calls, as well as a direct mirror of Nim's routine syntax.
   macroResults.add quote do:
     if not `ex`:
       echo `info`, ": Check failed: ", `expString`
-  
+
   # Processing a routine definition in a macro:
   rpc(router, "add") do (a, b: int) -> int:
     result = a + b
@@ -4100,6 +4106,65 @@ Overloading of the subscript operator
 
 The `[]` subscript operator for arrays/openarrays/sequences can be overloaded.
 
+
+Tail Call
+---------
+
+A tail call is a routine call that is the very last operation taking place in
+a routine's body.
+
+A call is considered a tail call iff:
+* it is the *tailing expression* of a `return`, and the `return` is a
+  *tailing return*
+* it is the *tailing expression* of a routine's body
+
+A *tailing expression* is recursively defined as:
+* the body of an `if`, `elif`, or `else` branch
+* the body of a `block`
+* the body of an `of` branch
+* the last expression in a statement list, where there's no implicit destructor
+  calls at its end and no `defer` statements
+
+Everything not covered by this list is **not** a tailing expression.
+
+For example, in `if a: (if b: c else: d) else: e`, `c` and `d` are the tailing
+expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
+`(if b: c else: d)` are the tailing expressions of the outer if-then-else.
+
+A *tailing return* is defined as a `return` that is **not** placed in:
+* a `try` body
+* an `except` or `finally` clause
+* a statement list with implicit destructor calls at its end
+* after a `defer` statement in a statement list
+
+`.tailcall` Call
+----------------
+
+When a `.tailcall` routine is called in a routine that doesn't use the
+`.tailcall` calling convention itself:
+* the call doesn't have to be a tail call
+* the callee is not guaranteed to take over the caller's stack frame
+* no constraints are placed on the arguments
+
+When a `.tailcall` routine is called in a routine that does use the `.tailcall`
+calling convention:
+* the call must be a tail call
+* the callee is guaranteed to take over the caller's stack frame
+* several static constraints are placed on the arguments
+
+The static constraints are as follows:
+* arguments to `sink` parameters can be arbitrary expressions
+* arguments to `openArray` parameters must be views into caller parameters or
+  globals
+* arguments to `var` and pass-by-reference parameters must be lvalue
+  expressions derived from caller parameters, globals, or `ptr` dereferences
+* pass-by-value parameters act like `sink` parameters when `supportsCopyMem`
+  returns `true` for the type, otherwise they act like pass-by-reference
+  parameters
+
+For the above `openArray` and `var` rules, whether the expressions refers to
+a location derived from a parameter or global must be visible directly from the
+argument expression, no indirection through locals is allowed.
 
 Methods
 =============
@@ -5927,7 +5992,7 @@ as arguments if called in statement form.
     # to perform the task
   do:
     # code to undo it
-  
+
   let num = 12
   # a single colon may be used if there is no initial block
   match (num mod 3, num mod 5):

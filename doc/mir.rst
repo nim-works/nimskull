@@ -89,6 +89,9 @@ Semantics
                     | CheckedCall <Imm> LVALUE CALL_ARG ...  EX_TARGET
                     | CheckedCall <Imm> <Magic> CALL_ARG ... EX_TARGET
 
+  TAIL_CALL = TailCall <Imm> <Proc> CALL_ARG ...
+            | TailCall <Imm> LVALUE CALL_ARG ...
+
   SET_CONSTR_ARG = VALUE
                  | Range VALUE VALUE     # range construction
 
@@ -157,6 +160,7 @@ Semantics
             | Void CALL_EXPR            # represents a void call. The called
                                         # procedure or magic *must* have a
                                         # `void`` return type
+            | Void TAIL_CALL
             | Asgn LVALUE ASGN_SRC      # normal assignment of the right value
                                         # to the left location
             | Init LVALUE ASGN_SRC      # initial assignment (the destination

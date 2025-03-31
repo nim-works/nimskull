@@ -1896,6 +1896,13 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     # the nil-check is expected to have taken place already
     lineF(p, "chckObj($1.m_type, $2);$n",
           [rdLoc(x), genTypeInfo(p, n[2].typ)])
+  of mStoreParams:
+    let
+      dst = gen(p, n[1])
+      val = gen(p, n[2])
+    useMagic(p, "nimCopy")
+    lineF(p, "nimCopy($1, $2, $3);$n",
+          [dst.address, rdLoc(val), genTypeInfo(p, n[2].typ)])
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
@@ -2085,7 +2092,7 @@ proc startProc*(g: PGlobals, module: BModule, id: ProcedureId,
   discard ensureMangledName(p, id)
 
   # setup the loc for the the result variable:
-  if prc.typ[0] != nil and sfPure notin prc.flags:
+  if p.fullBody[resultId].typ != VoidType and sfPure notin prc.flags:
     setupLocalLoc(p, resultId, skResult)
 
   # setup the locs for the parameters:
@@ -2104,6 +2111,10 @@ proc startProc*(g: PGlobals, module: BModule, id: ProcedureId,
     # parameter IDs start at 1
     setupLocalLoc(p, LocalId(s.position + 1), skParam, "this")
 
+  if prc.typ.callConv == ccTailcall:
+    let s = prc.ast[paramsPos].lastSon.sym
+    setupLocalLoc(p, LocalId(s.position + 1), skParam)
+
   result = p
 
 proc finishProc*(p: PProc): string =
@@ -2114,7 +2125,7 @@ proc finishProc*(p: PProc): string =
     returnStmt = ""
     resultAsgn = ""
 
-  if prc.typ[0] != nil and sfPure notin prc.flags:
+  if p.fullBody[resultId].typ != VoidType and sfPure notin prc.flags:
     let
       loc {.cursor.} = p.locals[resultId]
       mname = loc.name
@@ -2135,8 +2146,10 @@ proc finishProc*(p: PProc): string =
     result = lineDir(p.config, prc.info, toLinenumber(prc.info))
 
   let
+    # tailcall routines have an additional hidden parameter
+    numParams = prc.typ.len - ord(prc.typ.callConv != ccTailcall)
     name   = p.g.procs[p.env.procedures[prc]]
-    header = generateHeader(toOpenArray(p.locals.base, 1, prc.typ.len-1))
+    header = generateHeader(toOpenArray(p.locals.base, 1, numParams))
 
   var def: Rope
   if not prc.constraint.isNil:
@@ -2581,7 +2594,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
     discard "terminators or endings for which no special handling is needed"
   of cnkInvalid, cnkMagic, cnkRange, cnkBinding,
      cnkResume, cnkBranch, cnkAstLit, cnkLabel, cnkStmtList, cnkCaseStmt,
-     cnkField:
+     cnkField, cnkTailCall:
     internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule*(g: ModuleGraph; module: PSym): BModule =

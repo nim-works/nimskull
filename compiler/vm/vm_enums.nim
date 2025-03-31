@@ -128,6 +128,7 @@ type
     opcEcho,
     opcIndCall, # dest = call regStart, n; where regStart = fn, arg1, ...
     opcIndCallAsgn, # dest = call regStart, n; where regStart = fn, arg1, ...
+    opcTailCall,
 
     opcRaise,
     opcNChild,

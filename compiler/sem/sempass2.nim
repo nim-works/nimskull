@@ -43,6 +43,7 @@ import
     guards,
     semdata,
     nilcheck,
+    tailcall_analysis
   ]
 
 from compiler/ast/reports_sem import SemReport,
@@ -1539,9 +1540,10 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
   var effects = t.n[0]
   if t.kind != tyProc or effects.kind != nkEffectList: return
   if n.kind != nkEmpty:
-    internalAssert(g.config, effects.len == 0, "Starting effects list must be empty")
+    internalAssert(g.config, isNoEffectList(effects), "Starting effects list must be empty")
 
-    newSeq(effects.sons, effectListLen)
+    if effects.len < effectListLen:
+      newSeq(effects.sons, effectListLen)
     let raisesSpec = effectSpec(n, wRaises)
     if not isNil(raisesSpec):
       effects[exceptionEffects] = raisesSpec
@@ -1560,7 +1562,8 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
       t.flags.incl tfNoSideEffect
 
 proc rawInitEffects(g: ModuleGraph; effects: PNode) =
-  newSeq(effects.sons, effectListLen)
+  if effects.len < effectListLen:
+    newSeq(effects.sons, effectListLen)
   effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
   effects[tagEffects] = newNodeI(nkArgList, effects.info)
   effects[pragmasEffects] = g.emptyNode
@@ -1880,6 +1883,14 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     checkNil(s, body, g.config, c.idgen)
 
     g.config.features = oldFeatures
+
+  if s.typ.callConv == ccTailcall:
+    verifyTailCalls(g, s, body)
+    genApply(c, s)
+
+    # create the type-bound ops for the continuation type:
+    let cont = s.typ.n[0][3].typ.skipTypes(skipForHooks)
+    createTypeBoundOps(c.graph, c, cont, s.info, c.idgen)
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   if n.kind in {nkPragma, nkMacroDef, nkTemplateDef, nkProcDef, nkFuncDef,

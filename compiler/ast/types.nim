@@ -1649,6 +1649,11 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
                               # otherwise casting doesn't work
   of tyTuple:
     result = (getSize(conf, pt) > conf.target.floatSize*3) or (optByRef in s.options)
+  of tyArray:
+    # always passed by reference
+    # XXX: this is a C code generator implementation detail leaking into the
+    #      language semantics
+    result = true
   else:
     result = false
 
@@ -1658,3 +1663,22 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
      classifyViewType(retType) == immutableView:
     result = pt.kind notin {tyVar, tyOpenArray, tyVarargs, tyRef, tyPtr,
                             tyPointer}
+
+proc newParamTuple*(config: ConfigRef, idgen: IdGenerator, owner: PSym,
+                    fntype: PType): PType =
+  ## Synthesizes a tuple type to hold the parameters for a call to a procedure
+  ## with the type `fntype`, as needed by tail-call elimination.
+  # XXX: this procedure doesn't belong here
+  assert fntype.kind == tyProc
+
+  result = newType(tyTuple, nextTypeId(idgen), owner)
+  for i in 1..<fntype.len:
+    let typ = fntype[i]
+    if typ.kind == tySink:
+      result.rawAddSon(typ.lastSon)
+    elif isPassByRef(config, fntype.n[i].sym, fntype[0]):
+      let p = newType(tyPtr, nextTypeId(idgen), owner)
+      p.rawAddSon(typ)
+      result.rawAddSon(p)
+    else:
+      result.rawAddSon(typ)

@@ -55,6 +55,7 @@ type
     cnkCall          ## a procedure call. The first operand is the procedure,
                      ## the following operands the arguments
     cnkCheckedCall   ## like ``cnkCall``, but the call might raise an exception
+    cnkTailCall      ## a procedure call taking over the caller's frame
 
     # arithmetic operations:
     cnkNeg

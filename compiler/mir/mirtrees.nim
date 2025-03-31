@@ -157,6 +157,12 @@ type
     mnkCall   ## invoke a procedure and pass along the provided arguments.
               ## Used for both static and dynamic calls
     mnkCheckedCall  ## invoke a magic procedure and pass along the provided arguments
+    mnkTailCall ## invokes a procedure, re-using the current stack frame; once
+              ## destroy operation are eliminated, this operation must be
+              ## immediately followed by a jump to the caller's exit. The
+              ## operation is usually referred to as a "sibling call", but the
+              ## kind is deliberately named "tail call" for the sake of
+              ## discoverability
 
     # unary arithmetic operations:
     mnkNeg ## signed integer and float negation (for ints, overflow is UB)
@@ -361,10 +367,10 @@ const
                       mnkToMutSlice} + UnaryOps + BinaryOps + LiteralDataNodes
   ExprKinds* =       {mnkCall, mnkCheckedCall, mnkSetConstr, mnkArrayConstr,
                       mnkSeqConstr, mnkTupleConstr, mnkClosureConstr,
-                      mnkObjConstr, mnkRefConstr} + LvalueExprKinds +
-                     RvalueExprKinds + ModifierNodes
+                      mnkObjConstr, mnkRefConstr, mnkTailCall} +
+                     LvalueExprKinds + RvalueExprKinds + ModifierNodes
 
-  CallKinds* = {mnkCall, mnkCheckedCall}
+  CallKinds* = {mnkCall, mnkCheckedCall, mnkTailCall}
 
 func `==`*(a, b: SourceId): bool {.borrow.}
 func `==`*(a, b: LocalId): bool {.borrow.}

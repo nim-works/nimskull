@@ -496,6 +496,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = ("accessed location '$1' doesn't exist in the current " &
                "compile-time context") % [r.ast.render]
 
+    of rsemNoTailingExpression:
+      result = "call to .tailcall routine is not the tailing expression of " &
+               "a return"
+
+    of rsemArgumentMustBorrowFromParameter:
+      result = "argument doesn't borrow from parameter, global, or pointer " &
+               "dereference"
+
     of rsemIllegalCallconvCapture:
       let s = r.symbols[0]
       let owner = r.symbols[1]
@@ -1364,6 +1372,30 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "an exception can only be re-raised within the scope of an" &
                " except, with no finally in-between"
 
+    of rsemCleanupPreventsTailCall:
+      result = "'$1' requires cleanup that prevents a tail call" %
+               [r.ast.render]
+
+    of rsemDeferPreventsTailCall:
+      result = "cannot tail call because of 'defer' (at $1)" %
+               [conf $ r.ast.info]
+
+    of rsemFinallyPreventsTailCall:
+      result = "tail call must not be enclosed in 'finally' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemExceptPreventsTailCall:
+      result = "tail call must not be enclosed in 'except' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemTryPreventsTailCall:
+      result = "tail call must not be enclosed in 'try' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemTrailingStatementPreventsTailCall:
+      result = "a call to a .tailcall must not be followed by statement ($1)" %
+               [conf $ r.ast.info]
+
     of rsemCannotInferTypeOfLiteral:
       result = "cannot infer the type of the $1" % r.typ.kind.toHumanStr
 
@@ -1636,6 +1668,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemCustomUserError:
       result = r.str
+
+    of rsemMethodCantBeTailcall:
+      result = "method cannot use .tailcall calling convention"
 
     of rsemImplicitPragmaError:
       result = "application of implicit pragma failed"
@@ -2065,6 +2100,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemParameterNotPointerToPartial:
       result = "parameter '$1' is not a pointer to a partial object" % r.ast.render
+
+    of rsemParametersTooLarge:
+      result = "parameters take up too much storage"
+
+    of rsemParameterCannotBeIncomplete:
+      result = ("size of .tailcall parameter must be known, but it's not " &
+                "for $1") % r.symstr
 
     of rsemGenericInstantiationTooNested:
       result = "generic instantiation too nested"
@@ -3214,6 +3256,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemAlignRequiresPowerOfTwo,
       adSemNoReturnHasReturn,
       adSemMisplacedDeprecation,
+      adSemMethodCantBeTailcall,
       adSemNoUnionForJs,
       adSemBitsizeRequiresPositive,
       adSemExperimentalRequiresToplevel,

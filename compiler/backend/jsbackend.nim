@@ -37,7 +37,7 @@ import
     ropes
   ]
 
-from compiler/mir/mirbridge import canonicalize
+from compiler/mir/mirbridge import canonicalize, GenOption
 
 type
   BModuleList = SeqMap[FileIndex, BModule]
@@ -69,13 +69,14 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
     let s = g.env[evt.cnst]
     genConstant(g, modules[moduleId(s).FileIndex], evt.cnst)
   of bekPartial:
+    let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:
-      p = startProc(g, bmod, evt.id, Body())
+      p = startProc(g, bmod, evt.id, body)
+      genPartial(p, p.fullBody.code)
       partial[evt.sym.id] = p
-
-    let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
-    genPartial(p, merge(p.fullBody, body))
+    else:
+      genPartial(p, merge(p.fullBody, body))
   of bekProcedure:
     let
       body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
@@ -122,7 +123,12 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## writes it to the output file.
   let
     globals = newGlobals(graph)
-    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
+    bconf = BackendConfig(
+      tconfig: TranslationConfig(
+        magicsToKeep: NonMagics,
+        options: {goTailCallElim}
+      )
+    )
 
   var
     modules: BModuleList

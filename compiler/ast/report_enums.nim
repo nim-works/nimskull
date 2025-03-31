@@ -454,6 +454,9 @@ type
     # one of course, I mean who needs this, right?
     rsemParameterNotPointerToPartial
 
+    rsemParametersTooLarge
+    rsemParameterCannotBeIncomplete
+
     # Statements
     rsemDiscardingVoid
     rsemDiscardingProc
@@ -501,6 +504,12 @@ type
     rsemUnexpectedPragmaInDefinitionOf
     rsemMisplacedRunnableExample
     rsemCannotReraise
+    rsemCleanupPreventsTailCall
+    rsemDeferPreventsTailCall
+    rsemExceptPreventsTailCall
+    rsemFinallyPreventsTailCall
+    rsemTryPreventsTailCall
+    rsemTrailingStatementPreventsTailCall
 
     # Expressions
     rsemConstantOfTypeHasNoValue
@@ -575,6 +584,8 @@ type
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
     rsemUnavailableLocation
+    rsemNoTailingExpression
+    rsemArgumentMustBorrowFromParameter
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -655,6 +666,7 @@ type
       ## where dynlib pragma requires an importc pragma to exist on the same
       ## symbol
       ## xxx: pragmas shouldn't require each other, that's just bad design
+    rsemMethodCantBeTailcall
 
     rsemWrappedError
       ## there is no meaningful error to construct, but there is an error
