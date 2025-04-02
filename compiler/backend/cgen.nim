@@ -779,7 +779,8 @@ proc finishProc*(p: BProc, id: ProcedureId): string =
     header = genProcHeader(p.module, prc, p.params)
     returnStmt = ""
 
-  if sfPure notin prc.flags and not isInvalidReturnType(p.module, prc.typ[0]):
+  if sfPure notin prc.flags and
+     not isInvalidReturnType(p.env.types, p.body[resultId].typ):
     returnStmt = ropecg(p.module, "\treturn $1;$n",
                         [rdLoc(p.locals[resultId])])
 
