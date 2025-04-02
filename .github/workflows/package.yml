@@ -79,6 +79,15 @@ jobs:
           # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
           zstd -c -d "$archive" | tar -xf - --strip-components 1
 
+      # the mingw PCRE library requires CMake 2.8.5 to built, and the last
+      # CMake version to have compatibility with the old version is 3.31.6,
+      # so make sure that version is installed
+      - name: Pin CMake
+        if: runner.os == 'Windows'
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.31.6'
+
       - name: Setup vcpkg (Windows)
         if: runner.os == 'Windows'
         uses: ./git-src/.github/actions/setup-vcpkg
