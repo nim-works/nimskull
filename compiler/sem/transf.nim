@@ -1480,6 +1480,14 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     for i in 0..<n.len:
       recurse(n[i], false)
     wrap(n)
+  of nkObjConstr:
+    for i in 1..<n.len:
+      recurse(n[i], false)
+    wrap(n)
+  of nkBracket, nkCurly, nkTupleConstr:
+    for i in 0..<n.len:
+      recurse(n[i], false)
+    wrap(n)
   of nkNimNodeLit, nkLambdaKinds:
     # values, but the pass doesn't enter them
     wrap(n)
