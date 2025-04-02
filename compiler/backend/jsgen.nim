@@ -1321,7 +1321,7 @@ proc genCall(p: PProc, n: CgNode, r: var TCompRes) =
      n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
     # an indirect tailcall call. The signature doesn't match reality, so we
     # manually handle the argument
-    # XXX: this is fundamentally a hack
+    # XXX: this is fundamentally a hack see https://github.com/nim-works/nimskull/pull/1504
     r.res.add "("
     genArg(p, n[1], p.module.graph.getSysType(n[1].info, tyPointer), r, nil)
     r.res.add ")"

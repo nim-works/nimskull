@@ -242,6 +242,7 @@ proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
        ri[0].kind != cnkProc:
     # an indirect tailcall call. The real signature doesn't match the `tyProc`,
     # so we manually emit the call
+    # XXX: this is fundamentally a hack see https://github.com/nim-works/nimskull/pull/1504
     assert numArgs(ri) == 1
     var callee, arg: TLoc
     initLocExpr(p, ri[0], callee)
