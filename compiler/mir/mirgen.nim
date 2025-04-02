@@ -1454,6 +1454,7 @@ proc genRaise(c: var TCtx, n: PNode) =
 proc genSiblingCall(c: var TCtx, n: PNode) =
   ## Generates a non-native sibling call for call `n`.
   let typ = c.typeToMir(c.owner.ast[miscPos][1].typ)
+  c.builder.useSource(c.sp, n)
   # initialize the continuation:
   c.buildStmt mnkInit:
     c.add MirNode(kind: mnkLocal, local: resultId, typ: typ)
@@ -1485,6 +1486,7 @@ proc genReturn(c: var TCtx, n: PNode) =
     if goTailCallElim in c.config.options:
       genSiblingCall(c, n[0])
     else:
+      c.builder.useSource(c.sp, n[0])
       c.buildStmt mnkVoid:
         c.builder.rawBuildCall mnkTailCall, VoidType, false:
           genCallee(c, n[0][0])
@@ -2687,6 +2689,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         for i in 1..<params.len:
           let s = params[i].sym
           if s.typ.isSinkTypeForParam():
+            c.builder.useSource(c.sp, params[i])
             c.subTree mnkDef:
               c.add nameNode(c, s)
               c.add MirNode(kind: mnkNone)

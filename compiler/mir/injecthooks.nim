@@ -58,7 +58,9 @@ type
     case kind: LocalDiagKind
     of ldkUnavailableTypeBound:
       op: TTypeAttachedOp
-    of ldkPassCopyToSink, ldkCleanupPreventsTailCall:
+    of ldkCleanupPreventsTailCall:
+      entity: NodePosition
+    of ldkPassCopyToSink:
       discard
 
 const
@@ -131,7 +133,11 @@ proc reportDiagnostics(g: ModuleGraph, types: TypeEnv, body: MirBody,
       of ldkPassCopyToSink:
         SemReport(kind: rsemCopiesToSink, ast: ast)
       of ldkCleanupPreventsTailCall:
-        SemReport(kind: rsemCleanupPreventsTailCall, ast: ast)
+        let ent = body.sourceFor(diag.entity)
+        if body.code[diag.entity].kind == mnkTemp:
+          SemReport(kind: rsemCleanupPreventsTailCall, ast: ent)
+        else:
+          SemReport(kind: rsemCleanupPreventsTailCall, sym: ent.sym)
 
     localReport(g.config, ast.info, rep)
 
@@ -292,7 +298,8 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
           stmt = tree.parent(tree.parent(i))
           next = tree.sibling(stmt)
         if tree[next].kind == mnkDestroy:
-          diags.add LocalDiag(pos: tree.child(next, 0),
+          diags.add LocalDiag(pos: stmt,
+                              entity: tree.child(next, 0),
                               kind: ldkCleanupPreventsTailCall)
 
         # remove the marker:
