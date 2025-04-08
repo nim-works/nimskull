@@ -290,12 +290,14 @@ jobs:
     needs:
       - test
       - test-package
-    if: cancelled() || failure()
+      - source
+      - package-git
+      - package-source
+    if: cancelled() || failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
 
     steps:
       - name: Raise failure
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "::error::There are failing required jobs"
           exit 1
