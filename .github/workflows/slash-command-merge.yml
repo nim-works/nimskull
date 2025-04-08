@@ -117,7 +117,7 @@ jobs:
       - if: steps.pr-data.outputs.run
         id: token
         name: Create app token for merges
-        uses: actions/create-github-app-token@v1
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.CHORE_APP_ID }}
           private-key: ${{ secrets.CHORE_APP_KEY }}
