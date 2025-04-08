@@ -43,7 +43,7 @@ jobs:
     outputs:
       skip: ${{ steps.skip_result.outputs.result }}
       target_matrix: ${{ steps.matrix.outputs.result }}
-      shared_builder: ${{ steps.matrix.outputs.shared }}
+      linux_runner: ${{ steps.matrix.outputs.linux_runner }}
 
     steps:
       - id: skip_result
@@ -99,6 +99,7 @@ jobs:
 
           # Use jq to compact the matrix into one line to be used as the result
           echo "result=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
+          echo "linux_runner=$(jq -r '.[] | select(.name == "Linux") | .runner' matrix.json)" >> $GITHUB_OUTPUT
 
   test:
     needs: [pre_run]
@@ -121,7 +122,7 @@ jobs:
     if: needs.pre_run.outputs.skip != 'true'
 
     name: Build source archive
-    runs-on: ubuntu-20.04
+    runs-on: ${{ needs.pre_run.outputs.linux_runner }}
 
     steps:
       - uses: actions/checkout@v4
@@ -197,7 +198,7 @@ jobs:
     needs: [pre_run, package-git, package-source]
 
     name: Test release artifacts
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -290,12 +291,14 @@ jobs:
     needs:
       - test
       - test-package
-    if: cancelled() || failure()
+      - source
+      - package-git
+      - package-source
+    if: cancelled() || failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
 
     steps:
       - name: Raise failure
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "::error::There are failing required jobs"
           exit 1
