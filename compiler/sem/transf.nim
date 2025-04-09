@@ -1479,7 +1479,9 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   of nkCallKinds:
     for i in 0..<n.len:
       recurse(n[i], false)
-    wrap(n)
+    # don't wrap noreturn calls, they don't return a value
+    if n.typ != g.noreturnType:
+      wrap(n)
   of nkObjConstr:
     for i in 1..<n.len:
       recurse(n[i], false)
