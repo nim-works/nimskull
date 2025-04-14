@@ -4166,6 +4166,85 @@ For the above `openArray` and `var` rules, whether the expressions refers to
 a location derived from a parameter or global must be visible directly from the
 argument expression, no indirection through locals is allowed.
 
+Delimited Continuations
+-----------------------
+
+A delimited continuation is a continuation extending only up to a certain
+point. In the context of NimSkull, a delimited continuation extends to the
+end of the enclosing routine in which the continuation is created.
+
+A continuation is created via the `system.suspend` procedure, which
+accepts three arguments.
+
+Syntactically, the second argument must be an identifier.
+
+1. let `T` be the type of the first argument
+2. let `R` be the return type of the caller
+3. let `Ctx` be a unique type such that:
+  * `Ctx is object` evaluates to true
+  * `supportsCopyMem(Ctx)` evaluates to true
+  * the size and alignment of `Ctx` are not queriable in a compile-time context
+  * an instance of `Ctx` is always copyable
+4. let `P` be a type:
+  * if `T is void`, then let `P` be `proc(e: sink Ctx): R`
+  * if `T isnot void`, then let `P` be `proc(p: sink T, e: sink Ctx): R`
+5. let `cont` refer to the *continuation* (a procedure of type `P`)
+6. let `local` refer to the identifier appearing as the second argument
+7. let `ctx` refer to the saved context (a value of type `Ctx`)
+8. let `call` refer to the third argument expression
+
+`call` is typed as if would the expression were the following:
+
+.. code-block:: nim
+
+   block:
+     let local: (Ctx, P) # has the
+     call
+
+
+The following requirements must be met for the `suspend` call:
+* `R2` must be equal to `R`
+* `call` must be (after template/macro expansion) a call expression such that:
+  * the callee is a static procedure not using the `.closure` calling
+    convention
+  * each run-time argument expression is a value identifier, or a built-in
+    projection thereof. The same goes for index operands in projections
+* no local with a disabled copy operator must *potentially* store a value
+* no `var`:idx: or `openArray`:idx: parameter (or a borrow thereof) must be live
+* the `suspend` call is not statically located within an `except`:idx: or
+  `finally`:idx: clause
+* the `suspend` call does not appear in top-level code
+
+Evaluation of `suspend`:idx: works as follows:
+1. the current local context is saved
+2. `local` is intialized with the tuple `(ctx, prc)`
+3. all local variables (except `local`) or sink parameters of the caller used
+   in `call` are copied -- the usages within `call` refer to the copies form
+   here on
+4. `call` is evaluated as if it were the only expression within the caller
+
+Resume
+~~~~~~
+
+Upon evaluating a call `x(y)` where `x` dynamically evaluates to `cont` and `y`
+dynamically evaluates to `ctx` (or a copy thereof), execution resumes in the
+suspended caller as if `suspend` returned.
+
+Upon evaluating a call `x(v, y)` where `x` dynamically evaluates to `cont` and
+`y` dynamically evaluates to `ctx` (or a copy thereof), execution resumes in
+the suspended caller as if `suspend` returned with value `v`.
+
+The value returned by a resumed caller is returned by the continuation
+invocation -- the same goes for raised exceptions.
+
+Cleanup
+~~~~~~~
+
+If `ctx` (or a copy thereof) goes out scope without having been consumed by a
+call to the continuation, cleanup happens as if unwinding would take place
+right the `suspend` call, but without `finally`:idx: clauses being visited.
+
+
 Methods
 =============
 
@@ -6245,7 +6324,6 @@ This feature allows us to compile against an older version of the module that
 does not export these identifiers.
 
 The `import` statement is only allowed at the top level.
-
 
 Include statement
 -----------------
