@@ -205,10 +205,6 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
 
   let s = trait.sym.name.s
   case s
-  of "or", "|":
-    return typeWithSonsResult(tyOr, @[operand, operand2])
-  of "and":
-    return typeWithSonsResult(tyAnd, @[operand, operand2])
   of "not":
     if traitCall.len == 3:
       c.config.internalAssert traitCall[2].kind == nkNilLit

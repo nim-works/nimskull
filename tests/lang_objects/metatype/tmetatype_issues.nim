@@ -157,3 +157,24 @@ block t3338:
   var t2 = Bar[int32]()
   t2.add()
   doAssert t2.x == 5
+
+block or_result_not_usable:
+  # regression test for the result of `or` (in expression context) not being
+  # usable as typedesc argument
+  proc test(T: typedesc) =
+    assert $T == "int or string"
+
+  test(int or string)
+
+block and_result_not_usable:
+  # regression test for the result of `and` (in expression context) not being
+  # usable as typedesc argument
+  proc test(T: typedesc) =
+    assert $T == "int and string"
+
+  test(int and string)
+
+block invalid_vdash_result:
+  # regression test for the result of `|` (in expression context) not being
+  # an `or` meta type
+  assert $(int | string) == "int or string"

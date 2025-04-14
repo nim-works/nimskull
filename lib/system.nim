@@ -123,11 +123,20 @@ proc compileOption*(option, arg: string): bool {.
 {.push warning[GcMem]: off, warning[Uninit]: off.}
 # {.push hints: off.}
 
-proc `or`*(a, b: typedesc): typedesc {.magic: "TypeTrait", noSideEffect.}
+template `or`*(a, b: typedesc): typedesc =
   ## Constructs an `or` meta class.
+  mixin `or`
+  a or b
 
-proc `and`*(a, b: typedesc): typedesc {.magic: "TypeTrait", noSideEffect.}
+template `|`*(a, b: typedesc): typedesc =
+  ## An alias for `or <#or,typedesc,typdesc>`_. Constructs an `or` meta class.
+  mixin `or`
+  a or b
+
+template `and`*(a, b: typedesc): typedesc =
   ## Constructs an `and` meta class.
+  mixin `and`
+  a and b
 
 proc `not`*(a: typedesc): typedesc {.magic: "TypeTrait", noSideEffect.}
   ## Constructs an `not` meta class.
@@ -1478,10 +1487,6 @@ const
 
 
 include "system/memalloc"
-
-
-proc `|`*(a, b: typedesc): typedesc = discard
-
 include "system/iterators_1"
 
 
