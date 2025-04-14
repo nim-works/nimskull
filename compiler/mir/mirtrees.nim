@@ -164,6 +164,12 @@ type
               ## kind is deliberately named "tail call" for the sake of
               ## discoverability
 
+    mnkFork ## saves the current context and creates a delimited continuation
+            ## starting at the specified `mnkLand`
+    mnkLand ## a special join that marks the start of a continuation. May only
+            ## be targeted by a `mnkFork`
+            # TODO: rename to resume
+
     # unary arithmetic operations:
     mnkNeg ## signed integer and float negation (for ints, overflow is UB)
     # binary arithmetic operations:
@@ -346,7 +352,7 @@ const
   StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
                 mnkLoopJoin, mnkExcept, mnkFinally, mnkContinue, mnkEndStruct,
                 mnkInit, mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy,
-                mnkEmit, mnkAsm, mnkEndScope} + DefNodes
+                mnkEmit, mnkAsm, mnkEndScope, mnkFork, mnkLand} + DefNodes
     ## Nodes that are treated like statements, in terms of syntax.
 
   # --- semantics-focused sets:
