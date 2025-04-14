@@ -410,6 +410,100 @@ proc semPrivateAccess(c: PContext, n: PNode): PNode =
   c.currentScope.allowPrivateAccess.add t.sym
   result = newNodeIT(nkEmpty, n.info, getSysType(c.graph, n.info, tyVoid))
 
+proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
+  ## Analyzes a 'suspend' magic call, producing a typed AST or an error. If
+  ## the call doesn't have the right shape, analysis fall back to overload
+  ## resolution.
+  addInNimDebugUtils(c.config, "semSuspend", n, result)
+  if n.len != 4:
+    # could be some other call
+    return semDirectOp(c, n, flags)
+
+  result = shallowCopy(n)
+  result[0] = newSymNode(s, n[0].info)
+  result[1] = semExprWithType(c, n[1])
+
+  var paramType = result[1].typ
+  if paramType.kind != tyError:
+    if paramType.kind == tyTypeDesc:
+      paramType = paramType.lastSon
+    else:
+      result[1] = c.config.newError(result[1], PAstDiag(kind: adSemTypeExpected))
+      paramType = result[1].typ
+
+  let hasResult = paramType.skipTypes({tyAlias}).kind != tyVoid
+
+  # create an new object for the context. It's populated at a (much) later stage
+  let objSym = newSym(skType, c.cache.getIdent("Ctx"), nextSymId(c.idgen),
+                      getCurrOwner(c), n.info)
+  # enable special name mangling:
+  objSym.flags.incl sfFromGeneric
+
+  let obj = newTypeS(tyObject, c)
+  obj.rawAddSon(nil) # the base type
+  obj.size = szUnknownSize
+  obj.align = szUnknownSize
+  obj.n = newTree(nkRecList)
+  obj.flags.incl tfHasAsgn # the object has custom copy logic
+  objSym.linkTo(obj)
+
+  proc addParam(prc: PType, name: string, typ: PType, info: TLineInfo,
+                c: PContext) =
+    let p = newSym(skParam, c.cache.getIdent(name), nextSymId(c.idgen),
+                    getCurrOwner(c), info)
+    p.typ = typ
+    prc.rawAddSon(typ, propagateHasAsgn=false)
+    prc.n.add newSymNode(p)
+
+  # create the type of the continuation procedure:
+  let prc = newProcType(n.info, nextTypeId(c.idgen), getCurrOwner(c))
+  prc.callConv = ccNimCall # TODO: use tailcall
+  # TODO: handle the "unresolved auto return type" case. The easiest solution
+  #       is just reporting an error
+  prc[0] = c.p.owner.typ[0] # use the enclosing routine's return type
+  if hasResult:
+    prc.addParam("arg", newTypeWithSons(c, tySink, @[paramType]), n.info, c)
+  prc.addParam("c", newTypeWithSons(c, tySink, @[obj]), n.info, c)
+
+  # set up the type to use for the local:
+  let tup = newTypeS(tyTuple, c)
+  tup.rawAddSon(obj)
+  tup.rawAddSon(prc)
+
+  c.openScope()
+  # create a let section and type that. This makes sure the symbol is properly
+  # registered everywhere, and retyping is also taken care. The initializer
+  # needs to be some well-formed, non empty expression for the analysis to
+  # succeed -- we use a correctly typed but gramatically incorrect node as
+  # the expression
+  let cons = newNodeIT(nkType, n.info, tup)
+  cons.flags.incl nfSem # prevent the expression from being analyzed
+
+  let
+    ls = nkLetSection.newTree(
+      nkIdentDefs.newTree(n[2], newNodeIT(nkType, n.info, tup), cons))
+    tmp = semNormalizedLetOrVar(c, ls, skLet)
+  if tmp.kind == nkError:
+    # place the erroneous identifier node back into the call
+    result[2] = tmp.diag.wrongNode[0][0]
+  else:
+    result[2] = tmp[0][0]
+
+  var call = semExprWithType(c, n[3])
+  # TODO: noreturn handling...
+  call = fitNode(c, c.p.owner.typ[0], call, n[3].info)
+  c.closeScope()
+
+  result[3] = call
+  if hasResult:
+    result.typ = paramType
+
+  if nkError in {result[1].kind, result[2].kind, result[3].kind}:
+    result = c.config.wrapError(result)
+  elif ecfStatic in c.executionCons[^1].flags:
+    # TODO: report an error
+    discard
+
 proc magicsAfterOverloadResolution(c: PContext, n: PNode,
                                    flags: TExprFlags): PNode =
   ## This is the preferred code point to implement magics.

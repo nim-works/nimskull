@@ -2898,6 +2898,8 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mSizeOf:
     markUsed(c, n.info, s)
     result = semSizeOf(c, setMs(n, s))
+  of mSuspend:
+    result = semSuspend(c, n, s, flags)
   else:
     result = semDirectOp(c, n, flags)
 
