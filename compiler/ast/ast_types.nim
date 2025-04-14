@@ -820,6 +820,7 @@ type
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
     mEvalToAst
+    mSuspend
 
     # magics only used internally:
     mStrToCStr

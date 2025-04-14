@@ -3070,6 +3070,12 @@ when defined(nimDebugUtils):
 proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "TypeTrait", noSideEffect.}
   ## Constructs a `not nil` type.
 
+when defined(nimskullHasSuspend):
+  proc suspend*[T](with: typedesc[T], name, call: untyped): T {.magic: "Suspend", noSideEffect.} =
+    ## Saves the current local context, stores context + continuation in a
+    ## local named `name`, and invokes `call` as if it were the last remaining
+    ## expression in the caller's body.
+
 type
   ParamBlob = object
     ## The type to use for the storage of parameters.
