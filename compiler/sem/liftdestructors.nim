@@ -600,13 +600,17 @@ proc atomicRefOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
       body.add genIf(c, cond, actions)
       body.add newAsgnStmt(x, y)
   of attachedAsgn:
+    var nilCheck = genBuiltin(c, mIsNil, "isNil", y)
+    nilCheck.typ = cond.typ
+    nilCheck = genBuiltin(c, mNot, "not", nilCheck)
+    nilCheck.typ = cond.typ
     if isCyclic:
-      body.add genIf(c, y, callCodegenProc(c.g,
+      body.add genIf(c, nilCheck, callCodegenProc(c.g,
           "nimIncRefCyclic", c.info, y, getCycleParam(c)))
       body.add newAsgnStmt(x, y)
       body.add genIf(c, cond, actions)
     else:
-      body.add genIf(c, y, callCodegenProc(c.g, "nimIncRef", c.info, y))
+      body.add genIf(c, nilCheck, callCodegenProc(c.g, "nimIncRef", c.info, y))
       body.add genIf(c, cond, actions)
       body.add newAsgnStmt(x, y)
   of attachedDestructor:
