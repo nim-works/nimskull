@@ -1,5 +1,5 @@
-## This module contains ``seq``-based containers useful in contexts that make
-## use of data-oriented design
+## Provides some simple, sequence-based containers useful when using data-
+## oriented design.
 
 import
   std/[
@@ -8,23 +8,24 @@ import
 
 type
   SeqMap*[K: Ordinal, V] = object
-    ## Maps a 0-based integer-like key to a value, using a ``seq`` as the
-    ## underlying storage. The default value for `V` is expected to indicated
-    ## "empty" and an ``isFilled`` routine that returns a ``bool`` must
-    ## exist for ``V``
+    ## Maps a 0-based integer-like key to a value, using a sequence as the
+    ## underlying storage. The default value for `V` is expected to indicate
+    ## "empty" and an ``isFilled`` routine returning a boolean must be provided
+    ## for `V`.
     data: seq[V]
 
   Store*[I; T] = object
     ## Stores a sequence of `T` where each item is identified by an
-    ## integer-like ID. The container is append-only
+    ## integer-like ID. The container is append-only, but existing elements
+    ## may be modified or replaced.
     data: seq[T]
 
   PartialStore*[I; T] = object
     ## Used for adding items to an existing `Store <#Store>`_ without directly
-    ## modifying said object nor requiring access to it.
+    ## modifying said instance or requiring access to it.
     ##
     ## The usual usage pattern is:
-    ## 1. fork a partial store from a `Store <#Store>`_ object
+    ## 1. fork a partial store from a `Store <#Store>`_ instance
     ## 2. add items to the partial store
     ## 3. once done, join the partial store with the store it was forked from
     ##
@@ -34,17 +35,17 @@ type
     base: I
 
   Checkpoint* = distinct int
-    ## Represents the state of a ``Store`` at some point in time.
+    ## Represents the state of a `Store <#Store>`_ at some point in time.
 
   OrdinalSeq*[I: Ordinal, T] = distinct seq[T]
-    ## Similar to a ``seq``, but can only be accessed by values of the
-    ## specified type. This is useful in situations where the type of the
+    ## Similar to a `seq`, but can only be accessed with index values with
+    ## type `I`. This is useful in situations where the type of the
     ## index value is a ``distinct`` integer-like type
 
 # ---------- SeqMap API ------------
 
 func contains*[K, V](m: SeqMap[K, V], key: K): bool {.inline.} =
-  ## Returns whether a value with key `key` exists in the map
+  ## Returns whether a value with key `key` exists in the map.
   mixin isFilled
   result = ord(key) < m.data.len and isFilled(m.data[ord(key)])
 
@@ -102,12 +103,12 @@ template `[]`*[I; T](x: Store[I, T], i: I): untyped =
   x.data[int(i)]
 
 template `[]=`*[I; T](x: var Store[I, T], i: I, it: T): untyped =
-  ## Overwrites the item corresponding to `i` with `it`
+  ## Overwrites the item corresponding to `i` with `it`.
   # TODO: convert to ``distinctBase`` instead
   x.data[int(i)] = it
 
 iterator items*[I, T](x: Store[I, T]): lent T =
-  ## Iterates over and returns all items in `x`
+  ## Iterates over and returns all items in `x`.
   var i = 0
   let L = x.data.len
   while i < L:
@@ -116,13 +117,13 @@ iterator items*[I, T](x: Store[I, T]): lent T =
 
 iterator pairs*[I, T](x: Store[I, T]): (I, lent T) =
   ## Iterates over and returns all items in `x` together with their
-  ## corresponding IDs
+  ## corresponding ID.
   var i = 0
   let L = x.data.len
   while i < L:
     # there's no need to perform a range check here: ``add`` already errors
     # when trying to add items for which the index can't be represented with
-    # ``I``
+    # `I`
     yield (I(i), x.data[i])
     inc i
 
@@ -137,11 +138,12 @@ func nextId*[I; T](x: Store[I, T]): I {.inline.} =
   result = I(x.data.len)
 
 func checkpoint*(s: Store): Checkpoint =
+  ## Creates a lightweight checkpoint remembering the present shape of `s`.
   s.data.len.Checkpoint
 
 func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   ## Appends a new item to the Store and returns the ID assigned to
-  ## it
+  ## it.
   rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
   x.data.add it
   result = I(x.data.high)
@@ -170,7 +172,7 @@ func merge*[I; T](dst: var Store[I, T], src: sink Store[I, T]): Option[I] =
 
 func rewind*(s: var Store, p: Checkpoint) =
   ## Removes all items added since `p` was created. Do note that modifications
-  ## to items already existing when `p` was created are not reverted.
+  ## to items already present when `p` was created are not reverted.
   assert p.int <= s.data.len, "illegal rewind"
   s.data.setLen(p.int)
 
@@ -191,7 +193,7 @@ func `[]`*[I;T](s: PartialStore[I, T], id: I): lent T {.inline.} =
   s.data[ord(id) - ord(s.base)]
 
 func join*[I;T](s: var Store[I, T], other: sink PartialStore[I, T]) =
-  ## Adds all items from `other` to `s`. `s` has to have the same number of
+  ## Adds all items from `other` to `s`. `s` needs to have the same number of
   ## items it had when `other` was forked from it.
   assert s.nextId() == other.base, "containers are out of sync"
   let offset = s.data.len
