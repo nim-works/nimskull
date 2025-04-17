@@ -7,6 +7,9 @@ import
     strtabs,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     idents,
@@ -47,7 +50,6 @@ import
     varpartitions
   ],
   compiler/utils/[
-    containers,
     idioms,
     tracer
   ]

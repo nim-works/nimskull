@@ -18,6 +18,9 @@ import
     hashes,
     md5
   ],
+  std/private/[
+    containers
+  ],
   compiler/front/[
     options,
     msgs,
@@ -29,7 +32,6 @@ import
     idents,
   ],
   compiler/utils/[
-    containers,
     pathutils,
     btrees,
     ropes,

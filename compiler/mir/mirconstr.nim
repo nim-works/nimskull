@@ -1,6 +1,9 @@
 ## Implements routines and types that assist in producing MIR code.
 
 import
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_query,
     ast_types
@@ -11,7 +14,6 @@ import
     sourcemaps
   ],
   compiler/utils/[
-    containers,
     idioms
   ],
   experimental/[

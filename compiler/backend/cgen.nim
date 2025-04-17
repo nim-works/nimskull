@@ -18,6 +18,9 @@ import
     tables,
     sets
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_query,
     ast_types,
@@ -46,7 +49,6 @@ import
     msgs
   ],
   compiler/utils/[
-    containers,
     platform,
     nversion,
     bitsets,

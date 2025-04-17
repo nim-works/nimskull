@@ -15,6 +15,9 @@ import
     tables,
     sets
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     lineinfos,
@@ -35,7 +38,6 @@ import
     options
   ],
   compiler/utils/[
-    containers,
     ropes,
     pathutils
   ]

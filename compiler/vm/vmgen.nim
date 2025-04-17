@@ -36,6 +36,9 @@ import
     strutils,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     renderer,
     types,
@@ -60,7 +63,6 @@ import
     options
   ],
   compiler/utils/[
-    containers,
     idioms
   ],
   compiler/vm/[

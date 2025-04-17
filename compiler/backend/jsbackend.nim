@@ -8,6 +8,9 @@ import
     json,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     lineinfos
@@ -32,7 +35,6 @@ import
     sourcemap
   ],
   compiler/utils/[
-    containers,
     idioms,
     ropes
   ]
