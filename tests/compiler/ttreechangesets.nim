@@ -8,7 +8,7 @@ discard """
 import
   compiler/ast/ast_types,
   compiler/mir/[mirtrees, treechangesets, mirconstr, sourcemaps],
-  compiler/utils/containers
+  std/private/containers
 
 type Changeset = TreeChangeset
 
