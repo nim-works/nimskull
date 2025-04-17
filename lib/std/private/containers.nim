@@ -3,7 +3,8 @@
 
 import
   std/[
-    options
+    options,
+    typetraits
   ]
 
 type
@@ -99,13 +100,11 @@ iterator mpairs*[K, V](m: var SeqMap[K, V]): (K, var V) =
 func `==`*(a, b: Checkpoint): bool {.borrow.}
 
 template `[]`*[I; T](x: Store[I, T], i: I): untyped =
-  # TODO: convert to ``distinctBase`` instead
-  x.data[int(i)]
+  x.data[distinctBase(i)]
 
 template `[]=`*[I; T](x: var Store[I, T], i: I, it: T): untyped =
   ## Overwrites the item corresponding to `i` with `it`.
-  # TODO: convert to ``distinctBase`` instead
-  x.data[int(i)] = it
+  x.data[distinctBase(i)] = it
 
 iterator items*[I, T](x: Store[I, T]): lent T =
   ## Iterates over and returns all items in `x`.
