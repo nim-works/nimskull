@@ -56,7 +56,6 @@ import
     msgs
   ],
   compiler/utils/[
-    idioms,
     int128,
     nversion,
     ropes,

@@ -41,9 +41,6 @@ import
   ],
   compiler/ic/[
     bitabs
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 # XXX: sighashes are currently needed for merging generic instantiations, but

@@ -10,9 +10,6 @@ import
     nimsets,
     types
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmaux,
     vmdef,

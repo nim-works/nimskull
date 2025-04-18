@@ -10,7 +10,6 @@ import
     options
   ],
   compiler/utils/[
-    idioms,
     int128
   ]
 

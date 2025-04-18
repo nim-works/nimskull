@@ -96,7 +96,6 @@ import
     ast_analysis
   ],
   compiler/utils/[
-    idioms,
     tracer
   ]
 

@@ -36,7 +36,6 @@ import
     mirtypes
   ],
   compiler/utils/[
-    idioms,
     int128,
     pathutils # for `AbsoluteFile`
   ],

@@ -47,8 +47,7 @@ import
   ],
   compiler/utils/[
     nversion,
-    astrepr,
-    idioms
+    astrepr
   ],
   compiler/front/[
     msgs

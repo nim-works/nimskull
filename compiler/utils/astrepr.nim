@@ -59,9 +59,6 @@ import
     options,
     msgs
   ],
-  compiler/utils/[
-    idioms
-  ],
   experimental/colortext,
   std/[
     tables,

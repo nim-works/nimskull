@@ -14,9 +14,6 @@ import
   compiler/ast/[
     ast_types,
     ast_query
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

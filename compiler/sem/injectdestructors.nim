@@ -109,8 +109,7 @@ import
     mirexec,
   ],
   compiler/utils/[
-    cursors,
-    idioms
+    cursors
   ]
 
 type

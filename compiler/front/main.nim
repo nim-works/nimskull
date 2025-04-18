@@ -51,7 +51,6 @@ import
     nversion,
     pathutils,   # Input file handling
     astrepr,     # Output parsed data, for compiler development
-    idioms,
     tracer,
     trace_dump
   ],

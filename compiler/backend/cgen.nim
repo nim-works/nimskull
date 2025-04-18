@@ -54,7 +54,6 @@ import
     bitsets,
     ropes,
     pathutils,
-    idioms,
     int128,
     tracer
   ],

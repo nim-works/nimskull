@@ -32,7 +32,6 @@ import
     bitabs
   ],
   compiler/utils/[
-    idioms,
     pathutils,
     bitsets
   ],

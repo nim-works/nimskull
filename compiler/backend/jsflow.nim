@@ -14,9 +14,6 @@ import
   ],
   compiler/backend/[
     cgir
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

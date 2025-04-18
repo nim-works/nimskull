@@ -35,9 +35,6 @@ import
     reports_internal,
     reports_external,
     reports_cmd,
-  ],
-  compiler/utils/[
-    idioms,
   ]
 
 from compiler/utils/int128 import toInt128

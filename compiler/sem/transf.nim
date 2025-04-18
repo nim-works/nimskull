@@ -50,7 +50,6 @@ import
     cgmeth
   ],
   compiler/utils/[
-    idioms,
     tracer
   ]
 

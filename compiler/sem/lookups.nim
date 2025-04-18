@@ -28,7 +28,6 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    idioms,
     debugutils
   ],
   compiler/front/[

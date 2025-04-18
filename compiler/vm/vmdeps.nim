@@ -25,7 +25,6 @@ import
   ],
   compiler/utils/[
     pathutils,
-    idioms
   ],
   experimental/[
     results

@@ -42,7 +42,6 @@ import
     magicsys
   ],
   compiler/utils/[
-    idioms,
     tracer
   ],
   compiler/vm/[

@@ -15,7 +15,7 @@ import
   std/options as std_options
 
 import
-  compiler/utils/[ropes, pathutils, idioms],
+  compiler/utils/[ropes, pathutils],
   compiler/ast/[report_enums, reports, lineinfos, reports_internal],
   compiler/front/[options]
 

@@ -26,9 +26,6 @@ import
   ],
   compiler/modules/[
     modulegraphs
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

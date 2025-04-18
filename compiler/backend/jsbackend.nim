@@ -35,7 +35,6 @@ import
     sourcemap
   ],
   compiler/utils/[
-    idioms,
     ropes
   ]
 
