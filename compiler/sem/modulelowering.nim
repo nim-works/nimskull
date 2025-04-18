@@ -14,6 +14,9 @@
 ## via the pass interface.
 
 import
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     ast_idgen,
@@ -32,7 +35,6 @@ import
     passes
   ],
   compiler/utils/[
-    containers,
     idioms
   ]
 

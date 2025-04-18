@@ -10,6 +10,9 @@ import
   std/[
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     ast_types,
@@ -39,7 +42,6 @@ import
     magicsys
   ],
   compiler/utils/[
-    containers,
     idioms,
     tracer
   ],

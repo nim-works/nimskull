@@ -30,6 +30,9 @@ import
     tables,
     intsets
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_idgen,
     ast_query,
@@ -53,7 +56,6 @@ import
     msgs
   ],
   compiler/utils/[
-    containers,
     idioms,
     int128,
     nversion,

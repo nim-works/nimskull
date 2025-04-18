@@ -7,6 +7,9 @@ import
   std/[
     options
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_types,
     lineinfos
@@ -14,9 +17,6 @@ import
   compiler/mir/[
     mirbodies,
     mirtrees
-  ],
-  compiler/utils/[
-    containers
   ]
 
 # compatibility exports for symbols originally defined here

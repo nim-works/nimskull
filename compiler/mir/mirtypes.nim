@@ -18,6 +18,9 @@ import
     hashes,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     ast_types,
@@ -40,7 +43,6 @@ import
     bitabs
   ],
   compiler/utils/[
-    containers,
     idioms
   ]
 

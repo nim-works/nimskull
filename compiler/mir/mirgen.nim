@@ -62,6 +62,9 @@ import
   std/[
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     astalgo,
@@ -93,7 +96,6 @@ import
     ast_analysis
   ],
   compiler/utils/[
-    containers,
     idioms,
     tracer
   ]
