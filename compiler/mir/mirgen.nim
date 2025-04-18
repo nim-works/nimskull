@@ -876,37 +876,47 @@ proc genInSetOp(c: var TCtx, n: PNode) =
     let
       se = n[1]
       x  = n[2]
-      elemTyp = x.typ.skipTypes(abstractRange)
+      elemTyp = x[0].typ.skipTypes(abstractRange)
       leOp = getMagicLeForType(elemTyp) # less-equal op
       res = getTemp(c, BoolType) # the temporary to write the result to
 
     # the evaluation order is reversed here: the second operand comes
     # first
-    let
-      val = genRd(c, x[0])
-      a   = genRd(c, x[1])
-      b   = genRd(c, x[2])
+    let val = genRd(c, x[0])
 
     c.builder.buildStmt:
+      # only emit the comparison for the upper or lower bound if it cannot
+      # statically be proven that the dynamic value will be below (or above)
+      # the limit
       let
-        label1 = c.allocLabel()
-        label2 = c.allocLabel()
+        label1 =
+          if firstOrd(c.graph.config, elemTyp) < x[1].intVal:
+            some c.allocLabel()
+          else:
+            none LabelId
+        label2 =
+          if lastOrd(c.graph.config, elemTyp) > x[2].intVal:
+            some c.allocLabel()
+          else:
+            none LabelId
 
-      c.subTree mnkIf:
-        # condition: ``a <= x:``
-        c.wrapAndUse(BoolType):
-          c.buildMagicCall leOp, BoolType:
-            c.emitByVal a
-            c.emitByVal val
-        c.add labelNode(label1)
+      if label1.isSome:
+        c.subTree mnkIf:
+          # condition: ``a <= x:``
+          c.wrapAndUse(BoolType):
+            c.buildMagicCall leOp, BoolType:
+              c.emitByVal toIntLiteral(c.env, x[1].intVal.toInt128, elemTyp)
+              c.emitByVal val
+          c.add labelNode(label1.unsafeGet)
 
-      c.subTree mnkIf:
-        # condition: ``x <= b:``
-        c.wrapAndUse(BoolType):
-          c.buildMagicCall leOp, BoolType:
-            c.emitByVal val
-            c.emitByVal b
-        c.add labelNode(label2)
+      if label2.isSome:
+        c.subTree mnkIf:
+          # condition: ``x <= b:``
+          c.wrapAndUse(BoolType):
+            c.buildMagicCall leOp, BoolType:
+              c.emitByVal val
+              c.emitByVal toIntLiteral(c.env, x[2].intVal.toInt128, elemTyp)
+          c.add labelNode(label2.unsafeGet)
 
       var sv: Value
       if se.kind == nkCurly and not isDeepConstExpr(se):
@@ -924,10 +934,12 @@ proc genInSetOp(c: var TCtx, n: PNode) =
           c.emitByVal val
 
       # close the if statements:
-      c.subTree mnkEndStruct:
-        c.add labelNode(label2)
-      c.subTree mnkEndStruct:
-        c.add labelNode(label1)
+      if label2.isSome:
+        c.subTree mnkEndStruct:
+          c.add labelNode(label2.unsafeGet)
+      if label1.isSome:
+        c.subTree mnkEndStruct:
+          c.add labelNode(label1.unsafeGet)
 
     c.use res
   else:
