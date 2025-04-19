@@ -141,6 +141,15 @@ template unreachable*() =
   ##
   ## but the intention is clearer and the call marks the execution path as not
   ## returning anything.
+  runnableExamples:
+    for i in 1..5:
+      if i mod 2 == 0:
+        echo:
+          case i
+          of 2: "two"
+          of 4: "four"
+          else: unreachable()
+
   unreachableImpl("", instantiationInfo(-1))
 
 template unreachable*(msg: string) =
