@@ -58,6 +58,11 @@ For Users
 For Users (Legacy)
 ==================
 
+.. warning::
+   These documents are not maintained and might not correspond to the
+   current language semantics. Consult the `manual <manual.html>`_ and
+   `standard library <lib.html>`_ for the most up-to-date information.
+
 - | `Tutorial (part I) <tut1.html>`_
   | The Nim tutorial part one deals with the basics.
 
