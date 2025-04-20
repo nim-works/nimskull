@@ -11,13 +11,12 @@ import std/options
 import std/strutils
 import std/tables
 
+import std/private/containers
+
 import cmdline/parsers
 export parsers
 
 import lexopt
-
-# FIXME: Move containers to private stdlib
-import "$nim"/compiler/utils/containers
 
 type
   Parser*[T] = proc (option, value: string, result: var T): Action
@@ -81,8 +80,6 @@ type
   ParseContext = object
     ## Parser internal state
     lexer: CmdLexer ## Lexer driving the parse
-    optkind: CmdlineKind ## Current option kind
-    option: string ## Option received
     nextPositional: Natural ## Next positional parser to use
     positionalCount: Natural ## Number of positionals parsed
 
@@ -129,16 +126,18 @@ type
                        ## input
     param*: Parameter ## Handle to the flag triggering help
 
-  Parameter = distinct uint32
+  Parameter* = distinct uint32
   Flag* = distinct Parameter
   Positional* = distinct Parameter
 
 proc hash(x: Parameter): Hash {.borrow.}
 
-# FIXME: I have no idea why this has to be exported
 proc `==`*(a, b: Parameter): bool {.borrow.}
 proc `==`*(a, b: Flag): bool {.borrow.}
 proc `==`*(a, b: Positional): bool {.borrow.}
+
+# FIXME: Put this in system.nim
+func drop[T](_: sink T) = discard
 
 func initCli*(T: typedesc): Cli[T] =
   result = Cli[T]()
@@ -298,6 +297,12 @@ func describe*[T](
   result = b
   result.usage = usage
 
+func isNil[T](p: ParserAny[T]): bool =
+  case p.kind
+  of ParserKind.Flag: p.parser == nil
+  of FlagOptionalValue: p.optParser == nil
+  of ParserKind.Positional..OptionalCatchAll: p.posParser == nil
+
 func addCommon[T](
   cli: var Cli[T],
   name, usage, placeholder: sink string,
@@ -317,16 +322,8 @@ func addTo*[T](b: sink FlagBuilder[T], cli: var Cli[T]): Flag {.discardable.} =
     if alias in cli.flag:
       raise newException(ValueError, "Flag '" & alias & "' already exists")
 
-  assert:
-    case b.flagParser.kind
-    of ParserKind.Flag: b.flagParser.parser != nil
-    of FlagOptionalValue: b.flagParser.optParser != nil
-    else:
-      doAssert false, "unreachable!"
-      # FIXME: doAssert is not noreturn
-      false
-  do:
-    "Parser must be non-nil"
+  assert b.flagParser.kind in {ParserKind.Flag, FlagOptionalValue}
+  assert not b.flagParser.isNil(), "Parser must be non-nil"
 
   result = Flag cli.addCommon(b.flagName, b.usage, b.placeholder, b.flagParser)
   cli.flag[b.flagName] = Parameter result
@@ -342,16 +339,8 @@ func addTo*[T](b: sink PositionalBuilder[T], cli: var Cli[T]): Positional {.disc
       raise newException(ValueError):
         "Positional with name '" & cli.name[param] & "' already exists"
 
-  assert:
-    case b.posParser.kind
-    of ParserKind.Positional..OptionalCatchAll:
-      b.posParser.posParser != nil
-    of ParserKind.Flag, FlagOptionalValue:
-      doAssert false, "unreachable!"
-      # FIXME: doAssert is not a noreturn
-      false
-  do:
-    "Parser must be non-nil"
+  assert b.posParser.kind in {ParserKind.Positional..OptionalCatchAll}
+  assert not b.posParser.isNil(), "Parser must be non-nil"
 
   if cli.positional != []:
     let lastPos = cli.positional[^1]
@@ -522,9 +511,9 @@ func newMissingPositionalError(
     positional: positional,
   )
 
-func inputOption(ctx: ParseContext): string =
-  ## Get the current option in the same style as the input
-  ctx.optkind.prefix & ctx.option
+func option(kind: CmdlineKind, opt: string): string =
+  ## Format `opt` to be an option of `kind`.
+  kind.prefix & opt
 
 func parseNext[T](
   ctx: var ParseContext,
@@ -542,6 +531,7 @@ func parsePositional[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T,
+  value: sink string,
   goNext = true,
 ) {.tailcall.} =
   if ctx.nextPositional < cli.positional.len:
@@ -550,12 +540,12 @@ func parsePositional[T](
       parser = cli.parser[posId]
       action =
         try:
-          parser.posParser(ctx.option, accumulator)
+          parser.posParser(value, accumulator)
         except ValueError as e:
           raise newInvalidPositionalError(
             e,
             ctx.positionalCount,
-            ctx.option,
+            value,
             Positional posId,
             collectRemaining ctx.lexer
           )
@@ -565,19 +555,21 @@ func parsePositional[T](
 
     case action
     of Continue:
+      drop value
       if goNext:
         parseNext(ctx, cli, accumulator)
-    of ShowHelp:
-      raise newHelpError(
-        ctx.option, posId, collectRemaining ctx.lexer
-      )
     of DisableFlagProcessing:
+      drop value
       if goNext:
         parseRemaining(ctx, cli, accumulator)
+    of ShowHelp:
+      raise newHelpError(
+        value, posId, collectRemaining ctx.lexer
+      )
 
   else:
     raise newUnknownPositionalError(
-      ctx.positionalCount, ctx.option, collectRemaining ctx.lexer
+      ctx.positionalCount, value, collectRemaining ctx.lexer
     )
 
 func parseRemaining[T](
@@ -585,13 +577,11 @@ func parseRemaining[T](
   cli: Cli[T],
   accumulator: var T
 ) {.tailcall.} =
-  ctx.optkind = cmdValue
   for value in ctx.lexer.remaining:
-    ctx.option = value
     # TODO: request a feature to override tail constraints
-    (proc (ctx: var ParseContext, cli: Cli[T], accumulator: var T) =
-      parsePositional(ctx, cli, accumulator, goNext = false)
-    )(ctx, cli, accumulator)
+    (proc (ctx: var ParseContext, cli: Cli[T], accumulator: var T, value: string) =
+      parsePositional(ctx, cli, accumulator, value, goNext = false)
+    )(ctx, cli, accumulator, value)
 
   parseNext(ctx, cli, accumulator)
 
@@ -599,11 +589,13 @@ func parseFlag[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T,
+  kind: CmdlineKind,
+  option: sink string,
 ) {.tailcall.} =
   let flagId =
-    try: cli.flag[ctx.option]
+    try: cli.flag[option]
     except KeyError:
-      raise newUnknownFlagError(ctx.inputOption, collectRemaining ctx.lexer)
+      raise newUnknownFlagError(kind.option(option), collectRemaining ctx.lexer)
 
   let parser = cli.parser[flagId]
   let action = block:
@@ -611,52 +603,57 @@ func parseFlag[T](
     try:
       case parser.kind
       of FlagOptionalValue:
-        parser.optParser(ctx.option, optValue, accumulator)
+        parser.optParser(option, optValue, accumulator)
       of ParserKind.Flag:
         if optValue.isNone:
           raise newMissingValueError(
-            ctx.inputOption,
+            kind.option(option),
             Flag flagId,
             collectRemaining ctx.lexer
           )
 
-        parser.parser(ctx.option, optValue.unsafeGet(), accumulator)
+        parser.parser(option, optValue.unsafeGet(), accumulator)
       else:
-        assert false, "Parser kind: " & $parser.kind & " is not a flag parser"
-        Continue
+        unreachable()
     except ValueError as e:
       raise newInvalidValueError(
         e,
-        ctx.inputOption,
+        kind.option(option),
         Flag flagId,
         optValue,
         collectRemaining ctx.lexer
       )
 
   case action
-  of Continue: parseNext(ctx, cli, accumulator)
+  of Continue:
+    drop option
+    parseNext(ctx, cli, accumulator)
+  of DisableFlagProcessing:
+    drop option
+    parseRemaining(ctx, cli, accumulator)
   of ShowHelp:
     raise newHelpError(
-      ctx.inputOption, flagId, collectRemaining ctx.lexer
+      kind.option(option), flagId, collectRemaining ctx.lexer
     )
-  of DisableFlagProcessing: parseRemaining(ctx, cli, accumulator)
 
 func parseNext[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T
 ) {.tailcall.} =
-  block:
-    # Boxed to make sure temporaries are cleaned up
-    (ctx.optkind, ctx.option) = ctx.lexer.next()
+  let (kind, option) = ctx.lexer.next()
 
-  case ctx.optkind
+  case kind
   of cmdLong, cmdShort:
-    parseFlag(ctx, cli, accumulator)
+    parseFlag(ctx, cli, accumulator, kind, option)
   of cmdValue:
-    if ctx.option == "--": parseRemaining(ctx, cli, accumulator)
-    else: parsePositional(ctx, cli, accumulator)
+    if option == "--":
+      drop option
+      parseRemaining(ctx, cli, accumulator)
+    else: parsePositional(ctx, cli, accumulator, option)
   of cmdEnd:
+    drop option
+
     # Verify that we collected all required parameters
     if ctx.nextPositional < cli.positional.len:
       let posId = cli.positional[ctx.nextPositional]
@@ -670,7 +667,7 @@ func parseNext[T](
       of OptionalPositional, OptionalCatchAll:
         discard "nothing to do"
       else:
-        doAssert false, "unreachable!"
+        unreachable()
 
 func parse*[T](
   cli: Cli[T],
@@ -682,8 +679,7 @@ func parse*[T](
   )
 
   try: parseNext(ctx, cli, accumulator)
-  except UnexpectedValueError:
-    doAssert false, "unreachable!"
+  except UnexpectedValueError: unreachable()
 
 func parse*[T](
   cli: Cli[T],
