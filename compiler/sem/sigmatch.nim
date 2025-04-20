@@ -41,7 +41,6 @@ import
   ],
   compiler/utils/[
     debugutils,
-    idioms
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced

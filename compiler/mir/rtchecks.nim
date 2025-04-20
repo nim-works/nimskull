@@ -27,7 +27,6 @@ import
   ],
   compiler/utils/[
     int128,
-    idioms
   ]
 
 import compiler/front/options as comp_options

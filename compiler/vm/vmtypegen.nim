@@ -15,9 +15,6 @@ import
   compiler/front/[
     options
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmdef
   ],

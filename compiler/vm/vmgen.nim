@@ -62,9 +62,6 @@ import
     msgs,
     options
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     identpatterns,
     vmaux,

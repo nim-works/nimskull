@@ -19,8 +19,7 @@
 import
   compiler/utils/[
     platform,
-    pathutils,
-    idioms
+    pathutils
   ],
   compiler/ast/[
     numericbase,

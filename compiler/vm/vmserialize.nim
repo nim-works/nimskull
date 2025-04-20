@@ -24,7 +24,6 @@ import
   ],
   compiler/utils/[
     bitsets,
-    idioms,
     int128
   ]
 

@@ -41,7 +41,6 @@ import
   ],
   compiler/utils/[
     debugutils,
-    idioms,
     tracer
   ],
   compiler/vm/[

@@ -11,7 +11,6 @@
 
 import
   compiler/utils/[
-    idioms,
     platform,
   ],
   compiler/ast/[

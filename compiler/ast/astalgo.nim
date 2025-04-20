@@ -17,9 +17,6 @@ import
     idents,
     renderer
   ],
-  compiler/utils/[
-    idioms
-  ],
   std/[
     hashes,
     intsets,

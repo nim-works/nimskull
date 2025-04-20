@@ -40,7 +40,6 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    idioms,
     int128
   ]
 

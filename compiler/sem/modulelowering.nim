@@ -33,9 +33,6 @@ import
   ],
   compiler/sem/[
     passes
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 from compiler/mir/injecthooks import getOp

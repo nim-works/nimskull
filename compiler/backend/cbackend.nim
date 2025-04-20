@@ -67,7 +67,6 @@ import
     modulelowering
   ],
   compiler/utils/[
-    idioms,
     pathutils,
     platform,
     ropes,

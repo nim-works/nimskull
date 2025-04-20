@@ -10,9 +10,6 @@ import
   ],
   compiler/mir/[
     mirtrees
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

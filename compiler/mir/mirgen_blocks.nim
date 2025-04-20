@@ -19,9 +19,6 @@ import
   compiler/modules/[
     magicsys,
     modulegraphs
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

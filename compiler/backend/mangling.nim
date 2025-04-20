@@ -14,9 +14,6 @@ import
   ],
   compiler/modules/[
     modulegraphs
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 from compiler/backend/ccgutils import mangle

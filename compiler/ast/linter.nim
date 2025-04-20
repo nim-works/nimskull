@@ -35,9 +35,6 @@ import
   compiler/front/[
     options,
     msgs
-  ],
-  compiler/utils/[
-    idioms,
   ]
 
 # TODO: linter should have its own diag/event/telemetry types

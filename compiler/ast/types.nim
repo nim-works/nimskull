@@ -28,7 +28,6 @@ import
   ],
   compiler/utils/[
     platform,
-    idioms,
     int128,
   ],
   compiler/modules/[

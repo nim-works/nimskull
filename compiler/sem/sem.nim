@@ -53,7 +53,6 @@ import
     debugutils,
     int128,
     astrepr,
-    idioms,
     tracer
   ],
   compiler/sem/[

@@ -23,7 +23,6 @@ import
   compiler/utils/[
     saturate,
     int128,
-    idioms,
   ],
   compiler/modules/[
     magicsys,

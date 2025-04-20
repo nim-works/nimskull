@@ -33,9 +33,6 @@ import
   compiler/sem/[
     aliasanalysis,
     mirexec
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 from std/math import nextPowerOfTwo

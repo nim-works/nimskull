@@ -5,9 +5,6 @@
 import
   compiler/ast/[
     ast_types
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

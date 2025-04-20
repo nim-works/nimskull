@@ -5,9 +5,6 @@ import
     lineinfos,  # For TLineInfo
     idents,     # For `PIdent`
     numericbase
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 from compiler/ast/lexer import Token, TokType

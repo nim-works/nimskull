@@ -50,7 +50,6 @@ import
     varpartitions
   ],
   compiler/utils/[
-    idioms,
     tracer
   ]
 

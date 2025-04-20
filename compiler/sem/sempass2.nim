@@ -35,7 +35,6 @@ import
   ],
   compiler/utils/[
     debugutils,
-    idioms
   ],
   compiler/sem/[
     varpartitions,

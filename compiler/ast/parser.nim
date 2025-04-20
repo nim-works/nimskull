@@ -47,7 +47,6 @@ import
   compiler/utils/[
     pathutils,
     astrepr,
-    idioms,
     tracer
   ]
 
