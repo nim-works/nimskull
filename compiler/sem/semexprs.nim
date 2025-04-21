@@ -3826,7 +3826,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = n
     checkSonsLen(n, 1, c.config)
     result[0] = semAddrArg(c, n[0])
-    result.typ = makePtrType(c, result[0].typ)
+    result.typ = makePtrType(c, result[0].typ.skipTypes({tySink}))
   of nkHiddenAddr, nkHiddenDeref:
     checkSonsLen(n, 1, c.config)
     n[0] = semExpr(c, n[0], flags)
