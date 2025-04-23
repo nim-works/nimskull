@@ -6,6 +6,7 @@
 # See the file "copying.txt", included in this distribution, for
 # details about copyright.
 
+import std/algorithm
 import std/hashes
 import std/options
 import std/strutils
@@ -25,16 +26,15 @@ type
   TypedParser*[T; U] = proc (option: string, value: U, result: var T): Action
   OptionalTypedParser*[T; U] = proc (option: string, value: Option[U], result: var T): Action
   TypedPositionalParser*[T; U] = proc (value: U, result: var T): Action
+  CommandParser*[T] = proc (command: Command, result: var T): Action
 
-  Cli*[T] = object
+  Cli*[T] {.requiresInit.} = object
     ## A command line parser
-    flag: Table[string, Parameter] ## Lookup mapping of flag names to Parameter
-    positional: seq[Parameter] ## Lookup mapping of position to Parameter
+    command: Table[Command, CliCommand] ## Lookup mapping of command to lookup tables
     parser: Store[Parameter, ParserAny[T]] ## Parser to process input for Parameter
-    # XXX: Maybe allow name to store 2 values since that's the common case, then
-    # alias for the rest
     name: Store[Parameter, string] ## Canonical names for all Parameters
     alias: Table[Parameter, seq[string]] ## Mapping of Parameter to aliases
+    parent: Store[Parameter, Parameter] ## Mapping of Parameter to their parent
 
     # Documentation storage
     #
@@ -43,6 +43,11 @@ type
     usage: Store[Parameter, string] ## Canonical usage for Parameters
     placeholder: Store[Parameter, string] ## Canonical placeholder for
                                           ## Parameters. Only used for flags
+
+  CliCommand = object
+    flag: Table[string, Parameter] ## Lookup mapping of flag names to Parameter
+    command: Table[string, Command] ## Lookup mapping of command names to Command
+    positional: seq[Parameter] ## Lookup mapping of position to Parameter
 
   FlagBuilder*[T] = object
     flagParser: ParserAny[T]
@@ -56,6 +61,13 @@ type
     posName: string
     usage: string
 
+  CommandBuilder*[T] = object
+    cmdParser: ParserAny[T]
+    cmdName: string
+    aliases: seq[string]
+    usage: string
+    isDefault: bool
+
   Action* {.pure.} = enum
     Continue ## Continue parameter parsing
     ShowHelp ## Abort and show help message
@@ -63,6 +75,7 @@ type
                           ## to be values
 
   ParserKind {.pure.} = enum
+    Command
     Flag
     FlagOptionalValue
     Positional
@@ -76,15 +89,19 @@ type
     of ParserKind.Flag: parser: Parser[T]
     of ParserKind.Positional, OptionalPositional, CatchAll,
        OptionalCatchAll: posParser: PositionalParser[T]
+    of ParserKind.Command: cmdParser: CommandParser[T]
 
   ParseContext = object
     ## Parser internal state
     lexer: CmdLexer ## Lexer driving the parse
     nextPositional: Natural ## Next positional parser to use
     positionalCount: Natural ## Number of positionals parsed
+    command: Command ## The active command
+    isValueOnly: bool ## Whether flags are ignored
 
   ParseError* = object of CatchableError
     ## An error during command line parsing
+    command*: Command ## Active command during error
     remaining*: seq[string] ## Parameters that were not parsed
 
   FlagError* = object of ParseError
@@ -93,6 +110,7 @@ type
                       ## input
   UnknownFlagError* = object of FlagError
     ## The flag parsed was not recognized
+    flagValue*: Option[string] ## Inline value of flag causing error
   MissingValueError* = object of FlagError
     ## The flag parsed requires a value but was not provided
     flag*: Flag ## Handle to the flag
@@ -120,27 +138,52 @@ type
     ## The parent `ValueError` can be found in the `parent` field
     positional*: Positional ## Handle to the positional
 
+  CommandError* = object of ParseError
+    ## An error parsing command
+    commandName*: string ## Input value causing the error
+  UnknownCommandError* = object of CommandError
+    ## The command parsed was not recognized
+  MissingCommandError* = object of CommandError
+    ## A required command is missing from input
+  InvalidCommandError* = object of CommandError
+    ## The command parsed was rejected by parser
+    targetCommand*: Command ## Handle to the target command
+
   HelpError* = object of ParseError
     ## Help was requested
     paramName*: string ## Name of the parameter triggering help, as specified by
                        ## input
     param*: Parameter ## Handle to the flag triggering help
 
+  ParameterKind* {.pure.} = enum
+    Command
+    Flag
+    Positional
+
   Parameter* = distinct uint32
+  Command* = distinct Parameter
   Flag* = distinct Parameter
   Positional* = distinct Parameter
+
+const
+  InvalidParameter* = high(Parameter)
+  RootCommand* = Command(0)
 
 proc hash(x: Parameter): Hash {.borrow.}
 
 proc `==`*(a, b: Parameter): bool {.borrow.}
+proc `==`*(a, b: Command): bool {.borrow.}
 proc `==`*(a, b: Flag): bool {.borrow.}
 proc `==`*(a, b: Positional): bool {.borrow.}
 
 # FIXME: Put this in system.nim
 func drop[T](_: sink T) = discard
 
-func initCli*(T: typedesc): Cli[T] =
-  result = Cli[T]()
+func commandBuilder*[T](cli: Cli[T]): CommandBuilder[T] =
+  result = CommandBuilder[T]()
+
+func commandBuilder*(T: typedesc): CommandBuilder[T] =
+  result = CommandBuilder[T]()
 
 func flagBuilder*[T](cli: Cli[T]): FlagBuilder[T] =
   result = FlagBuilder[T]()
@@ -152,13 +195,13 @@ func optional*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
   result = b
   let parser =
     case result.posParser.kind
-    of ParserKind.Flag, FlagOptionalValue:
+    of ParserKind.Command..FlagOptionalValue:
       nil
     of ParserKind.Positional..OptionalCatchAll:
       result.posParser.posParser
 
   case result.posParser.kind
-  of ParserKind.Flag..OptionalPositional:
+  of ParserKind.Command..OptionalPositional:
     result.posParser = ParserAny[T](
       kind: OptionalPositional,
       posParser: parser
@@ -169,17 +212,21 @@ func optional*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
       posParser: parser
     )
 
+func default*[T](b: sink CommandBuilder[T]): CommandBuilder[T] =
+  result = b
+  result.isDefault = true
+
 func catchAll*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
   result = b
   let parser =
     case result.posParser.kind
-    of ParserKind.Flag, FlagOptionalValue:
+    of ParserKind.Command..FlagOptionalValue:
       nil
     of ParserKind.Positional..OptionalCatchAll:
       result.posParser.posParser
 
   case result.posParser.kind
-  of ParserKind.Flag..ParserKind.Positional, CatchAll:
+  of ParserKind.Command..ParserKind.Positional, CatchAll:
     result.posParser = ParserAny[T](
       kind: ParserKind.CatchAll,
       posParser: parser
@@ -190,6 +237,10 @@ func catchAll*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
       posParser: parser
     )
 
+func name*[T](b: sink CommandBuilder[T], name: string): CommandBuilder[T] =
+  result = b
+  result.cmdName = name
+
 func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
   result = b
   result.flagName = name
@@ -197,6 +248,17 @@ func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
 func name*[T](b: sink PositionalBuilder[T], name: string): PositionalBuilder[T] =
   result = b
   result.posName = name
+
+func alias*[T](b: sink CommandBuilder[T], names: varargs[string]): CommandBuilder[T] =
+  result = b
+  result.aliases.setLen(0)
+
+  # Not the fastest method, but it's expected that users will
+  # specify at most 4 of these.
+  for name in names.items:
+    if name == result.cmdName or name in result.aliases:
+      continue
+    result.aliases.add names
 
 func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
   result = b
@@ -208,6 +270,10 @@ func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
     if name == result.flagName or name in result.aliases:
       continue
     result.aliases.add names
+
+func parser*[T](b: sink CommandBuilder[T], p: sink CommandParser[T]): CommandBuilder[T] =
+  result = b
+  result.cmdParser = ParserAny[T](kind: ParserKind.Command, cmdParser: p)
 
 func optionalParser*[T](
   b: sink FlagBuilder[T],
@@ -282,6 +348,13 @@ func parser*[T, U](
     )
 
 func describe*[T](
+  b: sink CommandBuilder[T],
+  usage: sink string,
+): CommandBuilder[T] =
+  result = b
+  result.usage = usage
+
+func describe*[T](
   b: sink FlagBuilder[T],
   usage: sink string,
   placeholder: sink string = "",
@@ -302,9 +375,11 @@ func isNil[T](p: ParserAny[T]): bool =
   of ParserKind.Flag: p.parser == nil
   of FlagOptionalValue: p.optParser == nil
   of ParserKind.Positional..OptionalCatchAll: p.posParser == nil
+  of ParserKind.Command: p.cmdParser == nil
 
 func addCommon[T](
   cli: var Cli[T],
+  parent: Parameter,
   name, usage, placeholder: sink string,
   parser: sink ParserAny[T]
 ): Parameter =
@@ -312,38 +387,115 @@ func addCommon[T](
   discard cli.usage.add(usage)
   discard cli.placeholder.add(placeholder)
   discard cli.parser.add(parser)
+  discard cli.parent.add(parent)
 
-func addTo*[T](b: sink FlagBuilder[T], cli: var Cli[T]): Flag {.discardable.} =
-  assert b.flagName.len > 0, "Flag name must not be empty"
-  if b.flagName in cli.flag:
-    raise newException(ValueError, "Flag '" & b.flagName & "' already exists")
+func initCli*[T](b: sink CommandBuilder[T]): Cli[T] =
+  result = Cli[T](
+    command: default(typeof result.command),
+    parser: default(typeof result.parser),
+    name: default(typeof result.name),
+    alias: default(typeof result.alias),
+    parent: default(typeof result.parent),
+    usage: default(typeof result.usage),
+    placeholder: default(typeof result.placeholder),
+  )
+
+  assert b.cmdParser.isNil(), "Root parser cannot be non-nil"
+  assert b.aliases == [], "Root parser cannot have aliases"
+
+  discard result.addCommon(
+    InvalidParameter,
+    b.cmdName,
+    b.usage,
+    "",
+    ParserAny[T](kind: ParserKind.Command)
+  )
+  result.command[RootCommand] = CliCommand()
+
+func isDispatcher(cmd: CliCommand): bool =
+  cmd.command.len > 0
+
+func hasPositional(cmd: CliCommand): bool =
+  not cmd.isDispatcher and cmd.positional.len > 0
+
+func hasDefaultCommand(cmd: CliCommand): bool =
+  cmd.isDispatcher and cmd.positional.len > 0
+
+func addTo*[T](
+  b: sink CommandBuilder[T],
+  cli: var Cli[T],
+  command: Command,
+): Command {.discardable.} =
+  assert b.cmdName.len > 0, "Command name must not be empty"
+  if b.cmdName in cli.command[command].command:
+    raise newException(ValueError, "Command '" & b.cmdName & "' already exists")
   for alias in b.aliases.items:
-    assert alias != "", "Flag alias cannot be empty"
-    if alias in cli.flag:
-      raise newException(ValueError, "Flag '" & alias & "' already exists")
+    assert alias != "", "Command alias cannot be empty"
+    if alias in cli.command[command].command:
+      raise newException(ValueError, "Command '" & alias & "' already exists")
 
-  assert b.flagParser.kind in {ParserKind.Flag, FlagOptionalValue}
-  assert not b.flagParser.isNil(), "Parser must be non-nil"
+  if b.cmdParser.isNil():
+    b.cmdParser = ParserAny[T](kind: ParserKind.Command)
+  assert b.cmdParser.kind == ParserKind.Command
 
-  result = Flag cli.addCommon(b.flagName, b.usage, b.placeholder, b.flagParser)
-  cli.flag[b.flagName] = Parameter result
+  if cli.command[command].hasPositional:
+    raise newException(ValueError, "Cannot add subcommand to command with positional parameters")
+
+  if b.isDefault and cli.command[command].hasDefaultCommand:
+    raise newException(ValueError, "Command already has a default subcommand registered")
+
+  result = Command cli.addCommon(Parameter command, b.cmdName, b.usage, "", b.cmdParser)
+  cli.command[result] = CliCommand()
+  cli.command[command].command[b.cmdName] = result
+  if b.isDefault:
+    cli.command[command].positional.add(Parameter result)
   for alias in b.aliases.items:
-    cli.flag[alias] = Parameter result
+    cli.command[command].command[alias] = result
   if b.aliases.len > 0:
     cli.alias[Parameter result] = b.aliases
 
-func addTo*[T](b: sink PositionalBuilder[T], cli: var Cli[T]): Positional {.discardable.} =
+func addTo*[T](
+  b: sink FlagBuilder[T],
+  cli: var Cli[T],
+  command: Command = RootCommand,
+): Flag {.discardable.} =
+  assert b.flagName.len > 0, "Flag name must not be empty"
+  if b.flagName in cli.command[command].flag:
+    raise newException(ValueError, "Flag '" & b.flagName & "' already exists")
+  for alias in b.aliases.items:
+    assert alias != "", "Flag alias cannot be empty"
+    if alias in cli.command[command].flag:
+      raise newException(ValueError, "Flag '" & alias & "' already exists")
+
+  assert not b.flagParser.isNil(), "Parser must be non-nil"
+  assert b.flagParser.kind in {ParserKind.Flag, FlagOptionalValue}
+
+  result = Flag cli.addCommon(Parameter command, b.flagName, b.usage, b.placeholder, b.flagParser)
+  cli.command[command].flag[b.flagName] = Parameter result
+  for alias in b.aliases.items:
+    cli.command[command].flag[alias] = Parameter result
+  if b.aliases.len > 0:
+    cli.alias[Parameter result] = b.aliases
+
+func addTo*[T](
+  b: sink PositionalBuilder[T],
+  cli: var Cli[T],
+  command: Command = RootCommand,
+): Positional {.discardable.} =
   assert b.posName.len > 0, "Positional name should not be empty"
-  for param in cli.positional.items:
+  for param in cli.command[command].positional.items:
     if b.posName == cli.name[param]:
       raise newException(ValueError):
         "Positional with name '" & cli.name[param] & "' already exists"
 
-  assert b.posParser.kind in {ParserKind.Positional..OptionalCatchAll}
   assert not b.posParser.isNil(), "Parser must be non-nil"
+  assert b.posParser.kind in {ParserKind.Positional..OptionalCatchAll}
 
-  if cli.positional != []:
-    let lastPos = cli.positional[^1]
+  if cli.command[command].isDispatcher:
+    raise newException(ValueError, "Cannot add positional parameters: command is a dispatcher")
+
+  if cli.command[command].hasPositional:
+    let lastPos = cli.command[command].positional[^1]
     case cli.parser[lastPos].kind
     of CatchAll, OptionalCatchAll:
       raise newException(ValueError):
@@ -355,18 +507,27 @@ func addTo*[T](b: sink PositionalBuilder[T], cli: var Cli[T]): Positional {.disc
     else:
       discard "No constraints"
 
-  result = Positional cli.addCommon(b.posName, b.usage, placeholder = "", parser = b.posParser)
-  cli.positional.add Parameter(result)
+  result = Positional cli.addCommon(Parameter command, b.posName, b.usage, placeholder = "", parser = b.posParser)
+  cli.command[command].positional.add Parameter(result)
 
-func flagWithName*(cli: Cli, name: string): Option[Flag] =
-  try: some(Flag cli.flag[name])
+func flagWithName*(cli: Cli, command: Command, name: string): Option[Flag] =
+  assert command in cli.command, "Invalid command"
+  try: some(Flag cli.command[command].flag[name])
   except KeyError: none Flag
+
+func commandWithName*(cli: Cli, command: Command, name: string): Option[Command] =
+  assert command in cli.command, "Invalid command"
+  try: some(Command cli.command[command].command[name])
+  except KeyError: none Command
 
 func nameOf*(cli: Cli, flag: Flag): lent string =
   cli.name[Parameter flag]
 
 func nameOf*(cli: Cli, positional: Positional): lent string =
   cli.name[Parameter positional]
+
+func nameOf*(cli: Cli, command: Command): lent string =
+  cli.name[Parameter command]
 
 iterator namesOf*(cli: Cli, flag: Flag): lent string =
   try:
@@ -375,6 +536,36 @@ iterator namesOf*(cli: Cli, flag: Flag): lent string =
       yield name
   except KeyError:
     discard "Flag has no aliases"
+
+iterator namesOf*(cli: Cli, command: Command): lent string =
+  try:
+    yield cli.name[Parameter command]
+    for name in cli.alias[Parameter command].items:
+      yield name
+  except KeyError:
+    discard "Command has no aliases"
+
+func parentOf*(cli: Cli, command: Command): Option[Command] =
+  let parent = Command cli.parent[Parameter command]
+  if Parameter(parent) == InvalidParameter:
+    none Command
+  else:
+    some parent
+
+func pathOf*(cli: Cli, command: Command): seq[Command] =
+  result.add command
+
+  var command = command
+  while true:
+    let parentOpt = cli.parentOf(command)
+    if parentOpt.isNone():
+      break
+    let parent = parentOpt.unsafeGet()
+
+    result.add parent
+    command = parent
+
+  reverse result
 
 func longNameOf*(cli: Cli, flag: Flag): Option[string] =
   result = none string
@@ -388,6 +579,9 @@ func shortNameOf*(cli: Cli, flag: Flag): Option[string] =
     if name.len == 1:
       return some name
 
+func usageOf*(cli: Cli, command: Command): lent string =
+  cli.usage[Parameter command]
+
 func usageOf*(cli: Cli, flag: Flag): lent string =
   cli.usage[Parameter flag]
 
@@ -396,6 +590,35 @@ func usageOf*(cli: Cli, positional: Positional): lent string =
 
 func placeholderOf*(cli: Cli, flag: Flag): string =
   cli.placeholder[Parameter flag]
+
+func isDispatcher*(cli: Cli, command: Command): bool =
+  cli.command[command].isDispatcher()
+
+func hasDefaultCommand*(cli: Cli, command: Command): bool =
+  cli.command[command].hasDefaultCommand()
+
+func defaultCommandOf*(cli: Cli, command: Command): Option[Command] =
+  if cli.command[command].hasDefaultCommand():
+    some(Command cli.command[command].positional[0])
+  else:
+    none(Command)
+
+func classify*(cli: Cli, param: Parameter): ParameterKind =
+  case cli.parser[param].kind
+  of ParserKind.Command: ParameterKind.Command
+  of ParserKind.Flag, FlagOptionalValue: ParameterKind.Flag
+  of ParserKind.Positional..OptionalCatchAll: ParameterKind.Positional
+
+func isDefault*(cli: Cli, command: Command): bool =
+  cli.parentOf(command)
+    .flatMap(
+      proc (parent: Command): Option[bool] =
+        cli.defaultCommandOf(parent)
+          .map(
+            proc(x: Command): bool = x == command
+          )
+    )
+    .get(otherwise = false)
 
 func isValueOptional*(cli: Cli, flag: Flag): bool =
   cli.parser[Parameter flag].kind == FlagOptionalValue
@@ -414,50 +637,65 @@ proc helpFlagBuilder*[T](cli: var Cli[T], name: sink string = "help"): FlagBuild
     )
     .describe("display help message")
 
-proc addHelpFlag*[T](cli: var Cli[T], name: sink string = "help"): Flag {.discardable.} =
+proc addHelpFlag*[T](
+  cli: var Cli[T],
+  command: Command = RootCommand,
+  name: sink string = "help",
+  aliases: varargs[string] = []
+): Flag {.discardable.} =
   cli.helpFlagBuilder
     .name(name)
-    .addTo(cli)
+    .alias(aliases)
+    .addTo(cli, command)
 
 func collectRemaining(lexer: var CmdLexer): seq[string] =
   for arg in lexer.remaining:
     result.add arg
 
 func newHelpError(
+  command: Command,
   paramName: sink string,
   param: Parameter,
   remaining: sink seq[string],
 ): ref HelpError {.raises: [].} =
   (ref HelpError)(
     msg: "help requested",
+    command: command,
     paramName: paramName,
     param: param,
     remaining: remaining,
   )
 
 func newUnknownFlagError(
+  command: Command,
   flagName: sink string,
+  flagValue: sink Option[string],
   remaining: sink seq[string],
 ): ref UnknownFlagError {.raises: [].} =
   (ref UnknownFlagError)(
     msg: "unexpected flag '" & flagName & "'",
+    command: command,
     flagName: flagName,
+    flagValue: flagValue,
     remaining: remaining,
   )
 
 func newMissingValueError(
+  command: Command,
   flagName: sink string,
   flag: Flag,
   remaining: sink seq[string],
 ): ref MissingValueError {.raises: [].} =
   (ref MissingValueError)(
     msg: "missing value for flag '" & flagName & "'",
+    command: command,
     flagName: flagName,
     flag: flag,
     remaining: remaining,
   )
 
 func newInvalidValueError(
+  command: Command,
   parent: ref ValueError,
   flagName: sink string,
   flag: Flag,
@@ -466,6 +704,7 @@ func newInvalidValueError(
 ): ref InvalidValueError {.raises: [].} =
   (ref InvalidValueError)(
     msg: "invalid value for flag '" & flagName & "': " & $value,
+    command: command,
     flagName: flagName,
     flagValue: value,
     flag: flag,
@@ -474,18 +713,21 @@ func newInvalidValueError(
   )
 
 func newUnknownPositionalError(
+  command: Command,
   position: Natural,
   positionalValue: sink string,
   remaining: sink seq[string],
 ): ref UnknownPositionalError {.raises: [].} =
   (ref UnknownPositionalError)(
     msg: "unexpected parameter: " & positionalValue,
+    command: command,
     position: position,
     positionalValue: positionalValue,
     remaining: remaining,
   )
 
 func newInvalidPositionalError(
+  command: Command,
   parent: ref ValueError,
   position: Natural,
   value: sink string,
@@ -494,6 +736,7 @@ func newInvalidPositionalError(
 ): ref InvalidPositionalError {.raises: [].} =
   (ref InvalidPositionalError)(
     msg: "invalid parameter: " & $value,
+    command: command,
     position: position,
     positionalValue: value,
     positional: positional,
@@ -502,18 +745,52 @@ func newInvalidPositionalError(
   )
 
 func newMissingPositionalError(
+  command: Command,
   position: Natural,
   positional: Positional
 ): ref MissingPositionalError {.raises: [].} =
   (ref MissingPositionalError)(
     msg: "missing required value for positional parameter",
+    command: command,
     position: position,
     positional: positional,
   )
 
-func option(kind: CmdlineKind, opt: string): string =
-  ## Format `opt` to be an option of `kind`.
-  kind.prefix & opt
+func newUnknownCommandError(
+  command: Command,
+  value: sink string,
+  remaining: sink seq[string],
+): ref UnknownCommandError {.raises: [].} =
+  (ref UnknownCommandError)(
+    msg: "unknown command: " & $value,
+    command: command,
+    commandName: value,
+    remaining: remaining,
+  )
+
+func newInvalidCommandError(
+  command: Command,
+  parent: ref ValueError,
+  value: sink string,
+  target: Command,
+  remaining: sink seq[string],
+): ref InvalidCommandError {.raises: [].} =
+  (ref InvalidCommandError)(
+    msg: "invalid command: " & $value,
+    command: command,
+    commandName: value,
+    targetCommand: target,
+    parent: parent,
+    remaining: remaining,
+  )
+
+func newMissingCommandError(
+  command: Command,
+): ref MissingCommandError {.raises: [].} =
+  (ref MissingCommandError)(
+    msg: "missing command",
+    command: command,
+  )
 
 func parseNext[T](
   ctx: var ParseContext,
@@ -521,28 +798,50 @@ func parseNext[T](
   accumulator: var T,
 ) {.tailcall.}
 
-func parseRemaining[T](
+func performAction[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T,
-) {.tailcall.}
+  input: sink string,
+  parameter: Parameter,
+  action: Action,
+) {.tailcall.} =
+  if action == ShowHelp:
+    raise newHelpError(
+      ctx.command, input, parameter, collectRemaining ctx.lexer
+    )
+
+  drop input
+  case action
+  of Continue: discard
+  of DisableFlagProcessing:
+    ctx.isValueOnly = true
+  of ShowHelp: unreachable()
+
+  parseNext(ctx, cli, accumulator)
+
+func switchCommand(ctx: var ParseContext, command: Command) =
+  ctx.command = command
+  ctx.nextPositional = 0
+  ctx.positionalCount = 0
 
 func parsePositional[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T,
   value: sink string,
-  goNext = true,
 ) {.tailcall.} =
-  if ctx.nextPositional < cli.positional.len:
+  let posLen = block: cli.command[ctx.command].positional.len
+  if ctx.nextPositional < posLen:
     let
-      posId = cli.positional[ctx.nextPositional]
+      posId = block: cli.command[ctx.command].positional[ctx.nextPositional]
       parser = cli.parser[posId]
       action =
         try:
           parser.posParser(value, accumulator)
         except ValueError as e:
           raise newInvalidPositionalError(
+            ctx.command,
             e,
             ctx.positionalCount,
             value,
@@ -553,37 +852,57 @@ func parsePositional[T](
     inc ctx.positionalCount
     inc ctx.nextPositional, ord(parser.kind notin {CatchAll, OptionalCatchAll})
 
-    case action
-    of Continue:
-      drop value
-      if goNext:
-        parseNext(ctx, cli, accumulator)
-    of DisableFlagProcessing:
-      drop value
-      if goNext:
-        parseRemaining(ctx, cli, accumulator)
-    of ShowHelp:
-      raise newHelpError(
-        value, posId, collectRemaining ctx.lexer
-      )
+    performAction(ctx, cli, accumulator, value, posId, action)
 
   else:
     raise newUnknownPositionalError(
-      ctx.positionalCount, value, collectRemaining ctx.lexer
+      ctx.command, ctx.positionalCount, value, collectRemaining ctx.lexer
     )
 
-func parseRemaining[T](
+func parseCommand[T](
   ctx: var ParseContext,
   cli: Cli[T],
-  accumulator: var T
+  accumulator: var T,
+  command: Command,
+  input: sink string,
 ) {.tailcall.} =
-  for value in ctx.lexer.remaining:
-    # TODO: request a feature to override tail constraints
-    (proc (ctx: var ParseContext, cli: Cli[T], accumulator: var T, value: string) =
-      parsePositional(ctx, cli, accumulator, value, goNext = false)
-    )(ctx, cli, accumulator, value)
+  let
+    parser = cli.parser[Parameter command]
+    action =
+      try:
+        if parser.cmdParser != nil:
+          parser.cmdParser(command, accumulator)
+        else:
+          Continue
+      except ValueError as e:
+        raise newInvalidCommandError(
+          ctx.command,
+          e,
+          input,
+          command,
+          collectRemaining ctx.lexer,
+        )
 
-  parseNext(ctx, cli, accumulator)
+  ctx.switchCommand(command)
+
+  performAction(ctx, cli, accumulator, input, Parameter command, action)
+
+func parseCommand[T](
+  ctx: var ParseContext,
+  cli: Cli[T],
+  accumulator: var T,
+  value: sink string,
+) {.tailcall.} =
+  let cmd =
+    try: cli.command[ctx.command].command[value]
+    except KeyError:
+      raise newUnknownCommandError(
+        ctx.command,
+        value,
+        collectRemaining ctx.lexer
+      )
+
+  parseCommand(ctx, cli, accumulator, cmd, value)
 
 func parseFlag[T](
   ctx: var ParseContext,
@@ -593,9 +912,14 @@ func parseFlag[T](
   option: sink string,
 ) {.tailcall.} =
   let flagId =
-    try: cli.flag[option]
+    try: cli.command[ctx.command].flag[option]
     except KeyError:
-      raise newUnknownFlagError(kind.option(option), collectRemaining ctx.lexer)
+      raise newUnknownFlagError(
+        ctx.command,
+        option,
+        ctx.lexer.value(delimitedOnly = true),
+        collectRemaining ctx.lexer
+      )
 
   let parser = cli.parser[flagId]
   let action = block:
@@ -607,7 +931,8 @@ func parseFlag[T](
       of ParserKind.Flag:
         if optValue.isNone:
           raise newMissingValueError(
-            kind.option(option),
+            ctx.command,
+            option,
             Flag flagId,
             collectRemaining ctx.lexer
           )
@@ -617,53 +942,66 @@ func parseFlag[T](
         unreachable()
     except ValueError as e:
       raise newInvalidValueError(
+        ctx.command,
         e,
-        kind.option(option),
+        option,
         Flag flagId,
         optValue,
         collectRemaining ctx.lexer
       )
 
-  case action
-  of Continue:
-    drop option
-    parseNext(ctx, cli, accumulator)
-  of DisableFlagProcessing:
-    drop option
-    parseRemaining(ctx, cli, accumulator)
-  of ShowHelp:
-    raise newHelpError(
-      kind.option(option), flagId, collectRemaining ctx.lexer
-    )
+  performAction(ctx, cli, accumulator, option, flagId, action)
 
 func parseNext[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T
 ) {.tailcall.} =
-  let (kind, option) = ctx.lexer.next()
+  let (kind, option) =
+    if not ctx.isValueOnly:
+      ctx.lexer.next()
+    else:
+      ctx.lexer
+        .value()
+        .map(
+          proc (value: string): (CmdlineKind, string) =
+            (cmdValue, value)
+        )
+        .get(otherwise = (cmdEnd, ""))
 
   case kind
   of cmdLong, cmdShort:
     parseFlag(ctx, cli, accumulator, kind, option)
   of cmdValue:
-    if option == "--":
+    if not ctx.isValueOnly and option == "--":
+      ctx.isValueOnly = true
       drop option
-      parseRemaining(ctx, cli, accumulator)
-    else: parsePositional(ctx, cli, accumulator, option)
+      parseNext(ctx, cli, accumulator)
+    elif (block: cli.command[ctx.command].isDispatcher):
+      parseCommand(ctx, cli, accumulator, option)
+    else:
+      parsePositional(ctx, cli, accumulator, option)
   of cmdEnd:
-    drop option
-
     # Verify that we collected all required parameters
-    if ctx.nextPositional < cli.positional.len:
-      let posId = cli.positional[ctx.nextPositional]
+    # TODO: remove this copy once tables return lent T
+    let currentCommand = cli.command[ctx.command]
+    if currentCommand.hasDefaultCommand:
+      let cmd = Command currentCommand.positional[0]
+
+      drop currentCommand
+      drop option
+      parseCommand(ctx, cli, accumulator, cmd, "")
+    elif currentCommand.isDispatcher:
+      raise newMissingCommandError(ctx.command)
+    elif ctx.nextPositional < currentCommand.positional.len:
+      let posId = currentCommand.positional[ctx.nextPositional]
       case cli.parser[posId].kind
       of ParserKind.Positional:
-        raise newMissingPositionalError(ctx.positionalCount, Positional posId)
+        raise newMissingPositionalError(ctx.command, ctx.positionalCount, Positional posId)
       of CatchAll:
         # Catch all hasn't collected any parameters
         if ctx.positionalCount <= ctx.nextPositional:
-          raise newMissingPositionalError(ctx.positionalCount, Positional posId)
+          raise newMissingPositionalError(ctx.command, ctx.positionalCount, Positional posId)
       of OptionalPositional, OptionalCatchAll:
         discard "nothing to do"
       else:
@@ -676,10 +1014,12 @@ func parse*[T](
 ) {.raises: [ParseError].} =
   var ctx = ParseContext(
     lexer: initCmdLexer(args),
+    command: RootCommand,
   )
 
   try: parseNext(ctx, cli, accumulator)
-  except UnexpectedValueError: unreachable()
+  except KeyError, UnexpectedValueError:
+    unreachable()
 
 func parse*[T](
   cli: Cli[T],
@@ -687,19 +1027,29 @@ func parse*[T](
 ): T {.inline, raises: [ParseError].} =
   parse(cli, result, args)
 
-iterator flags*(cli: Cli): Flag =
+iterator flags*(cli: Cli, command: Command): Flag =
+  # Not the most efficient, but CLIs shouldn't be big enough for this to be an
+  # issue
   for i in 0 ..< cli.parser.nextId.int:
-    if cli.parser[Parameter i].kind in {ParserKind.Flag, FlagOptionalValue}:
+    if cli.parent[Parameter i] == Parameter(command) and
+      cli.parser[Parameter i].kind in {ParserKind.Flag, FlagOptionalValue}:
       yield Flag(i)
 
-iterator positionals*(cli: Cli): Positional =
-  for i in cli.positional.items:
-    yield Positional(i)
+iterator positionals*(cli: Cli, command: Command): Positional =
+  if not cli.command[command].isDispatcher:
+    for i in cli.command[command].positional.items:
+      yield Positional(i)
 
-func flagsUsage*(cli: Cli): string =
+iterator subcommands*(cli: Cli, command: Command): Command =
+  for (param, parent) in cli.parent.pairs:
+    if parent == Parameter(command) and
+      cli.parser[param].kind == ParserKind.Command:
+      yield Command(param)
+
+func flagsUsage*(cli: Cli, command: Command): string =
   var lines: seq[(string, string)]
   var flagPad: int
-  for flag in cli.flags:
+  for flag in cli.flags(command):
     let
       optional = cli.isValueOptional(flag)
       placeholder = cli.placeholderOf(flag)
@@ -754,12 +1104,12 @@ func displayOf(cli: Cli, positional: Positional): string =
   if cli.isCatchAll(positional):
     result.add "..."
 
-func positionalsUsage*(cli: Cli): string =
+func positionalsUsage*(cli: Cli, command: Command): string =
   var
     lines: seq[(string, string)]
     posPad: int
 
-  for positional in cli.positionals:
+  for positional in cli.positionals(command):
     let display = cli.displayOf(positional)
     posPad = max(posPad, display.len)
     lines.add (display, cli.usageOf(positional))
@@ -774,24 +1124,67 @@ func positionalsUsage*(cli: Cli): string =
         if usage.len > 0: posPad else: 0
     result.add usage
 
-func commandUsage*(cli: Cli, name: string): string =
-  result.add name
+func commandUsage*(cli: Cli, command: Command, rootName: string = cli.nameOf(RootCommand)): string =
+  for idx, command in cli.pathOf(command).pairs():
+    if idx == 0:
+      result.add rootName
+    else:
+      if result.len > 0:
+        result.add ' '
+      result.add cli.nameOf(command)
+
   if result.len > 0:
     result.add ' '
   result.add "[OPTIONS]"
-  for positional in cli.positionals:
+
+  if cli.hasDefaultCommand(command):
+    result.add " [COMMAND]"
+  elif cli.isDispatcher(command):
+    result.add " <COMMAND>"
+
+  for positional in cli.positionals(command):
     if result.len > 0:
       result.add ' '
     result.add cli.displayOf(positional)
 
-func help*(cli: Cli, name: string): string =
-  let
-    usage = cli.commandUsage(name)
-    args = cli.positionalsUsage
-    flags = cli.flagsUsage
+func subcommandsUsage*(cli: Cli, command: Command): string =
+  var
+    commands: seq[Command]
+    cmdPad: int
+  for command in cli.subcommands(command):
+    cmdPad = max(cmdPad, cli.nameOf(command).len)
+    commands.add command
 
+  cmdPad.inc 2
+  for command in commands.items:
+    var usage = cli.usageOf(command)
+    if cli.isDefault(command):
+      if usage.len > 0: usage.add ' '
+      usage.add "[default]"
+
+    if result.len > 0: result.add "\n"
+    result.add "  "
+    result.add:
+      alignLeft(cli.nameOf(command)):
+        if usage.len > 0: cmdPad else: 0
+    result.add usage
+
+func help*(cli: Cli, command: Command, rootName: string = cli.nameOf(RootCommand)): string =
+  let
+    usage = cli.commandUsage(command, rootName)
+    subcmds = cli.subcommandsUsage(command)
+    args = cli.positionalsUsage(command)
+    flags = cli.flagsUsage(command)
+
+  result.add cli.usageOf(command)
+
+  if result.len > 0: result.add "\n\n"
   result.add "Usage: "
   result.add usage
+
+  if subcmds.len > 0:
+    result.add "\n\nCommands:\n"
+    result.add subcmds
 
   if args.len > 0:
     result.add "\n\nArguments:\n"

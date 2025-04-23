@@ -30,7 +30,9 @@ block typicalUsage:
         opts: set[Opt]
         files: seq[string]
 
-    var cli = initCli Config
+    var cli = commandBuilder(Config)
+      .name("cat")
+      .initCli()
     cli.flagBuilder
       .name("show-nonprinting")
       .alias("v")
@@ -71,15 +73,15 @@ block typicalUsage:
       doAssert parsed.opts == {ShowNonPrinting, SqueezeBlank}
 
     block doc:
-      doAssert cli.flagsUsage == """
+      doAssert cli.flagsUsage(RootCommand) == """
   -v, --show-nonprinting  display non-printing characters
   -s, --squeeze-blank     remove repeated empty lines"""
 
-      doAssert cli.commandUsage("cat") == "cat [OPTIONS] [FILE]..."
-      doAssert cli.positionalsUsage == """
+      doAssert cli.commandUsage(RootCommand) == "cat [OPTIONS] [FILE]..."
+      doAssert cli.positionalsUsage(RootCommand) == """
   [FILE]...  file(s) to concatenate"""
 
-      doAssert cli.help("cat") == """
+      doAssert cli.help(RootCommand) == """
 Usage: cat [OPTIONS] [FILE]...
 
 Arguments:
@@ -98,7 +100,9 @@ Options:
         equalizeWidth: bool
         numbers: seq[int]
 
-    var cli = initCli Config
+    var cli = commandBuilder(Config)
+      .name("seq")
+      .initCli()
     cli.flagBuilder
       .name("format")
       .parser(string, proc (_, v: auto, c: var auto): Action = c.format = some(v))
@@ -155,15 +159,15 @@ Options:
       doAssert parsed.numbers == [10, 100]
 
     block doc:
-      doAssert cli.flagsUsage == """
+      doAssert cli.flagsUsage(RootCommand) == """
   --format <FORMAT>     use printf style FORMAT
   --separator <STRING>  use STRING to separate numbers
   --equal-width         equalize width by padding with leading zeroes"""
 
-      doAssert cli.commandUsage("seq") == "seq [OPTIONS] <NUMBER>..."
-      doAssert cli.positionalsUsage == "  <NUMBER>..."
+      doAssert cli.commandUsage(RootCommand) == "seq [OPTIONS] <NUMBER>..."
+      doAssert cli.positionalsUsage(RootCommand) == "  <NUMBER>..."
 
-      doAssert cli.help("seq") == """
+      doAssert cli.help(RootCommand) == """
 Usage: seq [OPTIONS] <NUMBER>...
 
 Arguments:
@@ -174,11 +178,181 @@ Options:
   --separator <STRING>  use STRING to separate numbers
   --equal-width         equalize width by padding with leading zeroes"""
 
+  block gitLike:
+    ## git-style cli
+    type
+      Operation = enum
+        NoOperation
+        Clone
+        RemoteList
+        RemoteAdd
+        RemoteShow
+
+      CloneConfig = object
+        url: string
+        dest: string
+        branch: string
+
+      RemoteConfig = object
+        name: string
+        url: string
+        branch: string
+
+      SharedConfig = object
+        verbose: bool
+
+      Config = object
+        shared: SharedConfig
+        case op: Operation
+        of Clone:
+          cloneConfig: CloneConfig
+        of RemoteAdd, RemoteShow:
+          remoteConfig: RemoteConfig
+        of RemoteList, NoOperation:
+          discard
+
+    var cli = commandBuilder(Config)
+      .name("git")
+      .initCli()
+    cli.helpFlagBuilder()
+      .addTo(cli)
+
+    let cloneCmd = cli.commandBuilder()
+      .name("clone")
+      .alias("c")
+      .describe("clone a repository")
+      .parser(proc (_: auto, c: var auto): Action = c = Config(shared: c.shared, op: Clone))
+      .addTo(cli, RootCommand)
+    cli.flagBuilder()
+      .name("branch")
+      .alias("b")
+      .describe("checkout BRANCH instead of HEAD", "BRANCH")
+      .parser(string, proc (_, v: auto, c: var auto): Action = c.cloneConfig.branch = v)
+      .addTo(cli, cloneCmd)
+    cli.positionalBuilder()
+      .name("REPO")
+      .describe("repository to clone")
+      .parser(string, proc (v: auto, c: var auto): Action = c.cloneConfig.url = v)
+      .addTo(cli, cloneCmd)
+    cli.positionalBuilder()
+      .name("DIR")
+      .describe("output directory")
+      .optional()
+      .parser(string, proc (v: auto, c: var auto): Action = c.cloneConfig.dest = v)
+      .addTo(cli, cloneCmd)
+
+    let remoteCmd = cli.commandBuilder()
+      .name("remote")
+      .alias("r")
+      .describe("manage repository remote(s)")
+      .addTo(cli, RootCommand)
+    cli.flagBuilder()
+      .name("verbose")
+      .alias("v")
+      .describe("print full URLs")
+      .parser(bool, proc(_, v: auto, c: var auto): Action = c.shared.verbose = v)
+      .addTo(cli, remoteCmd)
+    cli.commandBuilder()
+      .name("list")
+      .describe("list all remotes")
+      .default()
+      .parser(proc (_: auto, c: var auto): Action = c = Config(shared: c.shared, op: RemoteList))
+      .addTo(cli, remoteCmd)
+
+    let remoteAddCmd = cli.commandBuilder()
+      .name("add")
+      .describe("add a new remote")
+      .parser(proc (_: auto, c: var auto): Action = c = Config(shared: c.shared, op: RemoteAdd))
+      .addTo(cli, remoteCmd)
+    cli.flagBuilder()
+      .name("t")
+      .describe("track only BRANCH", "BRANCH")
+      .parser(string, proc (_, v: auto, c: var auto): Action = c.remoteConfig.branch = v)
+      .addTo(cli, remoteAddCmd)
+    cli.positionalBuilder()
+      .name("NAME")
+      .describe("name of the new remote")
+      .parser(string, proc (v: auto, c: var auto): Action = c.remoteConfig.name = v)
+      .addTo(cli, remoteAddCmd)
+    cli.positionalBuilder()
+      .name("URL")
+      .describe("url of the new remote")
+      .parser(string, proc (v: auto, c: var auto): Action = c.remoteConfig.url = v)
+      .addTo(cli, remoteAddCmd)
+
+    let remoteShowCmd = cli.commandBuilder()
+      .name("show")
+      .describe("show information about remote")
+      .parser(proc (_: auto, c: var auto): Action = c = Config(shared: c.shared, op: RemoteShow))
+      .addTo(cli, remoteCmd)
+    cli.positionalBuilder()
+      .name("NAME")
+      .parser(string, proc (v: auto, c: var auto): Action = c.remoteConfig.name = v)
+      .addTo(cli, remoteShowCmd)
+
+    block basic:
+      var parsed = cli.parse(@["clone", "some-repo"])
+      doAssert not parsed.shared.verbose
+      doAssert parsed.op == Clone
+      doAssert parsed.cloneConfig == CloneConfig(url: "some-repo")
+
+      parsed = cli.parse(@["clone", "some-repo", "-b", "some-branch"])
+      doAssert not parsed.shared.verbose
+      doAssert parsed.op == Clone
+      doAssert parsed.cloneConfig == CloneConfig(url: "some-repo", branch: "some-branch")
+
+      parsed = cli.parse(@["remote"])
+      doAssert not parsed.shared.verbose
+      doAssert parsed.op == RemoteList
+
+      parsed = cli.parse(@["remote", "-v", "list"])
+      doAssert parsed.shared.verbose
+      doAssert parsed.op == RemoteList
+
+      parsed = cli.parse(@["remote", "add", "origin", "some-repo"])
+      doAssert not parsed.shared.verbose
+      doAssert parsed.op == RemoteAdd
+      doAssert parsed.remoteConfig == RemoteConfig(name: "origin", url: "some-repo")
+
+    block doc:
+      doAssert cli.help(RootCommand) == """
+Usage: git [OPTIONS] <COMMAND>
+
+Commands:
+  clone   clone a repository
+  remote  manage repository remote(s)
+
+Options:
+  --help  display help message"""
+      doAssert cli.help(remoteCmd) == """
+manage repository remote(s)
+
+Usage: git remote [OPTIONS] [COMMAND]
+
+Commands:
+  list  list all remotes [default]
+  add   add a new remote
+  show  show information about remote
+
+Options:
+  -v, --verbose  print full URLs"""
+      doAssert cli.help(remoteAddCmd) == """
+add a new remote
+
+Usage: git remote add [OPTIONS] <NAME> <URL>
+
+Arguments:
+  <NAME>  name of the new remote
+  <URL>   url of the new remote
+
+Options:
+  -t <BRANCH>  track only BRANCH"""
+
 block flags:
   ## Tests for flags
   block:
     ## It is not possible to add duplicated flags
-    var cli = initCli int
+    var cli = commandBuilder(int).initCli()
 
     cli.flagBuilder
       .name("flag")
@@ -192,7 +366,7 @@ block flags:
 
   block:
     ## Aliases also block duplicated flags
-    var cli = initCli int
+    var cli = commandBuilder(int).initCli()
 
     cli.flagBuilder
       .name("flag")
@@ -224,7 +398,7 @@ block flags:
 
   block:
     ## `--` blocks stops all flag processing
-    var cli = initCli bool
+    var cli = commandBuilder(bool).initCli()
 
     cli.flagBuilder
       .name("flag")
@@ -246,7 +420,7 @@ block flags:
       Config = object
         o: Custom
 
-    var cli = initCli Config
+    var cli = commandBuilder(Config).initCli()
     cli.flagBuilder
       .name("o")
       .parser(Custom, proc (_, v: auto, c: var auto): Action = c.o = v)
@@ -265,7 +439,7 @@ block flags:
         b: bool
         remaining: seq[string]
 
-    var cli = initCli Config
+    var cli = commandBuilder(Config).initCli()
     cli.flagBuilder
       .name("nat")
       .optionalParser(Natural, proc (_, v: auto, c: var auto): Action = c.n = v.get(0xdead))
@@ -286,7 +460,7 @@ block flags:
       .name("bool")
       .parser(bool, proc (_, v: auto, c: var auto): Action = c.b = v)
       .addTo(cli)
-    cli.addHelpFlag("help")
+    cli.addHelpFlag(name = "help")
     cli.positionalBuilder
       .name("ANY")
       .parser(string, proc(v: auto, c: var auto): Action = c.remaining.add v)
@@ -347,8 +521,16 @@ block flags:
         cli.parse(parsed, @["--unknown", "--int=10"])
         doAssert false, "expected UnknownFlagError"
       except UnknownFlagError as e:
-        doAssert e.flagName == "--unknown"
+        doAssert e.flagName == "unknown"
+        doAssert e.flagValue == none string
         doAssert parsed.i == 0
+
+      try:
+        cli.parse(parsed, @["--unknown=something"])
+        doAssert false, "expected UnknownFlagError"
+      except UnknownFlagError as e:
+        doAssert e.flagName == "unknown"
+        doAssert e.flagValue == some("something")
 
     block novalue:
       ## Missing value will trigger an error
@@ -357,7 +539,7 @@ block flags:
         cli.parse(parsed, @["--bool", "--int"])
         doAssert false, "expected MissingValueError"
       except MissingValueError as e:
-        doAssert e.flagName == "--int"
+        doAssert e.flagName == "int"
         doAssert e.flag == intFlag
         doAssert parsed.b
 
@@ -369,7 +551,7 @@ block flags:
         doAssert false, "expected InvalidValueError"
       except InvalidValueError as e:
         doAssert e.parent of ValueError
-        doAssert e.flagName == "--int"
+        doAssert e.flagName == "int"
         doAssert e.flag == intFlag
         doAssert e.flagValue == some("notint")
         doAssert parsed.f == [0.0]
@@ -379,7 +561,7 @@ block positionals:
   ## Tests for positionals
   block:
     ## Disallow duplicate positional names
-    var cli = initCli int
+    var cli = commandBuilder(int).initCli()
     cli.positionalBuilder
       .name("ARG")
       .parser(noop)
@@ -393,7 +575,7 @@ block positionals:
   block:
     ## No required positional might be added after an optional one
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("OPT0")
         .parser(noop)
@@ -411,7 +593,7 @@ block positionals:
           .parser(noop)
           .addTo(cli)
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("OPT0")
         .parser(noop)
@@ -424,7 +606,7 @@ block positionals:
           .parser(noop)
           .addTo(cli)
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQ0")
         .parser(noop)
@@ -443,7 +625,7 @@ block positionals:
   block:
     ## No positional can be added after a catch all
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("OPT0")
         .parser(noop)
@@ -462,7 +644,7 @@ block positionals:
           .parser(noop)
           .addTo(cli)
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("OPT0")
         .parser(noop)
@@ -481,8 +663,39 @@ block positionals:
           .addTo(cli)
 
   block:
+    ## No positional can be added to a dispatcher
+    var cli = commandBuilder(bool).initCli()
+    cli.commandBuilder()
+      .name("x")
+      .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.positionalBuilder()
+        .name("REQ")
+        .parser(noop)
+        .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.positionalBuilder()
+        .name("ANY")
+        .parser(noop)
+        .catchAll()
+        .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.positionalBuilder()
+        .name("OPT")
+        .parser(noop)
+        .optional()
+        .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.positionalBuilder()
+        .name("ANYOPT")
+        .parser(noop)
+        .optional()
+        .catchAll()
+        .addTo(cli, RootCommand)
+
+  block:
     ## First `--` is never captured
-    var cli = initCli seq[string]
+    var cli = commandBuilder(seq[string]).initCli()
 
     cli.positionalBuilder
       .name("ANY")
@@ -501,7 +714,7 @@ block positionals:
       Config = object
         o: Custom
 
-    var cli = initCli Config
+    var cli = commandBuilder(Config).initCli()
     cli.positionalBuilder
       .name("O")
       .parser(Custom, proc (v: auto, c: var auto): Action = c.o = v)
@@ -513,7 +726,7 @@ block positionals:
     ## Action tests
     block:
       ## Help
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("HELP")
         .parser(proc (v: auto, c: var auto): Action = ShowHelp)
@@ -522,7 +735,7 @@ block positionals:
         discard cli.parse @["help"]
     block:
       ## Stop flag processing
-      var cli = initCli seq[string]
+      var cli = commandBuilder(seq[string]).initCli()
       cli.positionalBuilder
         .name("STOP")
         .parser(proc (v: auto, c: var auto): Action = DisableFlagProcessing)
@@ -538,7 +751,7 @@ block positionals:
   block:
     ## Optional is optional
     block:
-      var cli = initCli string
+      var cli = commandBuilder(string).initCli()
       cli.positionalBuilder
         .name("OPT")
         .optional()
@@ -548,7 +761,7 @@ block positionals:
       doAssert cli.parse(@[]) == ""
 
     block:
-      var cli = initCli seq[string]
+      var cli = commandBuilder(seq[string]).initCli()
       cli.positionalBuilder
         .name("OPT")
         .catchAll()
@@ -561,7 +774,7 @@ block positionals:
   block:
     ## Required catch all is required
     block:
-      var cli = initCli seq[string]
+      var cli = commandBuilder(seq[string]).initCli()
       let any = cli.positionalBuilder
         .name("ANY")
         .catchAll()
@@ -588,7 +801,7 @@ block positionals:
       opt: Natural
       rest: seq[string]
 
-    var cli = initCli Config
+    var cli = commandBuilder(Config).initCli()
     cli.flagBuilder
       .name("flag")
       .alias("f")
@@ -704,170 +917,622 @@ block positionals:
           doAssert e.positionalValue == "-f10"
           doAssert e.positional == req1
 
+block commands:
+  ## Tests for commands
+  block:
+    ## Disallow duplicate commands
+    var cli = commandBuilder(bool).initCli()
+    cli.commandBuilder()
+      .name("foo")
+      .parser(noop)
+      .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.commandBuilder()
+        .name("foo")
+        .parser(noop)
+        .addTo(cli, RootCommand)
+
+  block:
+    ## Aliases cannot be duplicated
+    var cli = commandBuilder(bool).initCli()
+    cli.commandBuilder()
+      .name("foo")
+      .addTo(cli, RootCommand)
+    cli.commandBuilder()
+      .name("foobar")
+      .alias("fb", "f-b")
+      .addTo(cli, RootCommand)
+
+    doAssertRaises(ValueError):
+      cli.commandBuilder()
+        .name("bar")
+        .alias("foo")
+        .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.commandBuilder()
+        .name("fb")
+        .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.commandBuilder()
+        .name("unrelated")
+        .alias("still-unrelated", "f-b")
+        .addTo(cli, RootCommand)
+
+  block:
+    ## Command with positionals cannot have subcommands
+    block:
+      ## Required positional
+      var cli = commandBuilder(bool).initCli()
+      cli.positionalBuilder()
+        .name("X")
+        .parser(noop)
+        .addTo(cli, RootCommand)
+      doAssertRaises(ValueError):
+        cli.commandBuilder()
+          .name("foo")
+          .addTo(cli, RootCommand)
+
+    block:
+      ## Optional positional
+      var cli = commandBuilder(bool).initCli()
+      cli.positionalBuilder()
+        .name("X")
+        .parser(noop)
+        .optional()
+        .addTo(cli, RootCommand)
+      doAssertRaises(ValueError):
+        cli.commandBuilder()
+          .name("foo")
+          .addTo(cli, RootCommand)
+
+  block:
+    ## Only one default subcommand can be registered
+    var cli = commandBuilder(bool).initCli()
+    cli.commandBuilder()
+      .name("foo")
+      .default()
+      .addTo(cli, RootCommand)
+    doAssertRaises(ValueError):
+      cli.commandBuilder()
+        .name("bar")
+        .default()
+        .addTo(cli, RootCommand)
+
+  block:
+    ## Action tests
+    block:
+      ## Help
+      var cli = commandBuilder(bool).initCli()
+      let notHelpCmd = cli.commandBuilder()
+        .name("not-help")
+        .parser(proc (_: auto, b: var auto): Action = ShowHelp)
+        .addTo(cli, RootCommand)
+      try:
+        discard cli.parse @["not-help"]
+        unreachable("HelpError should be raised")
+      except HelpError as e:
+        doAssert e.command == notHelpCmd
+        doAssert e.param == Parameter(notHelpCmd)
+        doAssert e.paramName == "not-help"
+
+    block:
+      ## Disable flags
+      var cli = commandBuilder(seq[string]).initCli()
+      let eatCmd = cli.commandBuilder()
+        .name("eat")
+        .parser(proc (_: auto, s: var auto): Action = DisableFlagProcessing)
+        .addTo(cli, RootCommand)
+      cli.positionalBuilder()
+        .name("ANY")
+        .optional()
+        .catchAll()
+        .parser(proc (v: auto, s: var auto): Action = s.add v)
+        .addTo(cli, eatCmd)
+      doAssert cli.parse(@["eat", "--foo", "--bar"]) == ["--foo", "--bar"]
+
+  block:
+    ## Default command parsers propel forward automatically
+    var count = 0
+    template expectAndInc(expected: int) =
+      bind count
+      doAssert count == expected:
+        "Expected " & $expected & " but got: " & $count
+      inc count
+
+    var cli = commandBuilder(bool).initCli()
+    let fooCmd = cli.commandBuilder()
+      .name("foo")
+      .default()
+      .parser(proc (_: auto, b: var auto): Action = expectAndInc(0))
+      .addTo(cli, RootCommand)
+    let barCmd = cli.commandBuilder()
+      .name("bar")
+      .default()
+      .parser(proc (_: auto, b: var auto): Action = expectAndInc(1))
+      .addTo(cli, fooCmd)
+    cli.commandBuilder()
+      .name("foobar")
+      .default()
+      .parser(proc (_: auto, b: var auto): Action = expectAndInc(2))
+      .addTo(cli, barCmd)
+
+    discard cli.parse(@[])
+    expectAndInc(3)
+
+  block:
+    ## Default respects action
+    var cli = commandBuilder(bool).initCli()
+    let fooCmd = cli.commandBuilder()
+      .name("foo")
+      .default()
+      .addTo(cli, RootCommand)
+    let barCmd = cli.commandBuilder()
+      .name("bar")
+      .default()
+      .parser(proc (_: auto, b: var auto): Action = ShowHelp)
+      .addTo(cli, fooCmd)
+    try:
+      discard cli.parse @[]
+      unreachable("HelpError should be raised")
+    except HelpError as e:
+      doAssert e.command == barCmd
+      doAssert e.param == Parameter(barCmd)
+      doAssert e.paramName == ""
+
+  block:
+    ## Dispatcher without default requires a command
+    var cli = commandBuilder(bool).initCli()
+    let fooCmd = cli.commandBuilder()
+      .name("foo")
+      .addTo(cli, RootCommand)
+    cli.commandBuilder()
+      .name("bar")
+      .addTo(cli, fooCmd)
+
+    try:
+      discard cli.parse(@[])
+      unreachable("MissingCommandError should be raised")
+    except MissingCommandError as e:
+      doAssert e.command == RootCommand
+      doAssert e.commandName == ""
+
+    try:
+      discard cli.parse(@["foo"])
+      unreachable("MissingCommandError should be raised")
+    except MissingCommandError as e:
+      doAssert e.command == fooCmd
+      doAssert e.commandName == ""
+
+  block:
+    ## Behaviour tests
+    type
+      RootConfig = object
+        b: bool
+        i: int
+      FooConfig = object
+        b: bool
+        s: string
+      BarConfig = object
+        s: string
+        x: Custom
+      OtherConfig = object
+        a: int
+        s: string
+      Cmd = enum
+        cmdRoot
+        cmdFoo
+        cmdBar
+        cmdTmp
+        cmdOther
+      Config = object
+        cmd: Cmd
+        root: RootConfig
+        foo: FooConfig
+        bar: BarConfig
+        other: OtherConfig
+
+    var cli = commandBuilder(Config)
+      .initCli()
+    cli.flagBuilder()
+      .name("b")
+      .parser(bool, proc (_, v: auto, c: var auto): Action = c.root.b = v)
+      .addTo(cli, RootCommand)
+    cli.flagBuilder()
+      .name("i")
+      .parser(int, proc (_, v: auto, c: var auto): Action = c.root.i = v)
+      .addTo(cli, RootCommand)
+    cli.addHelpFlag(RootCommand)
+    let fooCmd = cli.commandBuilder()
+      .name("foo")
+      .alias("f")
+      .default()
+      .parser(proc (_: auto, c: var auto): Action = c.cmd = cmdFoo)
+      .addTo(cli, RootCommand)
+    cli.flagBuilder()
+      .name("b")
+      .parser(bool, proc (_, v: auto, c: var auto): Action = c.foo.b = v)
+      .addTo(cli, fooCmd)
+    cli.flagBuilder()
+      .name("s")
+      .parser(string, proc (_, v: auto, c: var auto): Action = c.foo.s = v)
+      .addTo(cli, fooCmd)
+    let barCmd = cli.commandBuilder()
+      .name("bar")
+      .alias("b")
+      .parser(proc (_: auto, c: var auto): Action = c.cmd = cmdBar)
+      .addTo(cli, fooCmd)
+    cli.positionalBuilder()
+      .name("S")
+      .parser(string, proc (v: auto, c: var auto): Action = c.bar.s = v)
+      .addTo(cli, barCmd)
+    cli.positionalBuilder()
+      .name("X")
+      .parser(Custom, proc (v: auto, c: var auto): Action = c.bar.x = v)
+      .addTo(cli, barCmd)
+    cli.addHelpFlag(barCmd)
+    let tmpCmd = cli.commandBuilder()
+      .name("tmp")
+      .parser(proc (_: auto, c: var auto): Action = c.cmd = cmdTmp)
+      .addTo(cli, RootCommand)
+    cli.addHelpFlag(tmpCmd)
+    let otherCmd = cli.commandBuilder()
+      .name("other")
+      .default()
+      .parser(proc (_: auto, c: var auto): Action = c.cmd = cmdOther)
+      .addTo(cli, tmpCmd)
+    cli.flagBuilder()
+      .name("str")
+      .parser(string, proc (_, v: auto, c: var auto): Action = c.other.s = v)
+      .addTo(cli, otherCmd)
+    cli.positionalBuilder()
+      .name("A")
+      .parser(int, proc (v: auto, c: var auto): Action = c.other.a = v)
+      .addTo(cli, otherCmd)
+    let rejectCmd = cli.commandBuilder()
+      .name("reject")
+      .alias("r")
+      .parser(proc (_: auto, c: var auto): Action = raise newException(ValueError, "rejected"))
+      .addTo(cli, RootCommand)
+    let rejectDefCmd = cli.commandBuilder()
+      .name("reject-default")
+      .addTo(cli, RootCommand)
+    let rejectDefImplCmd = cli.commandBuilder()
+      .name("default")
+      .parser(proc (_: auto, c: var auto): Action = raise newException(ValueError, "rejected"))
+      .default()
+      .addTo(cli, rejectDefCmd)
+
+    block:
+      ## Basic happy cases
+      doAssert cli.parse(@["foo", "bar", "x", "1"]) == Config(
+        cmd: cmdBar,
+        bar: BarConfig(s: "x", x: Custom(i: 1)),
+      )
+      doAssert cli.parse(@["-b", "foo", "-sstuff", "bar", "x", "1"]) == Config(
+        cmd: cmdBar,
+        root: RootConfig(b: true),
+        foo: FooConfig(s: "stuff"),
+        bar: BarConfig(s: "x", x: Custom(i: 1)),
+      )
+      doAssert cli.parse(@["tmp", "other", "10"]) == Config(
+        cmd: cmdOther,
+        other: OtherConfig(a: 10)
+      )
+
+    block:
+      ## `--` stop flag processing
+      doAssert cli.parse(@["--", "foo", "bar", "-b", "10"]) == Config(
+        cmd: cmdBar,
+        bar: BarConfig(s: "-b", x: Custom(i: 10)),
+      )
+      doAssert cli.parse(@["foo", "-b", "--", "bar", "--", "42"]) == Config(
+        cmd: cmdBar,
+        foo: FooConfig(b: true),
+        bar: BarConfig(s: "--", x: Custom(i: 42)),
+      )
+
+    block:
+      ## Unknown command
+      try:
+        discard cli.parse(@["x"])
+        unreachable("UnknownCommandError should be raised")
+      except UnknownCommandError as e:
+        doAssert e.command == RootCommand
+        doAssert e.commandName == "x"
+
+      try:
+        discard cli.parse(@["foo", "x"])
+        unreachable("UnknownCommandError should be raised")
+      except UnknownCommandError as e:
+        doAssert e.command == fooCmd
+        doAssert e.commandName == "x"
+
+    block:
+      ## Rejected command
+      try:
+        discard cli.parse(@["reject"])
+        unreachable("InvalidCommandError should be raised")
+      except InvalidCommandError as e:
+        doAssert e.parent.msg == "rejected"
+        doAssert e.command == RootCommand
+        doAssert e.commandName == "reject"
+        doAssert e.targetCommand == rejectCmd
+
+      try:
+        discard cli.parse(@["r"])
+        unreachable("InvalidCommandError should be raised")
+      except InvalidCommandError as e:
+        doAssert e.parent.msg == "rejected"
+        doAssert e.command == RootCommand
+        doAssert e.commandName == "r"
+        doAssert e.targetCommand == rejectCmd
+
+    block:
+      ## Flag scoping
+      block:
+        ## Expected
+        doAssert cli.parse(@["foo", "-b", "bar", "x", "1"]) == Config(
+          cmd: cmdBar,
+          foo: FooConfig(b: true),
+          bar: BarConfig(s: "x", x: Custom(i: 1)),
+        )
+        doAssert cli.parse(@["-b", "foo", "-b=false", "b", "x", "1"]) == Config(
+          cmd: cmdBar,
+          root: RootConfig(b: true),
+          bar: BarConfig(s: "x", x: Custom(i: 1)),
+        )
+
+      block:
+        ## Help stops at first occurrance
+        try:
+          discard cli.parse(@["--help", "foo"])
+          unreachable("HelpError should be raised")
+        except HelpError as e:
+          doAssert e.command == RootCommand
+          doAssert e.remaining == ["foo"]
+
+        try:
+          discard cli.parse(@["f", "b", "--help"])
+          unreachable("HelpError should be raised")
+        except HelpError as e:
+          doAssert e.command == barCmd
+          doAssert e.remaining == []
+
+        try:
+          discard cli.parse(@["tmp", "--help"])
+          unreachable("HelpError should be raised")
+        except HelpError as e:
+          doAssert e.command == tmpCmd
+          doAssert e.remaining == []
+
+      block:
+        ## Subcommand cannot access upper level flags
+        try:
+          discard cli.parse(@["f", "-i=10", "bar", "x", "1"])
+          unreachable("UnknownFlagError should be raised")
+        except UnknownFlagError as e:
+          doAssert e.command == fooCmd
+          doAssert e.flagName == "i"
+          doAssert e.flagValue == some("10")
+          doAssert e.remaining == ["bar", "x", "1"]
+
+        try:
+          discard cli.parse(@["foo", "bar", "-b", "x", "1"])
+          unreachable("UnknownFlagError should be raised")
+        except UnknownFlagError as e:
+          doAssert e.command == barCmd
+          doAssert e.flagName == "b"
+          doAssert e.remaining == ["x", "1"]
+
+    block:
+      ## Default interactions
+      block:
+        ## Default into dispatcher without default errors
+        try:
+          discard cli.parse(@[])
+          unreachable("MissingCommandError should be raised")
+        except MissingCommandError as e:
+          doAssert e.command == fooCmd
+
+      block:
+        ## Default into required positional errors
+        try:
+          discard cli.parse(@["tmp"])
+          unreachable("MissingPositionalError should be raised")
+        except MissingPositionalError as e:
+          doAssert e.command == otherCmd
+
+      block:
+        ## Default into rejected error
+        try:
+          discard cli.parse(@["reject-default"])
+          unreachable("InvalidCommandError should be raised")
+        except InvalidCommandError as e:
+          doAssert e.parent.msg == "rejected"
+          doAssert e.command == rejectDefCmd
+          doAssert e.commandName == ""
+          doAssert e.targetCommand == rejectDefImplCmd
+
+      block:
+        ## It is not possible to specify parameters for default command
+        try:
+          discard cli.parse(@["tmp", "--str", "value"])
+          unreachable("UnknownFlagError should be raised")
+        except UnknownFlagError as e:
+          doAssert e.flagName == "str"
+          doAssert e.flagValue == none string
+
+        try:
+          discard cli.parse(@["tmp", "10"])
+          unreachable("UnknownCommandError should be raised")
+        except UnknownCommandError as e:
+          doAssert e.command == tmpCmd
+          doAssert e.commandName == "10"
+
 block docgen:
   block:
     ## Just one flag
     block:
       ## Short flag
-      var cli = initCli int
+      var cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .optionalParser(noop)
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v"
+      doAssert cli.flagsUsage(RootCommand) == "  -v"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .optionalParser(noop)
         .describe("", "INT")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v[=<INT>]"
+      doAssert cli.flagsUsage(RootCommand) == "  -v[=<INT>]"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .optionalParser(noop)
         .describe("some description")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v  some description"
+      doAssert cli.flagsUsage(RootCommand) == "  -v  some description"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .optionalParser(noop)
         .describe("some description", "INT")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v[=<INT>]  some description"
+      doAssert cli.flagsUsage(RootCommand) == "  -v[=<INT>]  some description"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .parser(noop)
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v <VALUE>"
+      doAssert cli.flagsUsage(RootCommand) == "  -v <VALUE>"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .parser(noop)
         .describe("some description")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v <VALUE>  some description"
+      doAssert cli.flagsUsage(RootCommand) == "  -v <VALUE>  some description"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("v")
         .parser(noop)
         .describe("some description", "INT")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  -v <INT>  some description"
+      doAssert cli.flagsUsage(RootCommand) == "  -v <INT>  some description"
 
     block:
       ## Long flag
-      var cli = initCli int
+      var cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .optionalParser(noop)
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .optionalParser(noop)
         .describe("", "VALUE")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag[=<VALUE>]"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag[=<VALUE>]"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .optionalParser(noop)
         .describe("flag something", "VALUE")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag[=<VALUE>]  flag something"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag[=<VALUE>]  flag something"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .parser(noop)
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag <VALUE>"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag <VALUE>"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .parser(noop)
         .describe("flag something")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag <VALUE>  flag something"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag <VALUE>  flag something"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .parser(noop)
         .describe("flag something", "FLAG,...")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag <FLAG,...>  flag something"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag <FLAG,...>  flag something"
 
-      cli = initCli int
+      cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("flag")
         .optionalParser(noop)
         .describe("flag something", "VALUE")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == "  --flag[=<VALUE>]  flag something"
+      doAssert cli.flagsUsage(RootCommand) == "  --flag[=<VALUE>]  flag something"
 
     block:
       ## Aliases
       block:
         ## Check render ordering
         # Use the first short and first long flag, in that exact order
-        var cli = initCli int
+        var cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("flag")
           .alias("other-long", "c")
           .optionalParser(noop)
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag"
 
-        cli = initCli int
+        cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("c")
           .alias("flag", "f")
           .optionalParser(noop)
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag"
 
       block description:
         ## Check multi-flag description render
-        var cli = initCli int
+        var cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("c")
           .alias("flag", "f")
           .parser(noop)
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag <VALUE>"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag <VALUE>"
 
-        cli = initCli int
+        cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("c")
           .alias("flag", "f")
@@ -875,9 +1540,9 @@ block docgen:
           .describe("", "VALUE")
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag[=<VALUE>]"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag[=<VALUE>]"
 
-        cli = initCli int
+        cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("c")
           .alias("flag", "f")
@@ -885,9 +1550,9 @@ block docgen:
           .describe("flag something", "VALUE")
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag[=<VALUE>]  flag something"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag[=<VALUE>]  flag something"
 
-        cli = initCli int
+        cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("c")
           .alias("flag", "f")
@@ -895,9 +1560,9 @@ block docgen:
           .describe("flag something", "")
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag <VALUE>  flag something"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag <VALUE>  flag something"
 
-        cli = initCli int
+        cli = commandBuilder(int).initCli()
         cli.flagBuilder
           .name("c")
           .alias("flag", "f")
@@ -905,13 +1570,13 @@ block docgen:
           .describe("flag something", "FLAG,...")
           .addTo(cli)
 
-        doAssert cli.flagsUsage == "  -c, --flag <FLAG,...>  flag something"
+        doAssert cli.flagsUsage(RootCommand) == "  -c, --flag <FLAG,...>  flag something"
 
   block:
     ## Multiple flags
     block:
       ## Order by addition time
-      var cli = initCli int
+      var cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("c")
         .alias("flag", "f")
@@ -925,13 +1590,13 @@ block docgen:
         .describe("show all")
         .addTo(cli)
 
-      doAssert cli.flagsUsage == """
+      doAssert cli.flagsUsage(RootCommand) == """
   -c, --flag <VALUE>  flag something
   -a                  show all"""
 
     block:
       ## Column alignment
-      var cli = initCli int
+      var cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("c")
         .alias("flag", "f")
@@ -950,14 +1615,14 @@ block docgen:
         .parser(noop)
         .addTo(cli)
 
-      doAssert cli.flagsUsage == """
+      doAssert cli.flagsUsage(RootCommand) == """
   -c, --flag <VALUE>                    flag something
   -a                                    show all
   --yes-i-know-what-i-am-doing <VALUE>"""
 
     block:
       ## Flag-only help
-      var cli = initCli int
+      var cli = commandBuilder(int).initCli()
       cli.flagBuilder
         .name("c")
         .alias("flag", "f")
@@ -976,7 +1641,7 @@ block docgen:
         .parser(noop)
         .addTo(cli)
 
-      doAssert cli.help("cmd") == """
+      doAssert cli.help(RootCommand, "cmd") == """
 Usage: cmd [OPTIONS]
 
 Options:
@@ -986,50 +1651,51 @@ Options:
 
   block:
     ## Empty
-    let cli = initCli bool
-    doAssert cli.flagsUsage == ""
-    doAssert cli.positionalsUsage == ""
-    doAssert cli.commandUsage("") == "[OPTIONS]"
-    doAssert cli.commandUsage("something") == "something [OPTIONS]"
-    doAssert cli.help("") == "Usage: [OPTIONS]"
-    doAssert cli.help("something") == "Usage: something [OPTIONS]"
+    let cli = commandBuilder(bool).initCli()
+    doAssert cli.flagsUsage(RootCommand) == ""
+    doAssert cli.positionalsUsage(RootCommand) == ""
+    doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS]"
+    doAssert cli.commandUsage(RootCommand, "something") == "something [OPTIONS]"
+    doAssert cli.subcommandsUsage(RootCommand) == ""
+    doAssert cli.help(RootCommand, "") == "Usage: [OPTIONS]"
+    doAssert cli.help(RootCommand, "something") == "Usage: something [OPTIONS]"
 
   block:
     ## Just one positional
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQUIRED")
         .parser(noop)
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  <REQUIRED>"
-      doAssert cli.commandUsage("") == "[OPTIONS] <REQUIRED>"
+      doAssert cli.positionalsUsage(RootCommand) == "  <REQUIRED>"
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] <REQUIRED>"
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQUIRED")
         .parser(noop)
         .describe("a required parameter")
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  <REQUIRED>  a required parameter"
-      doAssert cli.commandUsage("") == "[OPTIONS] <REQUIRED>"
+      doAssert cli.positionalsUsage(RootCommand) == "  <REQUIRED>  a required parameter"
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] <REQUIRED>"
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQANY")
         .catchAll()
         .parser(noop)
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  <REQANY>..."
-      doAssert cli.commandUsage("") == "[OPTIONS] <REQANY>..."
+      doAssert cli.positionalsUsage(RootCommand) == "  <REQANY>..."
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] <REQANY>..."
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQANY")
         .catchAll()
@@ -1037,22 +1703,22 @@ Options:
         .describe("many required parameter(s)")
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  <REQANY>...  many required parameter(s)"
-      doAssert cli.commandUsage("") == "[OPTIONS] <REQANY>..."
+      doAssert cli.positionalsUsage(RootCommand) == "  <REQANY>...  many required parameter(s)"
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] <REQANY>..."
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("NOT-REQUIRED")
         .parser(noop)
         .optional()
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  [NOT-REQUIRED]"
-      doAssert cli.commandUsage("") == "[OPTIONS] [NOT-REQUIRED]"
+      doAssert cli.positionalsUsage(RootCommand) == "  [NOT-REQUIRED]"
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] [NOT-REQUIRED]"
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("NOT-REQUIRED")
         .parser(noop)
@@ -1060,11 +1726,11 @@ Options:
         .describe("not at all required")
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  [NOT-REQUIRED]  not at all required"
-      doAssert cli.commandUsage("") == "[OPTIONS] [NOT-REQUIRED]"
+      doAssert cli.positionalsUsage(RootCommand) == "  [NOT-REQUIRED]  not at all required"
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] [NOT-REQUIRED]"
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("NOT-REQUIRED-MANY")
         .parser(noop)
@@ -1072,11 +1738,11 @@ Options:
         .catchAll()
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  [NOT-REQUIRED-MANY]..."
-      doAssert cli.commandUsage("") == "[OPTIONS] [NOT-REQUIRED-MANY]..."
+      doAssert cli.positionalsUsage(RootCommand) == "  [NOT-REQUIRED-MANY]..."
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] [NOT-REQUIRED-MANY]..."
 
     block:
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("NOT-REQUIRED-MANY")
         .parser(noop)
@@ -1085,14 +1751,14 @@ Options:
         .describe("many param(s)")
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == "  [NOT-REQUIRED-MANY]...  many param(s)"
-      doAssert cli.commandUsage("") == "[OPTIONS] [NOT-REQUIRED-MANY]..."
+      doAssert cli.positionalsUsage(RootCommand) == "  [NOT-REQUIRED-MANY]...  many param(s)"
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] [NOT-REQUIRED-MANY]..."
 
   block:
     ## Many positionals
     block:
       ## Ordered by addition
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQ")
         .parser(noop)
@@ -1109,15 +1775,15 @@ Options:
         .catchAll()
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == """
+      doAssert cli.positionalsUsage(RootCommand) == """
   <REQ>
   [NOT-REQ]
   [MANY-NOT-REQ]..."""
-      doAssert cli.commandUsage("") == "[OPTIONS] <REQ> [NOT-REQ] [MANY-NOT-REQ]..."
+      doAssert cli.commandUsage(RootCommand, "") == "[OPTIONS] <REQ> [NOT-REQ] [MANY-NOT-REQ]..."
 
     block:
       ## Aligned into columns
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQ")
         .parser(noop)
@@ -1137,14 +1803,14 @@ Options:
         .describe("many optional parameter(s)")
         .addTo(cli)
 
-      doAssert cli.positionalsUsage == """
+      doAssert cli.positionalsUsage(RootCommand) == """
   <REQ>              a required parameter
   [NOT-REQ-AT-ALL]   an optional parameter
   [MANY-NOT-REQ]...  many optional parameter(s)"""
 
     block:
       ## Positional-only help
-      var cli = initCli bool
+      var cli = commandBuilder(bool).initCli()
       cli.positionalBuilder
         .name("REQ")
         .parser(noop)
@@ -1164,10 +1830,148 @@ Options:
         .describe("many optional parameter(s)")
         .addTo(cli)
 
-      doAssert cli.help("cmd") == """
+      doAssert cli.help(RootCommand, "cmd") == """
 Usage: cmd [OPTIONS] <REQ> [NOT-REQ-AT-ALL] [MANY-NOT-REQ]...
 
 Arguments:
   <REQ>              a required parameter
   [NOT-REQ-AT-ALL]   an optional parameter
   [MANY-NOT-REQ]...  many optional parameter(s)"""
+
+  block:
+    ## Just one subcommand
+    block:
+      ## No usage or default
+      var cli = commandBuilder(bool).initCli()
+      let fooCmd = cli.commandBuilder()
+        .name("foo")
+        .addTo(cli, RootCommand)
+      doAssert cli.commandUsage(RootCommand) == "[OPTIONS] <COMMAND>"
+      doAssert cli.commandUsage(fooCmd) == "foo [OPTIONS]"
+      doAssert cli.help(fooCmd) == "Usage: foo [OPTIONS]"
+      doAssert cli.subcommandsUsage(RootCommand) == "  foo"
+
+    block:
+      ## No usage but is default
+      var cli = commandBuilder(bool).initCli()
+      let fooCmd = cli.commandBuilder()
+        .name("foo")
+        .default()
+        .addTo(cli, RootCommand)
+      doAssert cli.commandUsage(RootCommand) == "[OPTIONS] [COMMAND]"
+      doAssert cli.commandUsage(fooCmd) == "foo [OPTIONS]"
+      doAssert cli.help(fooCmd) == "Usage: foo [OPTIONS]"
+      doAssert cli.subcommandsUsage(RootCommand) == "  foo  [default]"
+
+    block:
+      ## Usage no default
+      var cli = commandBuilder(bool).initCli()
+      let fooCmd = cli.commandBuilder()
+        .name("foo")
+        .describe("do things")
+        .addTo(cli, RootCommand)
+      doAssert cli.commandUsage(RootCommand) == "[OPTIONS] <COMMAND>"
+      doAssert cli.commandUsage(fooCmd) == "foo [OPTIONS]"
+      doAssert cli.help(fooCmd) == """
+do things
+
+Usage: foo [OPTIONS]"""
+      doAssert cli.subcommandsUsage(RootCommand) == "  foo  do things"
+
+    block:
+      ## Usage and default
+      var cli = commandBuilder(bool).initCli()
+      let fooCmd = cli.commandBuilder()
+        .name("foo")
+        .describe("do things")
+        .default()
+        .addTo(cli, RootCommand)
+      doAssert cli.commandUsage(RootCommand) == "[OPTIONS] [COMMAND]"
+      doAssert cli.commandUsage(fooCmd) == "foo [OPTIONS]"
+      doAssert cli.help(fooCmd) == """
+do things
+
+Usage: foo [OPTIONS]"""
+      doAssert cli.subcommandsUsage(RootCommand) == "  foo  do things [default]"
+
+    block:
+      ## Deep path
+      var cli = commandBuilder(bool).initCli()
+      let fooCmd = cli.commandBuilder()
+        .name("foo")
+        .describe("do things")
+        .addTo(cli, RootCommand)
+      let barCmd = cli.commandBuilder()
+        .name("bar")
+        .describe("do real things")
+        .addTo(cli, fooCmd)
+      doAssert cli.commandUsage(fooCmd) == "foo [OPTIONS] <COMMAND>"
+      doAssert cli.commandUsage(fooCmd, rootName = "root") == "root foo [OPTIONS] <COMMAND>"
+      doAssert cli.commandUsage(barCmd) == "foo bar [OPTIONS]"
+      doAssert cli.commandUsage(barCmd, rootName = "root") == "root foo bar [OPTIONS]"
+      doAssert cli.subcommandsUsage(fooCmd) == "  bar  do real things"
+
+  block:
+    ## Many subcommands
+    block:
+      ## Ordered by addition
+      var cli = commandBuilder(bool).initCli()
+      cli.commandBuilder()
+        .name("x")
+        .addTo(cli, RootCommand)
+      cli.commandBuilder()
+        .name("a")
+        .addTo(cli, RootCommand)
+      cli.commandBuilder()
+        .name("c")
+        .addTo(cli, RootCommand)
+      doAssert cli.subcommandsUsage(RootCommand) == """
+  x
+  a
+  c"""
+
+    block:
+      ## Aligned into columns
+      var cli = commandBuilder(bool).initCli()
+      cli.commandBuilder()
+        .name("x")
+        .describe("set x")
+        .addTo(cli, RootCommand)
+      cli.commandBuilder()
+        .name("very-long")
+        .describe("do some long thing")
+        .addTo(cli, RootCommand)
+      cli.commandBuilder()
+        .name("mid")
+        .describe("kinda mid")
+        .addTo(cli, RootCommand)
+      doAssert cli.subcommandsUsage(RootCommand) == """
+  x          set x
+  very-long  do some long thing
+  mid        kinda mid"""
+
+    block:
+      ## Subcommand-only help
+      var cli = commandBuilder(bool)
+        .name("cmd")
+        .initCli()
+      cli.commandBuilder()
+        .name("x")
+        .describe("set x")
+        .addTo(cli, RootCommand)
+      cli.commandBuilder()
+        .name("very-long")
+        .describe("do some long thing")
+        .default()
+        .addTo(cli, RootCommand)
+      cli.commandBuilder()
+        .name("mid")
+        .describe("kinda mid")
+        .addTo(cli, RootCommand)
+      doAssert cli.help(RootCommand) == """
+Usage: cmd [OPTIONS] [COMMAND]
+
+Commands:
+  x          set x
+  very-long  do some long thing [default]
+  mid        kinda mid"""
