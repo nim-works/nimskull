@@ -1600,7 +1600,16 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "` can be defined only in the same module with its type (" & r.typ.render & ")"
 
     of rsemUnexpectedTypeBoundOpSignature:
-      result = "signature for '" & r.symstr & "' must be proc[T: object](x: var T)"
+      let value =
+        case r.symstr
+        of "=copy":    "proc(x: var T, y: T)"
+        of "=destroy": "proc(x: var T)"
+        of "=sink":    "proc(x: var T, y: T)"
+        of "=trace":   "proc(x: var T, env: pointer)"
+        else:          unreachable()
+
+      result = "'$1' must satisfy the signature '$2' where T is 'distinct' or 'object'" % [
+               r.symstr, value]
 
     of rsemRebidingDeepCopy:
       result = "cannot bind another 'deepCopy' to: " & r.typ.render
