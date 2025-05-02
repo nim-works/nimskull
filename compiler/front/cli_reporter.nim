@@ -1600,16 +1600,18 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "` can be defined only in the same module with its type (" & r.typ.render & ")"
 
     of rsemUnexpectedTypeBoundOpSignature:
-      let value =
-        case r.symstr
-        of "=copy":    "proc(x: var T, y: T)"
-        of "=destroy": "proc(x: var T)"
-        of "=sink":    "proc(x: var T, y: T)"
-        of "=trace":   "proc(x: var T, env: pointer)"
-        else:          unreachable()
+      let typ = copyType(r.typ, r.typ.itemId, r.typ.owner)
 
-      result = "'$1' must satisfy the signature '$2' where T is 'distinct' or 'object'" % [
-               r.symstr, value]
+      # set the calling convention to 'nimcall' and remove 'explicitCallConv' so it's not rendered
+      typ.callConv = ccNimCall
+      typ.flags.excl tfExplicitCallConv
+
+      let msg =
+        if r.symstr.normalize == "=deepcopy": "where T is 'ptr' or 'ref' of either 'distinct' or 'object'"
+        else: "where T is 'distinct' or 'object'"
+    
+      result = "'$1' must satisfy the signature '$2' $3" % [
+              r.symstr, typ.render, msg]
 
     of rsemRebidingDeepCopy:
       result = "cannot bind another 'deepCopy' to: " & r.typ.render

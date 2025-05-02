@@ -2298,7 +2298,8 @@ proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
             rsemInseparableTypeBoundOp, obj, sym = s))
     if not noError and sfSystemModule notin s.owner.flags:
       localReport(c.config, info, reportSym(
-        rsemUnexpectedTypeBoundOpSignature, s))
+        rsemUnexpectedTypeBoundOpSignature, s, typ = getSysMagic(
+        c.graph, info, s.name.s.normalize, AttachedOpToMagic[op]).typ))
     s.flags.incl {sfUsed, sfOverriden}
 
   let name = s.name.s.normalize
@@ -2328,7 +2329,8 @@ proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
           rsemInseparableTypeBoundOp, t, sym = s))
     else:
       localReport(c.config, info, reportSym(
-        rsemUnexpectedTypeBoundOpSignature, s))
+        rsemUnexpectedTypeBoundOpSignature, s, typ = getSysMagic(
+        c.graph, info, "deepcopy", mDeepCopy).typ))
     s.flags.incl {sfUsed, sfOverriden}
   of "=", "=copy", "=sink":
     if s.magic == mAsgn: return
@@ -2367,8 +2369,13 @@ proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
             rsemInseparableTypeBoundOp, obj, sym = s))
         return
     if sfSystemModule notin s.owner.flags:
+      let op =
+        if name == "=": attachedAsgn
+        else: AttachedOpToStr.find(name).TTypeAttachedOp
+
       localReport(c.config, info, reportSym(
-        rsemUnexpectedTypeBoundOpSignature, s))
+        rsemUnexpectedTypeBoundOpSignature, s, typ = getSysMagic(
+        c.graph, info, name, AttachedOpToMagic[op]).typ))
   of "=trace":
     if s.magic != mTrace:
       bindTypeHook(c, s, info, attachedTrace)
