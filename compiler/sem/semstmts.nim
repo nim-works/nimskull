@@ -2337,7 +2337,9 @@ proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
   of "=", "=copy", "=sink":
     if s.magic == mAsgn: return
     s.flags.incl {sfUsed, sfOverriden}
-    let t = s.typ
+    let
+      t = s.typ
+      hookOp = if name in ["=", "=copy"]: attachedAsgn else: attachedSink
     if t.len == 3 and t[0] == nil and t[1].kind == tyVar:
       var obj = t[1][0]
       while true:
@@ -2358,12 +2360,11 @@ proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
         # attach these ops to the canonical tySequence
         obj = canonType(c, obj)
         #echo "ATTACHING TO ", obj.id, " ", s.name.s, " ", cast[int](obj)
-        let k = if name == "=" or name == "=copy": attachedAsgn else: attachedSink
-        let ao = getAttachedOp(c.graph, obj, k)
+        let ao = getAttachedOp(c.graph, obj, hookOp)
         if ao == s:
           discard "forward declared op"
         elif ao.isNil and tfCheckedForDestructor notin obj.flags:
-          setAttachedOp(c.graph, c.module.position, obj, k, s)
+          setAttachedOp(c.graph, c.module.position, obj, hookOp, s)
         else:
           prevDestructor(c, ao, obj, info)
         if obj.owner.getModule != s.getModule:
@@ -2371,13 +2372,9 @@ proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
             rsemInseparableTypeBoundOp, obj, sym = s))
         return
     if sfSystemModule notin s.owner.flags:
-      let op =
-        if name == "=": attachedAsgn
-        else: AttachedOpToStr.find(name).TTypeAttachedOp
-
       localReport(c.config, info, reportSym(
         rsemUnexpectedTypeBoundOpSignature,
-        getSysMagic(c.graph, info, AttachedOpToStr[op], AttachedOpToMagic[op]),
+        getSysMagic(c.graph, info, AttachedOpToStr[hookOp], AttachedOpToMagic[hookOp]),
         str = s.name.s))
   of "=trace":
     if s.magic != mTrace:
