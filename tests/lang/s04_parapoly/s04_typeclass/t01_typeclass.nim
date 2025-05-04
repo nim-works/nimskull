@@ -4,6 +4,9 @@ PLACEHOLDER
 '''
 """
 
+# TODO: this likely needs to move to a later section and not be a part of basic
+#       parametric polymorphism.
+
 block builtin_typeclasses:
   block object_class:
     type Obj = object

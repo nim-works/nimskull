@@ -1,10 +1,9 @@
 discard """
-  matrix: "--gc:arc"
   output: ''''''
 """
 
-# bug #13519
-# Not necessarily just arc, we can just more strict about proc type conversions
+# bug: https://github.com/nim-lang/Nim/issues/13519
+# TODO: rename to something about proc type strictness
 
 var unrelated: seq[proc() {.closure, gcsafe.}]
 

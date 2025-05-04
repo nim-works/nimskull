@@ -157,7 +157,6 @@ block:
     doAssert(foo4(x) == 4)
     doAssert(foo5(x) == 5)
 
-  #[ XXX These still fail
   block:
     var x: FooObj2[float]
     doAssert(foo0(x) == 0)
@@ -166,5 +165,3 @@ block:
     doAssert(foo3(x) == 3)
     doAssert(foo4(x) == 4)
     doAssert(foo5(x) == 5)
-  ]#
-

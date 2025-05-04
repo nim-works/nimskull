@@ -1,16 +1,15 @@
 discard """
-description: '''
-Rejects valid code, or this part of the overload resolution is underspecified.
-
-`ref object` in definition is handled differently from `ref T` in the argument
-when overload resolution is considered.
-'''
-knownIssue: "ref object is not a proper subtype"
-errormsg: "Error: type mismatch: got <ref Derived>"
-
+  description: '''
+    `ref object` in a definition is handled differently from `ref T` in an
+    argument when overload resolution is considered.
+  '''
+  knownIssue: '''
+    Rejects valid code or this part of the overload resolution is
+    underspecified.
+  '''
 """
 
-# When fixed should be added back to the core overload resolution, "subtype" section
+# When fixed should be added back to overload resolution with inheritance
 block subtype_ref_object:
   block no_qualifier:
     ## Identical to previous example, but used here to highlight lack of

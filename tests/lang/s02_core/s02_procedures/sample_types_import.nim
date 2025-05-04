@@ -1,5 +1,7 @@
 ## Example type definitions to be used in the procedure calls.
 
+# TODO no imports in this section of tests
+
 type
   ImRange = range[0 .. 10]
   ImArray = array[3, int]

@@ -1,11 +1,12 @@
 discard """
-description: '''
-Moving argument type constaint into separate generic parameter causes
-and "ambiguous overload" error.
-'''
-knownIssue: "generic parameter with alt constraint is ambiguous"
-knownIssue: "https://github.com/nim-lang/Nim/issues/6840"
-
+  description: '''
+    Moving an argument type constraint into a separate generic parameter causes
+    and "ambiguous overload" error.
+  '''
+  knownIssue: '''
+    generic parameter with alternate constraint is ambiguous, see:
+    https://github.com/nim-lang/Nim/issues/6840
+  '''
 """
 
 
