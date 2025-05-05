@@ -1971,3 +1971,219 @@ Commands:
   x          set x
   very-long  do some long thing [default]
   mid        kinda mid"""
+
+block runner:
+  ## Runner-related tests
+  block:
+    ## Error renderer
+    func renderError(cli: Cli, args: sink seq[string]): string =
+      try:
+        discard cli.parse(args)
+        unreachable("ParseError should be raised")
+      except ParseError as e:
+        result = cli.prettifyError(e)
+
+    block:
+      ## Flag errors
+      var cli = commandBuilder(bool).initCli()
+      cli.flagBuilder()
+        .name("known")
+        .alias("k")
+        .optionalParser(string, (k, v, var _) => (
+          if v.isSome() and v.get() != "correct":
+            raise newException(ValueError, "incorrect")
+        ))
+        .addTo(cli)
+      cli.flagBuilder()
+        .name("known2")
+        .alias("v")
+        .optionalParser(string, (k, v, var _) => (
+          if v.isSome() and v.get() != "correct":
+            raise newException(ValueError, "incorrect")
+        ))
+        .describe("", placeholder = "VALID")
+        .addTo(cli)
+      cli.flagBuilder()
+        .name("req")
+        .alias("r")
+        .parser(noop)
+        .addTo(cli)
+      let req2 = cli.flagBuilder()
+        .name("req2")
+        .alias("z")
+        .describe("", placeholder = "HOLD")
+        .parser(string, (k, v, var _) => (
+          if v != "correct": raise newException(ValueError, "incorrect")
+        ))
+        .addTo(cli)
+
+      block:
+        ## Unknown flag
+        # Short and long form should be the same
+        doAssert cli.renderError(@["-x"]) == "unexpected flag '-x' found"
+        doAssert cli.renderError(@["--x"]) == "unexpected flag '-x' found"
+
+        # Use correct rendering for `-` flag
+        doAssert cli.renderError(@["-k-"]) == "unexpected flag '---' found"
+
+      block:
+        ## Missing value
+        # Name from args should be used
+        doAssert cli.renderError(@["-r"]) == "a value is required for '-r <VALUE>' but none was supplied"
+        doAssert cli.renderError(@["--req"]) == "a value is required for '--req <VALUE>' but none was supplied"
+
+        # Use registered placeholder
+        doAssert cli.renderError(@["-z"]) == "a value is required for '-z <HOLD>' but none was supplied"
+        doAssert cli.renderError(@["--req2"]) == "a value is required for '--req2 <HOLD>' but none was supplied"
+
+      block:
+        ## Invalid value error
+        # Use name from args and forward error message
+        doAssert cli.renderError(@["-z", "valid"]) == "invalid value for '-z <HOLD>': incorrect"
+        doAssert cli.renderError(@["--req2", "valid"]) == "invalid value for '--req2 <HOLD>': incorrect"
+
+        # Optionals rendering
+        doAssert cli.renderError(@["--known=valid"]) == "invalid value for '--known': incorrect"
+        doAssert cli.renderError(@["-v=valid"]) == "invalid value for '-v[=<VALID>]': incorrect"
+
+        # Custom InvalidValueError with no parent
+        #
+        # Not a supported case, but must be handled since user could throw
+        let ex = (ref InvalidValueError)(
+          command: RootCommand,
+          flagName: "z",
+          flag: req2
+        )
+        doAssert cli.prettifyError(ex) == "invalid value for '-z <HOLD>'"
+
+      block:
+        ## Generic error
+        # Not a supported case, but might hit due to oversight or user throwing
+        let ex = (ref FlagError)(
+          msg: "some error",
+          command: RootCommand,
+          flagName: "z",
+        )
+        doAssert cli.prettifyError(ex) == "could not parse flag '-z': some error"
+
+    block:
+      ## Positional errors
+      block:
+        ## Unknown error
+        let cli = commandBuilder(bool).initCli()
+        doAssert cli.renderError(@["x"]) == "unexpected positional argument 'x' found"
+
+      block:
+        ## Missing error
+        var cli = commandBuilder(bool).initCli()
+        cli.positionalBuilder()
+          .name("REQ")
+          .parser(noop)
+          .addTo(cli)
+        cli.positionalBuilder()
+          .name("REQ-MANY")
+          .parser(noop)
+          .catchAll()
+          .addTo(cli)
+
+        # Render check for different types
+        doAssert cli.renderError(@[]) == "missing required positional argument: <REQ>"
+        doAssert cli.renderError(@["x"]) == "missing required positional argument: <REQ-MANY>..."
+
+      block:
+        ## Invalid error
+        block:
+          ## Required render
+          var cli = commandBuilder(bool).initCli()
+          cli.positionalBuilder()
+            .name("REQ")
+            .parser((v, var c) => (
+              if v != "correct": raise newException(ValueError, "incorrect")
+            ))
+            .addTo(cli)
+          cli.positionalBuilder()
+            .name("REQ-MANY")
+            .catchAll()
+            .parser((v, var c) => (
+              if v != "correct": raise newException(ValueError, "incorrect")
+            ))
+            .addTo(cli)
+
+          doAssert cli.renderError(@["x"]) == "invalid value for '<REQ>': incorrect"
+          doAssert cli.renderError(@["correct", "x"]) == "invalid value for '<REQ-MANY>...': incorrect"
+
+        block:
+          ## Optional render
+          var cli = commandBuilder(bool).initCli()
+          cli.positionalBuilder()
+            .name("OPT")
+            .optional()
+            .parser((v, var c) => (
+              if v != "correct": raise newException(ValueError, "incorrect")
+            ))
+            .addTo(cli)
+          cli.positionalBuilder()
+            .name("OPT-MANY")
+            .optional()
+            .catchAll()
+            .parser((v, var c) => (
+              if v != "correct": raise newException(ValueError, "incorrect")
+            ))
+            .addTo(cli)
+
+          doAssert cli.renderError(@["x"]) == "invalid value for '[OPT]': incorrect"
+          doAssert cli.renderError(@["correct", "x"]) == "invalid value for '[OPT-MANY]...': incorrect"
+
+      block:
+        ## Generic error
+        # Not a supported case, but might hit due to oversight or user throwing
+        let
+          cli = commandBuilder(bool).initCli()
+          ex = (ref PositionalError)(
+            msg: "some error",
+            positionalValue: "x",
+          )
+        doAssert cli.prettifyError(ex) == "could not parse positional parameter 'x': some error"
+
+    block:
+      ## Command errors
+      block:
+        ## Unknown error
+        var cli = commandBuilder(bool).initCli()
+        cli.commandBuilder()
+          .name("x")
+          .addTo(cli, RootCommand)
+        doAssert cli.renderError(@["a"]) == "unrecognized subcommand: a"
+
+      block:
+        ## Invalid error should render name on command line
+        var cli = commandBuilder(bool).initCli()
+        cli.commandBuilder()
+          .name("x")
+          .alias("invalid")
+          .parser((_, var b) => (;raise newException(ValueError, "incorrect")))
+          .addTo(cli, RootCommand)
+
+        doAssert cli.renderError(@["x"]) == "invalid subcommand 'x': incorrect"
+        doAssert cli.renderError(@["invalid"]) == "invalid subcommand 'invalid': incorrect"
+
+      block:
+        ## Generic error
+        # Not a supported case, but might hit due to oversight or user throwing
+        let
+          cli = commandBuilder(bool).initCli()
+          ex = (ref CommandError)(
+            msg: "some error",
+            commandName: "x",
+          )
+        doAssert cli.prettifyError(ex) == "could not parse subcommand 'x': some error"
+
+    block:
+      ## Generic error
+      # Not a supported case, but might hit due to oversight or user throwing
+      let
+        cli = commandBuilder(bool).initCli()
+        ex = (ref ParseError)(
+          msg: "some error",
+        )
+      doAssert cli.prettifyError(ex) == "unexpected error parsing command line: some error"

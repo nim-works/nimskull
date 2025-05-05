@@ -6,6 +6,8 @@
 # See the file "copying.txt", included in this distribution, for
 # details about copyright.
 
+from os import commandLineParams
+
 import std/algorithm
 import std/hashes
 import std/options
@@ -1221,3 +1223,110 @@ func help*(cli: Cli, command: Command, rootName: string = cli.nameOf(RootCommand
   if flags.len > 0:
     result.add "\n\nOptions:\n"
     result.add flags
+
+func prettifyError*[T](cli: Cli[T], error: ref ParseError): string =
+  func prefixedFlag(name: string): string =
+    if name.len > 1:
+      "--" & name
+    elif name == "-":
+      "---" # The only unambiguous form of this flag
+    else:
+      "-" & name
+
+  func formatFlag(cli: Cli[T], flag: Flag, name: string): string =
+    let
+      placeholder = cli.placeholderOf(flag)
+      suffix =
+        if not cli.isValueOptional(flag):
+          if placeholder != "":
+            " <" & placeholder & ">"
+          else:
+            " <VALUE>"
+        else:
+          if placeholder == "":
+            ""
+          else:
+            "[=<" & placeholder & ">]"
+
+    prefixedFlag(name) & suffix
+
+  if error of UnknownFlagError:
+    let error = (ref UnknownFlagError)(error)
+    "unexpected flag '" & prefixedFlag(error.flagName) & "' found"
+  elif error of MissingValueError:
+    let error = (ref MissingValueError)(error)
+    "a value is required for '" & cli.formatFlag(error.flag, error.flagName) & "' but none was supplied"
+  elif error of InvalidValueError:
+    let
+      error = (ref InvalidValueError)(error)
+      msg =
+        if error.parent != nil:
+          ": " & error.parent.msg
+        else:
+          ""
+    "invalid value for '" & cli.formatFlag(error.flag, error.flagName) & "'" & msg
+  elif error of FlagError:
+    let error = (ref FlagError)(error)
+    "could not parse flag '" & prefixedFlag(error.flagName) & "': " & error.msg
+  elif error of UnknownPositionalError:
+    let error = (ref UnknownPositionalError)(error)
+    "unexpected positional argument '" & error.positionalValue & "' found"
+  elif error of MissingPositionalError:
+    let error = (ref MissingPositionalError)(error)
+    "missing required positional argument: " & cli.displayOf(error.positional)
+  elif error of InvalidPositionalError:
+    let
+      error = (ref InvalidPositionalError)(error)
+      msg =
+        if error.parent != nil:
+          ": " & error.parent.msg
+        else:
+          ""
+    "invalid value for '" & cli.displayOf(error.positional) & "'" & msg
+  elif error of PositionalError:
+    let error = (ref PositionalError)(error)
+    "could not parse positional parameter '" & error.positionalValue & "': " & error.msg
+  elif error of UnknownCommandError:
+    let error = (ref UnknownCommandError)(error)
+    "unrecognized subcommand: " & error.commandName
+  elif error of MissingCommandError:
+    "missing subcommand"
+  elif error of InvalidCommandError:
+    let
+      error = (ref InvalidCommandError)(error)
+      msg =
+        if error.parent != nil:
+          ": " & error.parent.msg
+        else:
+          ""
+    "invalid subcommand '" & error.commandName & "'" & msg
+  elif error of CommandError:
+    let error = (ref CommandError)(error)
+    "could not parse subcommand '" & error.commandName & "': " & error.msg
+  elif error of HelpError:
+    "help requested"
+  else:
+    "unexpected error parsing command line: " & error.msg
+
+proc run*[T](
+  cli: Cli[T],
+  accumulator: var T,
+  args: sink seq[string] = commandLineParams(),
+  messageOutput: File = stdmsg,
+) =
+  try:
+    parse(cli, accumulator, args)
+  except HelpError as e:
+    messageOutput.writeLine(cli.help(e.command))
+    quit 0
+  except ParseError as e:
+    messageOutput.writeLine("error: ", cli.prettifyError(e))
+    messageOutput.writeLine("\nUsage: ", cli.commandUsage(e.command))
+    quit 1
+
+proc run*[T](
+  cli: Cli[T],
+  args: sink seq[string] = commandLineParams(),
+  messageOutput: File = stdmsg,
+): T =
+  run(cli, result, args, messageOutput)
