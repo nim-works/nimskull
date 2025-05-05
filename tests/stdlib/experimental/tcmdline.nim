@@ -785,7 +785,6 @@ block positionals:
         discard cli.parse(@[])
         doAssert false, "expected MissingPositionalError"
       except MissingPositionalError as e:
-        doAssert e.position == 0
         doAssert e.positionalValue == ""
         doAssert e.positional == any
 
@@ -875,7 +874,6 @@ block positionals:
         discard cli.parse(@[])
         doAssert false, "expected MissingPositionalError"
       except MissingPositionalError as e:
-        doAssert e.position == 0
         doAssert e.positionalValue == ""
         doAssert e.positional == req0
 
@@ -886,7 +884,6 @@ block positionals:
           cli.parse(parsed, @["on", "-f10"])
           doAssert false, "expected MissingPositionalError"
         except MissingPositionalError as e:
-          doAssert e.position == 1
           doAssert e.positionalValue == ""
           doAssert e.positional == req1
 
@@ -900,7 +897,6 @@ block positionals:
         doAssert false, "expected InvalidPositionalError"
       except InvalidPositionalError as e:
         doAssert e.parent of ValueError
-        doAssert e.position == 2
         doAssert e.positionalValue == "notnumber"
         doAssert e.positional == opt
 
@@ -913,7 +909,6 @@ block positionals:
           doAssert false, "expected InvalidPositionalError"
         except InvalidPositionalError as e:
           doAssert e.parent of ValueError
-          doAssert e.position == 1
           doAssert e.positionalValue == "-f10"
           doAssert e.positional == req1
 

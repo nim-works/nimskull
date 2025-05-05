@@ -125,7 +125,6 @@ type
 
   PositionalError* = object of ParseError
     ## An error parsing positional parameters
-    position*: Natural ## Position of the parameter in the input stream
     positionalValue*: string ## Input value causing the error
   UnknownPositionalError* = object of PositionalError
     ## The positional parsed was not recognized
@@ -714,14 +713,12 @@ func newInvalidValueError(
 
 func newUnknownPositionalError(
   command: Command,
-  position: Natural,
   positionalValue: sink string,
   remaining: sink seq[string],
 ): ref UnknownPositionalError {.raises: [].} =
   (ref UnknownPositionalError)(
     msg: "unexpected parameter: " & positionalValue,
     command: command,
-    position: position,
     positionalValue: positionalValue,
     remaining: remaining,
   )
@@ -729,7 +726,6 @@ func newUnknownPositionalError(
 func newInvalidPositionalError(
   command: Command,
   parent: ref ValueError,
-  position: Natural,
   value: sink string,
   positional: Positional,
   remaining: sink seq[string],
@@ -737,7 +733,6 @@ func newInvalidPositionalError(
   (ref InvalidPositionalError)(
     msg: "invalid parameter: " & $value,
     command: command,
-    position: position,
     positionalValue: value,
     positional: positional,
     parent: parent,
@@ -746,13 +741,11 @@ func newInvalidPositionalError(
 
 func newMissingPositionalError(
   command: Command,
-  position: Natural,
   positional: Positional
 ): ref MissingPositionalError {.raises: [].} =
   (ref MissingPositionalError)(
     msg: "missing required value for positional parameter",
     command: command,
-    position: position,
     positional: positional,
   )
 
@@ -843,7 +836,6 @@ func parsePositional[T](
           raise newInvalidPositionalError(
             ctx.command,
             e,
-            ctx.positionalCount,
             value,
             Positional posId,
             collectRemaining ctx.lexer
@@ -856,7 +848,7 @@ func parsePositional[T](
 
   else:
     raise newUnknownPositionalError(
-      ctx.command, ctx.positionalCount, value, collectRemaining ctx.lexer
+      ctx.command, value, collectRemaining ctx.lexer
     )
 
 func parseCommand[T](
@@ -997,11 +989,11 @@ func parseNext[T](
       let posId = currentCommand.positional[ctx.nextPositional]
       case cli.parser[posId].kind
       of ParserKind.Positional:
-        raise newMissingPositionalError(ctx.command, ctx.positionalCount, Positional posId)
+        raise newMissingPositionalError(ctx.command, Positional posId)
       of CatchAll:
         # Catch all hasn't collected any parameters
         if ctx.positionalCount <= ctx.nextPositional:
-          raise newMissingPositionalError(ctx.command, ctx.positionalCount, Positional posId)
+          raise newMissingPositionalError(ctx.command, Positional posId)
       of OptionalPositional, OptionalCatchAll:
         discard "nothing to do"
       else:
