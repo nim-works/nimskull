@@ -20,13 +20,13 @@ export parsers
 import lexopt
 
 type
-  Parser*[T] = proc (option, value: string, result: var T): Action
-  OptionalParser*[T] = proc (option: string, value: Option[string], result: var T): Action
-  PositionalParser*[T] = proc (value: string, result: var T): Action
-  TypedParser*[T; U] = proc (option: string, value: U, result: var T): Action
-  OptionalTypedParser*[T; U] = proc (option: string, value: Option[U], result: var T): Action
-  TypedPositionalParser*[T; U] = proc (value: U, result: var T): Action
-  CommandParser*[T] = proc (command: Command, result: var T): Action
+  Parser*[T; R: MaybeAction] = proc (option, value: string, result: var T): R
+  OptionalParser*[T; R: MaybeAction] = proc (option: string, value: Option[string], result: var T): R
+  PositionalParser*[T; R: MaybeAction] = proc (value: string, result: var T): R
+  CommandParser*[T; R: MaybeAction] = proc (command: Command, result: var T): R
+  TypedParser*[T; U; R: MaybeAction] = proc (option: string, value: U, result: var T): R
+  OptionalTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: Option[U], result: var T): R
+  TypedPositionalParser*[T; U; R: MaybeAction] = proc (value: U, result: var T): R
 
   Cli*[T] {.requiresInit.} = object
     ## A command line parser
@@ -74,6 +74,8 @@ type
     DisableFlagProcessing ## Parameters following this will be considered
                           ## to be values
 
+  MaybeAction* = Action | void
+
   ParserKind {.pure.} = enum
     Command
     Flag
@@ -85,11 +87,11 @@ type
 
   ParserAny[T] = object
     case kind: ParserKind
-    of FlagOptionalValue: optParser: OptionalParser[T]
-    of ParserKind.Flag: parser: Parser[T]
+    of FlagOptionalValue: optParser: OptionalParser[T, Action]
+    of ParserKind.Flag: parser: Parser[T, Action]
     of ParserKind.Positional, OptionalPositional, CatchAll,
-       OptionalCatchAll: posParser: PositionalParser[T]
-    of ParserKind.Command: cmdParser: CommandParser[T]
+       OptionalCatchAll: posParser: PositionalParser[T, Action]
+    of ParserKind.Command: cmdParser: CommandParser[T, Action]
 
   ParseContext = object
     ## Parser internal state
@@ -270,22 +272,49 @@ func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
       continue
     result.aliases.add names
 
-func parser*[T](b: sink CommandBuilder[T], p: sink CommandParser[T]): CommandBuilder[T] =
+func parser*[T](
+  b: sink CommandBuilder[T],
+  p: sink CommandParser[T, Action],
+): CommandBuilder[T] =
   result = b
   result.cmdParser = ParserAny[T](kind: ParserKind.Command, cmdParser: p)
 
+func parser*[T](
+  b: sink CommandBuilder[T],
+  p: sink CommandParser[T, void],
+): CommandBuilder[T] =
+  b.parser(
+    proc (command: Command, accumulator: var T): Action =
+      p(command, accumulator)
+  )
+
 func optionalParser*[T](
   b: sink FlagBuilder[T],
-  p: sink OptionalParser[T],
+  p: sink OptionalParser[T, Action],
 ): FlagBuilder[T] =
   result = b
   result.flagParser = ParserAny[T](kind: FlagOptionalValue, optParser: p)
 
-func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T]): FlagBuilder[T] =
+func optionalParser*[T](
+  b: sink FlagBuilder[T],
+  p: sink OptionalParser[T, void],
+): FlagBuilder[T] =
+  b.optionalParser(
+    proc (option: string, value: Option[string], accumulator: var T): Action =
+      p(option, value, accumulator)
+  )
+
+func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T, Action]): FlagBuilder[T] =
   result = b
   result.flagParser = ParserAny[T](kind: ParserKind.Flag, parser: p)
 
-func parser*[T](b: sink PositionalBuilder[T], p: sink PositionalParser[T]): PositionalBuilder[T] =
+func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T, void]): FlagBuilder[T] =
+  b.parser(
+    proc (option: string, value: string, accumulator: var T): Action =
+      p(option, value, accumulator)
+  )
+
+func parser*[T](b: sink PositionalBuilder[T], p: sink PositionalParser[T, Action]): PositionalBuilder[T] =
   result = b
   case result.posParser.kind
   of ParserKind.Positional..OptionalCatchAll:
@@ -293,57 +322,64 @@ func parser*[T](b: sink PositionalBuilder[T], p: sink PositionalParser[T]): Posi
   else:
     result.posParser = ParserAny[T](kind: ParserKind.Positional, posParser: p)
 
-func optionalParser*[T, U](
+func parser*[T](b: sink PositionalBuilder[T], p: sink PositionalParser[T, void]): PositionalBuilder[T] =
+  b.parser(
+    proc (value: string, accumulator: var T): Action =
+      p(value, accumulator)
+  )
+
+func optionalParser*[T, U; R: MaybeAction](
   b: sink FlagBuilder[T],
   _: typedesc[U],
-  parser: sink OptionalTypedParser[T, U],
+  parser: sink OptionalTypedParser[T, U, R],
 ): FlagBuilder[T] =
   mixin parseCli
 
   when U is string:
-    result = b.optionalParser(OptionalParser[T] parser)
+    result = b.optionalParser(OptionalParser[T, R] parser)
   else:
     result = b.optionalParser(
       proc (option: string, value: Option[string], r: var T): Action =
         let value = value.map(proc (x: string): U = parseCli(U, x))
-        result = parser(option, value, r)
+        parser(option, value, r)
     )
 
-func parser*[T, U](
+func parser*[T, U; R: MaybeAction](
   b: sink FlagBuilder[T],
   _: typedesc[U],
-  parser: sink TypedParser[T, U],
+  parser: sink TypedParser[T, U, R],
 ): FlagBuilder[T] =
   mixin parseCli
 
   when U is bool:
     result = b.optionalParser(
-      proc (option: string, value: Option[string], r: var T): Action =
-        result = parser(option, parseCli(U, value.get("true")), r)
+      proc (option: string, value: Option[string], r: var T): R =
+        parser(option, parseCli(U, value.get("true")), r)
     )
 
   elif U is string:
-    result = b.parser(Parser[T] parser)
+    result = b.parser(Parser[T, R] parser)
 
   else:
     result = b.parser(
       proc (option, value: string, r: var T): Action =
-        result = parser(option, parseCli(U, value), r)
+        parser(option, parseCli(U, value), r)
     )
 
-func parser*[T, U](
+func parser*[T, U; R: MaybeAction](
   b: sink PositionalBuilder[T],
   _: typedesc[U],
-  parser: sink TypedPositionalParser[T, U],
+  parser: sink TypedPositionalParser[T, U, R],
 ): PositionalBuilder[T] =
   mixin parseCli
 
   when U is string:
-    result = b.parser(PositionalParser[T] parser)
+    result = b.parser(PositionalParser[T, R] parser)
+
   else:
     result = b.parser(
       proc (value: string, r: var T): Action =
-        result = parser(parseCli(U, value), r)
+        parser(parseCli(U, value), r)
     )
 
 func describe*[T](
