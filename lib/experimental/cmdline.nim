@@ -11,6 +11,7 @@ from os import commandLineParams
 import std/algorithm
 import std/hashes
 import std/options
+import std/sequtils
 import std/strutils
 import std/tables
 
@@ -301,6 +302,7 @@ func name*[T](b: sink CommandBuilder[T], name: string): CommandBuilder[T] =
   ## See also: `alias <#alias%2CsinkCommandBuilder[T]%2Cvarargs[string]>`_
   result = b
   result.cmdName = name
+  result.aliases.keepItIf: it != result.cmdName
 
 func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
   ## Set the canonical name of this flag. This name is used to identify
@@ -312,6 +314,7 @@ func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
   ## See also: `alias <#alias%2CsinkFlagBuilder[T]%2Cvarargs[string]>`_
   result = b
   result.flagName = name
+  result.aliases.keepItIf: it != result.flagName
 
 func name*[T](b: sink PositionalBuilder[T], name: string): PositionalBuilder[T] =
   ## Set the canonical name of this positional.
