@@ -634,6 +634,15 @@ template `strVal=`*(r: TFullReg, s: string) =
     assert r.handle.typ.kind == akString
   newVmString(deref(r.handle).strVal, s, c.allocator)
 
+proc toSlice(h: LocHandle, a: VmAllocator): VmSlice =
+  let typ = h.typ
+  case typ.kind
+  of akString:   toSlice(deref(h).strVal.VmSeq, typ.seqElemType, a)
+  of akSeq:      toSlice(deref(h).seqVal,       typ.seqElemType, a)
+  of akOpenArray:toSlice(deref(h).oaVal,        typ.seqElemType, a)
+  of akArray:    toSlice(h)
+  else:          unreachable(typ.kind)
+
 proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmType)): bool =
   ## Convert the value in register `src` from `st` to `dt` and write the result
   ## to register `dest`
@@ -1873,15 +1882,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcArrCopy:
       let rb = instr.regB
       let rc = instr.regC
-
-      proc toSlice(h: LocHandle, a: VmAllocator): VmSlice =
-        let typ = h.typ
-        case typ.kind
-        of akString: toSlice(deref(h).strVal.VmSeq, typ.seqElemType, a)
-        of akSeq:    toSlice(deref(h).seqVal,       typ.seqElemType, a)
-        of akArray:  toSlice(h)
-        else:        unreachable(typ.kind)
-
       checkHandle(regs[ra])
       checkHandle(regs[rb])
 
@@ -1905,6 +1905,25 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         raiseVmError(reportVmIdx(L, src.len - 1))
 
       c.memory.arrayCopy(byteView(dest), byteView(src), L, src.typ, true)
+    of opcSlice:
+      decodeBC(akOpenArray)
+      checkHandle(regs[ra])
+      checkHandle(regs[rb])
+      inc pc
+      let
+        lo = regs[rc].intVal
+        hi = regs[c.code[pc].regB].intVal
+        # the user ought to know what they're doing, so prevent the length from
+        # going below zero and don't report any run-time error
+        len = max(hi - lo + 1, 0)
+        slice = toSlice(regs[rb].handle, c.allocator)
+      if lo < 0 or hi >= slice.len or len == 0:
+        # out of bounds or empty; create an openArray for which an access
+        # will error
+        regs[ra].atomVal.oaVal = VmOpenArray(data: nil, length: len.int)
+      else:
+        # the data pointer points to the start of the first element
+        regs[ra].atomVal.oaVal = VmOpenArray(data: slice[lo].p, length: len.int)
     of opcIndCall, opcIndCallAsgn:
       # dest = call regStart, n; where regStart = fn, arg1, ...
       let rb = instr.regB

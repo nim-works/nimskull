@@ -33,6 +33,8 @@ type
     case opc*: TOpcode:
       of opcConv, opcCast:
         types*: tuple[tfrom, tto: PType]
+      of opcSlice:
+        rd*: int
       of opcLdConst:
         ast*: PNode
       else:
@@ -86,6 +88,9 @@ proc codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
       code.types = (c.rtti[c.code[i + 0].regBx-wordExcess].nimType,
                     c.rtti[c.code[i + 1].regBx-wordExcess].nimType)
       inc i, 1
+    of opcSlice:
+      code.rd = c.code[i + 1].regB
+      inc i, 1
     of opcLdConst:
       let cnst = c.constants[code.idx]
       code.ast =
@@ -135,6 +140,9 @@ proc renderCodeListing*(config: ConfigRef, sym: PSym,
                 $<e.opc, $<e.ra, $<e.rb,
                 $<e.types[0].typeToString(),
                 $<e.types[1].typeToString())
+    of opcSlice:
+      line.addf("  $# r$# r$# r$# r$#",
+                $<e.opc, $<e.ra, $<e.rb, $<e.rc, $<e.rd)
     of opcSetEh:
       line.addf("  $# $# $#", $<e.opc, $<e.ra, $e.rb)
     elif e.opc < firstABxInstr:
