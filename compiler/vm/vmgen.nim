@@ -1381,11 +1381,15 @@ proc asgnOpenArray(c: var TCtx, n: CgNode, dest: TRegister) =
   ## ``openArray``.
   let
     val = genx(c, n)
-    L = c.getTemp(c.graph.getSysType(n.info, tyInt))
-  c.gABC(n, opcLenSeq, L, val) # fetch the length of the input array
-  c.gABC(n, opcSetLenSeq, dest, L) # resize the destination
-  c.gABC(n, opcArrCopy, dest, val, L) # copy the contents
+    lo = c.getTemp(slotTempInt)
+    hi = c.getTemp(slotTempInt)
+  c.gABx(n, opcLdImmInt, lo, 0)
+  c.gABI(n, opcLenSeq, hi, val, 1) # arr.high
+  c.gABC(n, opcSlice, dest, val, lo)
+  c.gABC(n, opcSlice, dest, hi)
   c.freeTemp(val)
+  c.freeTemp(lo)
+  c.freeTemp(hi)
 
 proc genToSlice(c: var TCtx, n: CgNode, dest: TRegister, reified: bool) =
   if n.len == 1:
@@ -1404,8 +1408,22 @@ proc genToSlice(c: var TCtx, n: CgNode, dest: TRegister, reified: bool) =
         c.gABx(n, opcLdNull, dest, c.genType(n.typ))
       gen(c, n[0], dest)
   else:
-    # not yet supported
-    fail(n.info, vmGenDiagCodeGenUnhandledMagic, mSlice)
+    # a proper slice is always created, even if the receiver doesn't require
+    # a reified openArray
+    if not reified:
+      # the destination is a local register, not a location; allocate a
+      # proper location
+      c.gABx(n, opcLdNull, dest, c.genType(n.typ))
+
+    let
+      val = genx(c, n[0])
+      lo  = genIndex(c, n[1], n[0].typ)
+      hi  = genIndex(c, n[2], n[0].typ)
+    c.gABC(n, opcSlice, dest, val, lo)
+    c.gABC(n, opcSlice, dest, hi)
+    c.freeTemp(val)
+    c.freeTemp(lo)
+    c.freeTemp(hi)
 
 proc genObjConv(c: var TCtx, n: CgNode, dest: var TDest) =
   prepare(c, dest, n.typ)
@@ -2090,6 +2108,16 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
     c.gABC(n, opcIndexChck, 0, arr, idx)
     c.freeTemp(idx)
     c.freeTemp(arr)
+  of mChckBounds:
+    let
+      arr = c.genx(n[1])
+      lo = c.genx(n[2])
+      hi = c.genx(n[3])
+    # TODO: implement. The magic is necessary for correctness, but it's not
+    #       necessary for VM runtime safety
+    c.freeTemp(hi)
+    c.freeTemp(lo)
+    c.freeTemp(arr)
   of mChckField:
     genFieldCheck(c, n)
   of mChckObj:
@@ -2277,7 +2305,7 @@ proc putIntoLoc(c: var TCtx, e: CgNode, dest: TDest, idx: TRegister,
     if e.kind == cnkToSlice:
       genToSlice(c, e, dest, reified=true)
     else:
-      # the value must be converted to the fixed openArray
+      # the value must be converted to the reified openArray
       # representation first
       write(asgnOpenArray)
   elif e.kind in LvalueExprKinds:
