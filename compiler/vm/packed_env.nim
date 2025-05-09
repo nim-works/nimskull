@@ -490,7 +490,8 @@ proc loadSliceList*[T: SliceListType](p: PackedEnv, id: uint32): seq[Slice[T]] =
 func numFields(t: PVmType): int =
   case t.kind
   of akInt, akFloat, akPNode: 0
-  of akPtr, akRef, akSeq, akString, akSet, akDiscriminator, akCallable: 1
+  of akPtr, akRef, akSeq, akString, akOpenArray, akSet, akDiscriminator,
+     akCallable: 1
   of akArray: 1
   of akObject: 1 + t.objFields.len
 
@@ -511,7 +512,7 @@ func storeVmType(enc: var PackedEncoder, dst: var PackedEnv, t: PVmType): Packed
   dst.tfields[fieldStart] =
     case t.kind
     of akPtr, akRef:          (0'u32, enc.typeMap[t.targetType])
-    of akSeq, akString:
+    of akSeq, akString, akOpenArray:
       # it's not strictly necessary to store the stride (since it can
       # currently be computed from the element type)
       (t.seqElemStride.uint32, enc.typeMap[t.seqElemType])
@@ -555,7 +556,7 @@ func loadVmType(s: PackedEnv, types: seq[PVmType],
     unreachable()
   of akPtr, akRef:
     t.targetType = types[firstField.typId]
-  of akSeq, akString:
+  of akSeq, akString, akOpenArray:
     t.seqElemStride = firstField.offset.int
     t.seqElemType = types[firstField.typId]
   of akSet:

@@ -1010,7 +1010,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         # TODO: Remove this case once openArray handling is reworked
         regs[ra].setHandle:
           getItemHandle(regs[rb].strVal.VmSeq, srcTyp, idx, c.allocator)
-      of akSeq, akArray:
+      of akSeq, akArray, akOpenArray:
         regs[ra].setHandle(getItemHandle(regs[rb].handle, idx, c.allocator))
       else:
         unreachable(srcTyp.kind)
@@ -1031,7 +1031,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         regs[ra].setAddress(
           regs[rb].strVal.data.applyOffset(idx.uint * t.sizeInBytes),
           t)
-      of akSeq, akArray:
+      of akSeq, akArray, akOpenArray:
+        # only the address is computed, no openArray check is necessary
         let h = getItemHandle(src, idx, c.allocator)
         regs[ra].setAddress(h.p, h.typ)
       else:
@@ -1068,6 +1069,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           toSlice(deref(dest).strVal.VmSeq, dTyp.seqElemType, c.allocator)
         of akSeq:
           toSlice(deref(dest).seqVal, dTyp.seqElemType, c.allocator)
+        of akOpenArray:
+          let tmp = toSlice(deref(dest).oaVal, dTyp.seqElemType, c.allocator)
+          # an openArray is non-owning, meaning that the pointed-to-sequence is
+          # not guaranteed to still exist
+          checkHandle(c.allocator, tmp[idx])
+          tmp
         of akArray:
           toSlice(dest)
         of akInt, akFloat, akSet, akPtr, akRef, akObject, akPNode, akCallable,
@@ -2286,7 +2293,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           res = atom.ptrVal == nil
         of akCallable:
           res = atom.callableVal.isNil
-        of akInt, akFloat, akSet, akObject, akArray, akPNode, akDiscriminator:
+        of akInt, akFloat, akSet, akObject, akArray, akPNode, akDiscriminator,
+           akOpenArray:
           unreachable(regs[rb].kind)
       of rkNimNode:
         res = regs[rb].nimNode.kind == nkNilLit
@@ -2335,7 +2343,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       decodeBC(rkNimNode)
       checkHandle(regs[rc])
       let typ = regs[rc].handle.typ
-      assert typ.kind in {akSeq, akArray} # varargs
+      assert typ.kind in {akSeq, akArray, akOpenArray} # varargs
       assert typ.elemType().kind == akPNode
       let x = regs[rc].handle
       var u = regs[rb].nimNode
