@@ -374,9 +374,6 @@ Parsers
 * `parsejson <parsejson.html>`_
   This module implements a JSON parser. It is used and exported by the `json <json.html>`_ module, but can also be used in its own right.
 
-* `parseopt <parseopt.html>`_
-  The `parseopt` module implements a command line option parser.
-
 * `parsesql <parsesql.html>`_
   The `parsesql` module implements a simple high-performance SQL parser.
 
@@ -386,6 +383,18 @@ Parsers
   to be somewhat error-correcting, so that even some "wild HTML" found on the
   web can be parsed with it.
 
+Command line parsers
+++++++++++++++++++++
+
+* `experimental/cmdline <cmdline.html>`_
+  The `cmdline` module implements a lightweight declarative command-line parser,
+  providing an easy to use solution for command line interfaces.
+
+* `experimental/lexopt <lexopt.html>`_
+  The `lexopt` module implements an user-driven command-line option lexer.
+
+* `parseopt <parseopt.html>`_
+  The `parseopt` module implements a command line option parser.
 
 Docutils
 --------

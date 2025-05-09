@@ -22,11 +22,219 @@ export parsers
 
 import lexopt
 
+## This module implements a fast and lightweight declarative command line
+## parser, aiming to simplify the creation of user-friendly command-line
+## interfaces.
+##
+## Key features:
+## - Arbitrary command nesting.
+## - Type-safe, declarative parsing.
+## - Automatic generation of help output.
+##
+## ## Examples
+## ### Greeting program
+
+runnableExamples:
+  import std/sugar
+
+  type Args = object
+    count: Natural
+    name: string
+
+  var cli = commandBuilder(Args)
+    .name("hello")
+    .describe("simple greeting program")
+    .initCli()
+  cli.addHelpFlag()
+  cli.flagBuilder()
+    .name("count")
+    .parser(Natural, (opt, val, var args) => (args.count = val))
+    .describe("number of greetings")
+    .addTo(cli)
+  cli.flagBuilder()
+    .name("name")
+    .parser(string, (opt, val, var args) => (args.name = val))
+    .describe("the person to greet")
+    .addTo(cli)
+
+  let args = cli.run(defaults = Args(count: 1))
+  for _ in 1..args.count:
+    if args.name == "":
+      echo "Hello!"
+    else:
+      echo "Hello ", args.name, "!"
+
+## What this looks like when run:
+##
+## ```
+## $ ./hello --count 3
+## Hello!
+## Hello!
+## Hello!
+## ```
+##
+## The help page is generated for you:
+##
+## ```
+## $ ./hello --help
+## simple greeting program
+##
+## Usage: hello [OPTIONS]
+##
+## Options:
+##   --help           display help message
+##   --count <VALUE>  number of greetings
+##   --name <VALUE>   the person to greet
+## ```
+##
+## Comes with error handling, too:
+##
+## ```
+## $ ./hello --count=no
+## error: invalid value for '--count <VALUE>': invalid integer: no
+##
+## Usage: hello [OPTIONS]
+## ```
+##
+## ### Program with subcommands
+
+runnableExamples("-r:off"):
+  import std/setutils
+  import std/sugar
+
+  type
+    Operation = enum
+      Ls
+      Rm
+
+    LsArgs = object
+      paths: seq[string]
+
+    RmOpt {.pure.} = enum
+      Force
+      Recursive
+
+    RmArgs = object
+      opts: set[RmOpt]
+      paths: seq[string]
+
+    Config = object
+      case op: Operation
+      of Ls:
+        ls: LsArgs
+      of Rm:
+        rm: RmArgs
+
+  var cli = commandBuilder(Config)
+    .name("cmd")
+    .describe("multi tool")
+    .initCli()
+  cli.addHelpFlag(RootCommand, "help", "h")
+
+  let lsCmd = cli.commandBuilder()
+    .name("ls")
+    .describe("list paths")
+    .parser((_, var cfg) => (cfg = Config(op: Ls)))
+    .addTo(cli, RootCommand)
+  cli.addHelpFlag(lsCmd)
+  cli.positionalBuilder()
+    .name("PATH")
+    .describe("path(s) to list, default to current directory")
+    .optional()
+    .catchAll()
+    .parser(string, (val, var cfg) => cfg.ls.paths.add val)
+    .addTo(cli, lsCmd)
+
+  let rmCmd = cli.commandBuilder()
+    .name("rm")
+    .describe("remove files")
+    .parser((_, var cfg) => (cfg = Config(op: Rm)))
+    .addTo(cli, RootCommand)
+  cli.addHelpFlag(rmCmd)
+  cli.flagBuilder()
+    .name("force")
+    .alias("f")
+    .describe("force removal")
+    .parser(bool, (_, val, var cfg) => (cfg.rm.opts[Force] = val))
+    .addTo(cli, rmCmd)
+  cli.flagBuilder()
+    .name("recursive")
+    .alias("r")
+    .describe("recursively remove files")
+    .parser(bool, (_, val, var cfg) => (cfg.rm.opts[Recursive] = val))
+    .addTo(cli, rmCmd)
+  cli.positionalBuilder()
+    .name("PATH")
+    .describe("path(s) to remove")
+    .catchAll()
+    .parser(string, (val, var cfg) => cfg.rm.paths.add val)
+    .addTo(cli, rmCmd)
+
+  let config = cli.run()
+  case config.op
+  of Ls:
+    echo "list files at: ", config.ls.paths
+  of Rm:
+    echo "remove flags: ", config.rm.opts
+    echo "remove paths: ", config.rm.paths
+
+## What this looks like when run:
+##
+## ```
+## $ ./cmd ls /
+## list files at: @["/"]
+##
+## $ ./cmd rm -rf secret
+## remove flags: {Force, Recursive}
+## remove paths: @["secret"]
+## ```
+##
+## Generated help pages:
+##
+## ```
+## $ ./cmd --help
+## multi tool
+##
+## Usage: cmd [OPTIONS] <COMMAND>
+##
+## Commands:
+##   ls  list paths
+##   rm  remove files
+##
+## Options:
+##   -h, --help  display help message
+##
+## $ ./cmd ls --help
+## list paths
+##
+## Usage: cmd ls [OPTIONS] [PATH]...
+##
+## Arguments:
+##   [PATH]...  path(s) to list, default to current directory
+##
+## Options:
+##   --help  display help message
+##
+## $ ./cmd rm --help
+## remove files
+##
+## Usage: cmd rm [OPTIONS] <PATH>...
+##
+## Arguments:
+##   <PATH>...  path(s) to remove
+##
+## Options:
+##   --help           display help message
+##   -f, --force      force removal
+##   -r, --recursive  recursively remove files
+## ```
+
 type
   Cli*[T] {.requiresInit.} = object
-    ## A command line parser.
+    ## A command line interface.
     ##
-    ## See also: `initCli <#initCli%2CsinkCommandBuilder[T]>`_
+    ## See also:
+    ## - `initCli proc <#initCli,sinkCommandBuilder[T]>`_
     command: Table[Command, CliCommand] ## Lookup mapping of command to lookup tables.
     parser: Store[Parameter, ParserAny[T]] ## Parser to process input for Parameter.
     name: Store[Parameter, string] ## Canonical names for all Parameters.
@@ -38,8 +246,8 @@ type
     # Might be useful to support not having these for space-constrained
     # targets using a define.
     usage: Store[Parameter, string] ## Canonical usage for Parameters.
-    placeholder: Store[Parameter, string] ## Canonical placeholder for
-                                          ## Parameters. Only used for flags.
+    placeholder: Store[Parameter, string]
+      ## Canonical placeholder for Parameters. Only used for flags.
 
   CliCommand = object
     ## Lookup table for flags and positionals.
@@ -50,7 +258,8 @@ type
   FlagBuilder*[T] = object
     ## Builder for command line flags.
     ##
-    ## See also: `flagBuilder <#flagBuilder%2CCli[T]>`_
+    ## See also:
+    ## - `flagBuilder proc <#flagBuilder,Cli[T]>`_
     flagParser: ParserAny[T]
     flagName: string
     aliases: seq[string]
@@ -60,7 +269,8 @@ type
   PositionalBuilder*[T] = object
     ## Builder for command line positional parameters.
     ##
-    ## See also: `positionalBuilder <#positionalBuilder%2CCli[T]>`_
+    ## See also:
+    ## - `positionalBuilder proc <#positionalBuilder,Cli[T]>`_
     posParser: ParserAny[T]
     posName: string
     usage: string
@@ -68,7 +278,8 @@ type
   CommandBuilder*[T] = object
     ## Builder for command line subcommands.
     ##
-    ## See also: `commandBuilder <#commandBuilder%2CCli[T]>`_
+    ## See also:
+    ## - `commandBuilder proc <#commandBuilder,Cli[T]>`_
     cmdParser: ParserAny[T]
     cmdName: string
     aliases: seq[string]
@@ -85,7 +296,7 @@ type
   MaybeAction* = Action | void
     ## Typeclass to support parsers returning either `Action` or nothing.
 
-  Parser*[T; R: MaybeAction] = proc (option, value: string, accumulator: var T): R
+  FlagParser*[T; R: MaybeAction] = proc (option, value: string, accumulator: var T): R
     ## A parser for flag with name `option` and value `value`. The accumulator
     ## passed to `run()`_ or `parse()`_ can be accessed and modified via
     ## `accumulator`.
@@ -97,10 +308,10 @@ type
     ## processed accordingly by the library. Any other exceptions signify
     ## an internal error and will not be handled automatically.
     ##
-    ## .. _run(): #run%2CCli[T]%2CT%2Csinkseq[string]%2CFile
-    ## .. _parse(): #parse%2CCli[T]%2CT%2Csinkseq[string]
+    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
 
-  OptionalParser*[T; R: MaybeAction] = proc (option: string, value: Option[string], accumulator: var T): R
+  FlagOptionalParser*[T; R: MaybeAction] = proc (option: string, value: Option[string], accumulator: var T): R
     ## A parser for flag with name `option` and optional value `value`. The
     ## accumulator passed to `run()`_ or `parse()`_ can be accessed and
     ## modified via `accumulator`.
@@ -112,8 +323,8 @@ type
     ## processed accordingly by the library. Any other exceptions signify
     ## an internal error and will not be handled automatically.
     ##
-    ## .. _run(): #run%2CCli[T]%2CT%2Csinkseq[string]%2CFile
-    ## .. _parse(): #parse%2CCli[T]%2CT%2Csinkseq[string]
+    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
 
   PositionalParser*[T; R: MaybeAction] = proc (value: string, accumulator: var T): R
     ## A parser for positional parameter with value `value`. The accumulator
@@ -127,8 +338,8 @@ type
     ## processed accordingly by the library. Any other exceptions signify
     ## an internal error and will not be handled automatically.
     ##
-    ## .. _run(): #run%2CCli[T]%2CT%2Csinkseq[string]%2CFile
-    ## .. _parse(): #parse%2CCli[T]%2CT%2Csinkseq[string]
+    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
 
   CommandParser*[T; R: MaybeAction] = proc (command: Command, accumulator: var T): R
     ## A parser for command parameter with command `command`. The accumulator
@@ -142,14 +353,14 @@ type
     ## processed accordingly by the library. Any other exceptions signify
     ## an internal error and will not be handled automatically.
     ##
-    ## .. _run(): #run%2CCli[T]%2CT%2Csinkseq[string]%2CFile
-    ## .. _parse(): #parse%2CCli[T]%2CT%2Csinkseq[string]
+    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
 
-  TypedParser*[T; U; R: MaybeAction] = proc (option: string, value: U, accumulator: var T): R
-    ## Typed variant of `Parser <#Parser>`_.
+  FlagTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: U, accumulator: var T): R
+    ## Typed variant of `FlagParser <#FlagParser>`_.
 
-  OptionalTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: Option[U], accumulator: var T): R
-    ## Typed variant of `OptionalParser <#OptionalParser>`_.
+  FlagOptionalTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: Option[U], accumulator: var T): R
+    ## Typed variant of `FlagOptionalParser <#FlagOptionalParser>`_.
 
   TypedPositionalParser*[T; U; R: MaybeAction] = proc (value: U, accumulator: var T): R
     ## Typed variant of `PositionalParser <#PositionalParser>`_.
@@ -165,8 +376,8 @@ type
 
   ParserAny[T] = object
     case kind: ParserKind
-    of FlagOptionalValue: optParser: OptionalParser[T, Action]
-    of ParserKind.Flag: parser: Parser[T, Action]
+    of FlagOptionalValue: optParser: FlagOptionalParser[T, Action]
+    of ParserKind.Flag: parser: FlagParser[T, Action]
     of ParserKind.Positional, OptionalPositional, CatchAll,
        OptionalCatchAll: posParser: PositionalParser[T, Action]
     of ParserKind.Command: cmdParser: CommandParser[T, Action]
@@ -277,57 +488,106 @@ proc `==`*(a, b: Positional): bool {.borrow.}
 func drop[T](_: sink T) = discard
 
 func commandBuilder*[T](cli: Cli[T]): CommandBuilder[T] =
-  ## Create a new `CommandBuilder`.
+  ## Creates a new `CommandBuilder`.
   result = CommandBuilder[T]()
 
 func commandBuilder*(T: typedesc): CommandBuilder[T] =
-  ## Create a new `CommandBuilder`.
+  ## Creates a new `CommandBuilder`.
   result = CommandBuilder[T]()
 
 func flagBuilder*[T](cli: Cli[T]): FlagBuilder[T] =
-  ## Create a new `FlagBuilder`.
+  ## Creates a new `FlagBuilder`.
   result = FlagBuilder[T]()
 
 func positionalBuilder*[T](cli: Cli[T]): PositionalBuilder[T] =
-  ## Create a new `PositionalBuilder`.
+  ## Creates a new `PositionalBuilder`.
   result = PositionalBuilder[T]()
 
 func name*[T](b: sink CommandBuilder[T], name: string): CommandBuilder[T] =
-  ## Set the canonical name of this command. This name is used to identify
-  ## the command on the command line.
+  ## Sets the canonical name of this command, which is used to identify
+  ## this command on the command line.
   ##
   ## .. note::
   ##   A name is optional for the root command.
   ##
-  ## See also: `alias <#alias%2CsinkCommandBuilder[T]%2Cvarargs[string]>`_
+  ## See also:
+  ## - `alias func <#alias,sinkCommandBuilder[T],varargs[string]>`_
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.commandBuilder()
+      .name("act")
+      .parser((_, var s) => (s = "acted"))
+      .addTo(cli, RootCommand)
+    doAssert cli.parse(@["act"]) == "acted"
+
   result = b
   result.cmdName = name
   result.aliases.keepItIf: it != result.cmdName
 
 func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
-  ## Set the canonical name of this flag. This name is used to identify
+  ## Sets the canonical name of this flag, which is used to identify
   ## this flag on the command line.
   ##
   ## If `name` is one-character long, it can also be recognized on the command
   ## line using the short form syntax (e.g. `-n`).
   ##
-  ## See also: `alias <#alias%2CsinkFlagBuilder[T]%2Cvarargs[string]>`_
+  ## See also:
+  ## - `alias func <#alias,sinkFlagBuilder[T],varargs[string]>`_
+  runnableExamples:
+    import std/sugar
+
+    type Args = object
+      str: string
+      i: int
+
+    var cli = commandBuilder(Args)
+      .initCli()
+    cli.flagBuilder()
+      .name("string")
+      .parser(string, (_, val, var args) => (args.str = val))
+      .addTo(cli)
+    cli.flagBuilder()
+      .name("i")
+      .parser(int, (_, val, var args) => (args.i = val))
+      .addTo(cli)
+    doAssert cli.parse(@["--string=str"]) == Args(str: "str")
+    doAssert cli.parse(@["-i=10"]) == Args(i: 10)
+
   result = b
   result.flagName = name
   result.aliases.keepItIf: it != result.flagName
 
 func name*[T](b: sink PositionalBuilder[T], name: string): PositionalBuilder[T] =
-  ## Set the canonical name of this positional.
+  ## Sets the canonical name of this positional, which is used when providing
+  ## diagnostics and help message.
   result = b
   result.posName = name
 
 func alias*[T](b: sink CommandBuilder[T], names: varargs[string]): CommandBuilder[T] =
-  ## Set aliases for this command.
+  ## Sets aliases for this command.
   ##
   ## This command can then be matched using any of the provided `names` in
   ## addition to its canonical name.
   ##
-  ## See also: `name <#name%2CsinkCommandBuilder[T]%2Cstring>`_
+  ## See also:
+  ## - `name func <#name,sinkCommandBuilder[T],string>`_
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.commandBuilder()
+      .name("act")
+      .alias("a", "do")
+      .parser((_, var s) => (s = "acted"))
+      .addTo(cli, RootCommand)
+    doAssert cli.parse(@["act"]) == "acted"
+    doAssert cli.parse(@["a"]) == "acted"
+    doAssert cli.parse(@["do"]) == "acted"
+
   result = b
   result.aliases.setLen(0)
 
@@ -339,12 +599,27 @@ func alias*[T](b: sink CommandBuilder[T], names: varargs[string]): CommandBuilde
     result.aliases.add names
 
 func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
-  ## Set aliases for this flag.
+  ## Sets aliases for this flag.
   ##
   ## The command can be matched using any of the provided `names` in addition to
   ## its canonical name.
   ##
-  ## See also: `name <#name%2CsinkFlagBuilder[T]%2Cstring>`_
+  ## See also:
+  ## - `name func <#name,sinkFlagBuilder[T],string>`_
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.flagBuilder()
+      .name("string")
+      .alias("str", "s")
+      .parser(string, (_, val, var str) => (str = val))
+      .addTo(cli)
+    doAssert cli.parse(@["--string=str"]) == "str"
+    doAssert cli.parse(@["--str=str"]) == "str"
+    doAssert cli.parse(@["-s=str"]) == "str"
+
   result = b
   result.aliases.setLen(0)
 
@@ -356,7 +631,7 @@ func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
     result.aliases.add names
 
 func default*[T](b: sink CommandBuilder[T]): CommandBuilder[T] =
-  ## Mark this command as the default subcommand of the current dispatcher.
+  ## Marks this command as the default subcommand of the current dispatcher.
   ## When no subcommand are specified on the command line, this command
   ## will be selected.
   ##
@@ -364,15 +639,41 @@ func default*[T](b: sink CommandBuilder[T]): CommandBuilder[T] =
   ## add more than one is considered an error.
   ##
   ## This attribute is ignored for the root command.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.commandBuilder()
+      .name("act")
+      .default()
+      .parser((_, var s) => (s = "acted"))
+      .addTo(cli, RootCommand)
+
+    doAssert cli.parse(@[]) == "acted"
+
   result = b
   result.isDefault = true
 
 func catchAll*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
-  ## Mark this positional as "catch all". All positional parameters encountered
+  ## Marks this positional as "catch all". All positional parameters encountered
   ## starting at this positional will be handled by the associated parser.
   ##
   ## A catch all positional can only be added as the last parameter of a
   ## command. No other positional parameters might be added after this.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(seq[string])
+      .initCli()
+    cli.positionalBuilder()
+      .name("STR")
+      .catchAll()
+      .parser((v, var s) => s.add v)
+      .addTo(cli)
+
+    doAssert cli.parse(@["a", "b", "c"]) == ["a", "b", "c"]
+
   result = b
   let parser =
     case result.posParser.kind
@@ -394,11 +695,25 @@ func catchAll*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
     )
 
 func optional*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
-  ## Mark this positional as optional. When not specified on the command line,
+  ## Marks this positional as optional. When not specified on the command line,
   ## the associated parser will not be called.
   ##
   ## No non-optional positional parameters might be added to a command after the
   ## first optional.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.positionalBuilder()
+      .name("STR")
+      .optional()
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+
+    doAssert cli.parse(@[]) == ""
+    doAssert cli.parse(@["a"]) == "a"
+
   result = b
   let parser =
     case result.posParser.kind
@@ -423,13 +738,26 @@ func parser*[T](
   b: sink CommandBuilder[T],
   p: sink CommandParser[T, Action],
 ): CommandBuilder[T] =
-  ## Set the parser for this command.
+  ## Sets the parser for this command. This is called when the command is
+  ## matched on the command line.
   ##
   ## .. note::
   ##   A parser is optional for commands.
   ##
   ## .. warning::
   ##   It is an error to set a parser for the root command.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.commandBuilder()
+      .name("help")
+      .parser((_, var s) => Action.ShowHelp)
+      .addTo(cli, RootCommand)
+    doAssertRaises(HelpError):
+      discard cli.parse(@["help"])
+
   result = b
   result.cmdParser = ParserAny[T](kind: ParserKind.Command, cmdParser: p)
 
@@ -437,7 +765,7 @@ func parser*[T](
   b: sink CommandBuilder[T],
   p: sink CommandParser[T, void],
 ): CommandBuilder[T] {.inline.} =
-  ## Set the parser for this command with `Action.Continue` as the default
+  ## Sets the parser for this command with `Action.Continue` as the default
   ## action.
   ##
   ## .. note::
@@ -445,6 +773,17 @@ func parser*[T](
   ##
   ## .. warning::
   ##   It is an error to set a parser for the root command.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.commandBuilder()
+      .name("act")
+      .parser((_, var s) => (s = "acted"))
+      .addTo(cli, RootCommand)
+    doAssert cli.parse(@["act"]) == "acted"
+
   b.parser(
     proc (command: Command, accumulator: var T): Action =
       p(command, accumulator)
@@ -452,42 +791,111 @@ func parser*[T](
 
 func optionalParser*[T](
   b: sink FlagBuilder[T],
-  p: sink OptionalParser[T, Action],
+  p: sink FlagOptionalParser[T, Action],
 ): FlagBuilder[T] =
-  ## Set the parser for this flag, and mark the flag as not requiring any value.
+  ## Sets the parser for this flag, and mark the flag as not requiring any value.
   ##
   ## Flags with optional value will only receive their value when it is
   ## specified inline, for example: `--flag=value` or `--flag:value`.
+  ##
+  ## See also:
+  ## - `parser proc <#parser,sinkFlagBuilder[T],sinkFlagParser[T,Action]>`_
+  runnableExamples:
+    import std/options
+
+    proc parser(opt: string, val: Option[string], str: var string): Action =
+      if val == some("help"):
+        Action.ShowHelp
+      else:
+        str = val.get(otherwise = "default")
+        Action.Continue
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.flagBuilder()
+      .name("string")
+      .optionalParser(parser)
+      .addTo(cli)
+    doAssert cli.parse(@["--string"]) == "default"
+    doAssert cli.parse(@["--string", "--string"]) == "default"
+    doAssert cli.parse(@["--string=--string"]) == "--string"
+    doAssertRaises(HelpError):
+      discard cli.parse(@["--string:help"])
+
   result = b
   result.flagParser = ParserAny[T](kind: FlagOptionalValue, optParser: p)
 
 func optionalParser*[T](
   b: sink FlagBuilder[T],
-  p: sink OptionalParser[T, void],
+  p: sink FlagOptionalParser[T, void],
 ): FlagBuilder[T] =
-  ## Set the parser for this flag, and mark the flag as not requiring any value.
+  ## Sets the parser for this flag, and mark the flag as not requiring any value.
   ## On successful parse, `Action.Continue` is taken as the default action.
   ##
   ## Flags with optional value will only receive their value when it is
   ## specified inline, for example: `--flag=value` or `--flag:value`.
+  ##
+  ## See also:
+  ## - `parser proc <#parser,sinkFlagBuilder[T],sinkFlagParser[T,void]>`_
+  runnableExamples:
+    import std/options
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.flagBuilder()
+      .name("string")
+      .optionalParser((_, val, var str) => (str = val.get("default")))
+      .addTo(cli)
+    doAssert cli.parse(@["--string"]) == "default"
+    doAssert cli.parse(@["--string", "--string"]) == "default"
+    doAssert cli.parse(@["--string=--string"]) == "--string"
+    doAssert cli.parse(@["--string:help"]) == "help"
+
   b.optionalParser(
     proc (option: string, value: Option[string], accumulator: var T): Action =
       p(option, value, accumulator)
   )
 
-func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T, Action]): FlagBuilder[T] =
-  ## Set the parser for this flag, and mark the flag as requiring values.
+func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, Action]): FlagBuilder[T] =
+  ## Sets the parser for this flag, and mark the flag as requiring values.
   ##
   ## Flags with required value can receive any of the following forms:
   ##
   ## - `--flag=value`
   ## - `--flag:value`
   ## - `--flag value`
+  ##
+  ## See also:
+  ## - `optionalParser proc <#optionalParser,sinkFlagBuilder[T],sinkFlagOptionalParser[T,Action]>`_
+  runnableExamples:
+    proc parser(opt: string, val: string, str: var string): Action =
+      if val == "help":
+        Action.ShowHelp
+      else:
+        str = val
+        Action.Continue
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.flagBuilder()
+      .name("string")
+      .parser(parser)
+      .addTo(cli)
+    doAssertRaises(MissingValueError):
+      discard cli.parse(@["--string"])
+
+    doAssert cli.parse(@["--string", "--string"]) == "--string"
+    doAssert cli.parse(@["--string=--string"]) == "--string"
+
+    doAssertRaises(HelpError):
+      discard cli.parse(@["--string", "help"])
+
   result = b
   result.flagParser = ParserAny[T](kind: ParserKind.Flag, parser: p)
 
-func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T, void]): FlagBuilder[T] =
-  ## Set the parser for this flag, and mark the flag as requiring values.
+func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, void]): FlagBuilder[T] =
+  ## Sets the parser for this flag, and mark the flag as requiring values.
   ## On successful parse, `Action.Continue` is taken as the default action.
   ##
   ## Flags with required value can receive any of the following forms:
@@ -495,6 +903,25 @@ func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T, void]): FlagBuilder[T]
   ## - `--flag=value`
   ## - `--flag:value`
   ## - `--flag value`
+  ##
+  ## See also:
+  ## - `optionalParser proc <#optionalParser,sinkFlagBuilder[T],sinkFlagOptionalParser[T,void]>`_
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.flagBuilder()
+      .name("string")
+      .parser((_, val, var str) => (str = val))
+      .addTo(cli)
+
+    doAssertRaises(MissingValueError):
+      discard cli.parse(@["--string"])
+    doAssert cli.parse(@["--string", "--string"]) == "--string"
+    doAssert cli.parse(@["--string=--string"]) == "--string"
+    doAssert cli.parse(@["--string", "help"]) == "help"
+
   b.parser(
     proc (option: string, value: string, accumulator: var T): Action =
       p(option, value, accumulator)
@@ -503,20 +930,41 @@ func parser*[T](b: sink FlagBuilder[T], p: sink Parser[T, void]): FlagBuilder[T]
 func optionalParser*[T, U; R: MaybeAction](
   b: sink FlagBuilder[T],
   _: typedesc[U],
-  parser: sink OptionalTypedParser[T, U, R],
+  parser: sink FlagOptionalTypedParser[T, U, R],
 ): FlagBuilder[T] =
-  ## Set the parser for this flag, and mark the flag as not requiring any value.
+  ## Sets the parser for this flag, and mark the flag as not requiring any value.
   ##
   ## Input string values from the command line will first be parsed using
-  ## `parseCli` before handing off to the parser. See `parsers` module for
+  ## `parseCli` before handing off to the parser. See `parsers module`_ for
   ## more information.
   ##
   ## Flags with optional value will only receive their value when it is
   ## specified inline, for example: `--flag=value` or `--flag:value`.
+  ##
+  ## See also:
+  ## - `parser proc <#parser,sinkFlagBuilder[T],typedesc[U],sinkFlagTypedParser[T,U,R]>`_
+  ##
+  ## .. _parsers module: parsers.html
+  runnableExamples:
+    import std/options
+    import std/sugar
+
+    var cli = commandBuilder(int)
+      .initCli()
+    cli.flagBuilder()
+      .name("int")
+      .optionalParser(int, (_, val, var i) => (i = val.get(42)))
+      .addTo(cli)
+    doAssert cli.parse(@["--int"]) == 42
+    doAssert cli.parse(@["--int", "--int"]) == 42
+    doAssertRaises(InvalidValueError):
+      discard cli.parse(@["--int=--int"])
+    doAssert cli.parse(@["--int=1000"]) == 1000
+
   mixin parseCli
 
   when U is string:
-    result = b.optionalParser(OptionalParser[T, R] parser)
+    result = b.optionalParser(FlagOptionalParser[T, R] parser)
   else:
     result = b.optionalParser(
       proc (option: string, value: Option[string], r: var T): Action =
@@ -527,19 +975,54 @@ func optionalParser*[T, U; R: MaybeAction](
 proc parser*[T, U; R: MaybeAction](
   b: sink FlagBuilder[T],
   _: typedesc[U],
-  parser: sink TypedParser[T, U, R],
+  parser: sink FlagTypedParser[T, U, R],
 ): FlagBuilder[T] =
   ## Set the parser for this flag, and mark the flag as requiring values.
   ##
   ## Input string values from the command line will first be parsed using
-  ## `parseCli` before handing off to the parser. See `parsers` module for
+  ## `parseCli` before handing off to the parser. See `parsers module`_ for
   ## more information.
+  ##
+  ## When `U` is `bool`, this flag behaves like a switch and does not
+  ## require a value to be passed. If values are to be passed, it must be
+  ## inlined (i.e. `--flag=false`).
   ##
   ## Flags with required value can receive any of the following forms:
   ##
   ## - `--flag=value`
   ## - `--flag:value`
-  ## - `--flag value`
+  ## - `--flag value` (only when `U` is not `bool`)
+  ##
+  ## See also:
+  ## - `optionalParser proc <#optionalParser,sinkFlagBuilder[T],typedesc[U],sinkFlagOptionalTypedParser[T,U,R]>`_
+  ##
+  ## .. _parsers module: parsers.html
+  runnableExamples:
+    import std/options
+    import std/sugar
+
+    type Args = object
+      i: int
+      b: bool
+
+    var cli = commandBuilder(Args)
+      .initCli()
+    cli.flagBuilder()
+      .name("int")
+      .parser(int, (_, val, var args) => (args.i = val))
+      .addTo(cli)
+    cli.flagBuilder()
+      .name("switch")
+      .parser(bool, (_, val, var args) => (args.b = val))
+      .addTo(cli)
+    doAssertRaises(MissingValueError):
+      discard cli.parse(@["--int"])
+    doAssertRaises(InvalidValueError):
+      discard cli.parse(@["--int", "string"])
+    doAssert cli.parse(@["--int", "1000"]) == Args(i: 1000)
+    doAssert cli.parse(@["--switch"]) == Args(b: true)
+    doAssert cli.parse(@["--switch", "--switch:false"]) == Args(b: false)
+
   mixin parseCli
 
   when U is bool:
@@ -549,7 +1032,7 @@ proc parser*[T, U; R: MaybeAction](
     )
 
   elif U is string:
-    result = b.parser(Parser[T, R] parser)
+    result = b.parser(FlagParser[T, R] parser)
 
   else:
     result = b.parser(
@@ -562,6 +1045,22 @@ func parser*[T](
   p: sink PositionalParser[T, Action]
 ): PositionalBuilder[T] =
   ## Set the parser for this positional parameter.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.positionalBuilder()
+      .name("NO-FLAGS")
+      .parser((_, var s) => Action.DisableFlagProcessing)
+      .addTo(cli)
+    cli.positionalBuilder()
+      .name("STR")
+      .parser((v, var s) => (s = v; Action.Continue))
+      .addTo(cli)
+
+    doAssert cli.parse(@["a", "-b"]) == "-b"
+
   result = b
   case result.posParser.kind
   of ParserKind.Positional..OptionalCatchAll:
@@ -573,8 +1072,20 @@ func parser*[T](
   b: sink PositionalBuilder[T],
   p: sink PositionalParser[T, void]
 ): PositionalBuilder[T] =
-  ## Set the parser for this positional parameter.
+  ## Sets the parser for this positional parameter.
   ## On successful parse, `Action.Continue` is taken as the default action.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    cli.positionalBuilder()
+      .name("STR")
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+
+    doAssert cli.parse(@["a"]) == "a"
+
   b.parser(
     proc (value: string, accumulator: var T): Action =
       p(value, accumulator)
@@ -585,11 +1096,32 @@ proc parser*[T, U; R: MaybeAction](
   _: typedesc[U],
   parser: sink TypedPositionalParser[T, U, R],
 ): PositionalBuilder[T] =
-  ## Set the parser for this positional parameter.
+  ## Sets the parser for this positional parameter.
   ##
   ## Input string values from the command line will first be parsed using
-  ## `parseCli` before handing off to the parser. See `parsers` module for
+  ## `parseCli` before handing off to the parser. See `parsers module`_ for
   ## more information.
+  ##
+  ## .. _parsers module: parsers.html
+  runnableExamples:
+    import std/sugar
+
+    type Args = object
+      a, b: int
+
+    var cli = commandBuilder(Args)
+      .initCli()
+    cli.positionalBuilder()
+      .name("A")
+      .parser(int, (v, var args) => (args.a = v; Action.DisableFlagProcessing))
+      .addTo(cli)
+    cli.positionalBuilder()
+      .name("B")
+      .parser(int, (v, var args) => (args.b = v))
+      .addTo(cli)
+
+    doAssert cli.parse(@["10", "-10"]) == Args(a: 10, b: -10)
+
   mixin parseCli
 
   when U is string:
@@ -605,7 +1137,7 @@ func describe*[T](
   b: sink CommandBuilder[T],
   usage: sink string,
 ): CommandBuilder[T] =
-  ## Set a short `usage` description for this command.
+  ## Sets a short `usage` description for this command.
   ##
   ## .. note::
   ##
@@ -620,7 +1152,7 @@ func describe*[T](
   usage: sink string,
   placeholder: sink string = "",
 ): FlagBuilder[T] =
-  ## Set a short `usage` description and a value `placeholder` for this flag.
+  ## Sets a short `usage` description and a value `placeholder` for this flag.
   ##
   ## For required flags, an empty placeholder defaults to `VALUE`. For optional
   ## flags, an empty placeholder will be omitted from documentation rendering.
@@ -638,7 +1170,7 @@ func describe*[T](
   b: sink PositionalBuilder[T],
   usage: sink string,
 ): PositionalBuilder[T] =
-  ## Set a short `usage` description and a value `placeholder` for this flag.
+  ## Sets a short `usage` description and a value `placeholder` for this flag.
   ##
   ## For required flags, an empty placeholder defaults to `VALUE`. For optional
   ## flags, an empty placeholder will be omitted from documentation rendering.
@@ -664,7 +1196,7 @@ func addCommon[T](
   name, usage, placeholder: sink string,
   parser: sink ParserAny[T]
 ): Parameter =
-  ## Add a new parameter to `cli`.
+  ## Adds a new parameter to `cli`.
   ##
   ## .. important::
   ##   Input parameters are assumed to meet operational constraints.
@@ -689,7 +1221,8 @@ func initCli*[T](b: sink CommandBuilder[T]): Cli[T] =
   ##
   ## The root command can be referred to using `RootCommand` constant.
   ##
-  ## See also: `commandBuilder <#commandBuilder%2Ctypedesc>`_
+  ## See also:
+  ## - `commandBuilder proc <#commandBuilder,typedesc>`_
   result = Cli[T](
     command: default(typeof result.command),
     parser: default(typeof result.parser),
@@ -726,7 +1259,7 @@ func addTo*[T](
   cli: var Cli[T],
   command: Command,
 ): Command {.discardable.} =
-  ## Add the command specified by `b` as a subcommand of `command`.
+  ## Adds the command specified by `b` as a subcommand of `command`.
   ##
   ## A subcommand can only be added to `command` if:
   ##
@@ -737,6 +1270,9 @@ func addTo*[T](
   ##
   ## `ValueError` will be raised if any of the specified constraints are
   ## violated.
+  ##
+  ## See also:
+  ## - `commandBuilder proc <#commandBuilder,Cli[T]>`_
   assert b.cmdName.len > 0, "Command name must not be empty"
   if b.cmdName in cli.command[command].command:
     raise newException(ValueError, "Command '" & b.cmdName & "' already exists")
@@ -770,7 +1306,7 @@ func addTo*[T](
   cli: var Cli[T],
   command: Command = RootCommand,
 ): Flag {.discardable.} =
-  ## Add the flag specified by `b` to `command`.
+  ## Adds the flag specified by `b` to `command`.
   ##
   ## A flag can only be added to `command` if:
   ##
@@ -781,6 +1317,9 @@ func addTo*[T](
   ##
   ## `ValueError` will be raised if any of the specified constraints are
   ## violated.
+  ##
+  ## See also:
+  ## - `flagBuilder proc <#flagBuilder,Cli[T]>`_
   assert b.flagName.len > 0, "Flag name must not be empty"
   if b.flagName in cli.command[command].flag:
     raise newException(ValueError, "Flag '" & b.flagName & "' already exists")
@@ -804,7 +1343,7 @@ func addTo*[T](
   cli: var Cli[T],
   command: Command = RootCommand,
 ): Positional {.discardable.} =
-  ## Add the positional parameter specified by `b` to `command`.
+  ## Adds the positional parameter specified by `b` to `command`.
   ##
   ## A positional parameter can only be added to `command` if:
   ##
@@ -817,6 +1356,9 @@ func addTo*[T](
   ##
   ## `ValueError` will be raised if any of the specified constraints are
   ## violated.
+  ##
+  ## See also:
+  ## - `positionalBuilder proc <#positionalBuilder,Cli[T]>`_
   assert b.posName.len > 0, "Positional name should not be empty"
   for param in cli.command[command].positional.items:
     if b.posName == cli.name[param]:
@@ -848,6 +1390,21 @@ func addTo*[T](
 func flagWithName*(cli: Cli, command: Command, name: string): Option[Flag] =
   ## Returns the `Flag` handle for the flag identifiable by `name` registered
   ## for `command`.
+  runnableExamples:
+    import std/options
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("string")
+      .alias("str", "s")
+      .parser(string, (_, val, var str) => (str = val))
+      .addTo(cli)
+    doAssert cli.flagWithName(RootCommand, "string") == some(strFlag)
+    doAssert cli.flagWithName(RootCommand, "str") == some(strFlag)
+    doAssert cli.flagWithName(RootCommand, "not-found") == none(Flag)
+
   assert command in cli.command, "Invalid command"
   try: some(Flag cli.command[command].flag[name])
   except KeyError: none Flag
@@ -855,26 +1412,84 @@ func flagWithName*(cli: Cli, command: Command, name: string): Option[Flag] =
 func commandWithName*(cli: Cli, command: Command, name: string): Option[Command] =
   ## Returns the `Command` handle for the subcommand identifiable by `name`
   ## registered for `command`.
+  runnableExamples:
+    import std/options
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .alias("a", "do")
+      .addTo(cli, RootCommand)
+
+    doAssert cli.commandWithName(RootCommand, "a") == some(actCmd)
+    doAssert cli.commandWithName(RootCommand, "act") == some(actCmd)
+    doAssert cli.commandWithName(RootCommand, "not-found") == none(Command)
+
   assert command in cli.command, "Invalid command"
   try: some(Command cli.command[command].command[name])
   except KeyError: none Command
 
 func nameOf*(cli: Cli, flag: Flag): lent string =
   ## Returns the canonical name for `flag`.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("string")
+      .parser(string, (_, val, var str) => (str = val))
+      .addTo(cli)
+    doAssert cli.nameOf(strFlag) == "string"
+
   cli.name[Parameter flag]
 
 func nameOf*(cli: Cli, positional: Positional): lent string =
   ## Returns the canonical name for `positional`.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strPos = cli.positionalBuilder()
+      .name("STR")
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+
+    doAssert cli.nameOf(strPos) == "STR"
+
   cli.name[Parameter positional]
 
 func nameOf*(cli: Cli, command: Command): lent string =
   ## Returns the canonical name for `command`.
+  runnableExamples:
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+    doAssert cli.nameOf(actCmd) == "act"
+
   cli.name[Parameter command]
 
 iterator namesOf*(cli: Cli, flag: Flag): lent string =
   ## Yields names that can be used to refer to `flag`.
   ##
   ## The first name yielded is always the canonical name of `flag`.
+  runnableExamples:
+    import std/sequtils
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("string")
+      .alias("str", "s")
+      .parser(string, (_, val, var str) => (str = val))
+      .addTo(cli)
+    doAssert toSeq(cli.namesOf(strFlag)) == ["string", "str", "s"]
+
   try:
     yield cli.name[Parameter flag]
     for name in cli.alias[Parameter flag].items:
@@ -886,6 +1501,17 @@ iterator namesOf*(cli: Cli, command: Command): lent string =
   ## Yields names that can be used to refer to `command`.
   ##
   ## The first name yielded is always the canonical name of `command`.
+  runnableExamples:
+    import std/sequtils
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .alias("a", "do")
+      .addTo(cli, RootCommand)
+    doAssert toSeq(cli.namesOf(actCmd)) == ["act", "a", "do"]
+
   try:
     yield cli.name[Parameter command]
     for name in cli.alias[Parameter command].items:
@@ -897,6 +1523,17 @@ func parentOf*(cli: Cli, command: Command): Option[Command] =
   ## Returns the parent command of `command`.
   ##
   ## `none(Command)` is only returned for `RootCommand`.
+  runnableExamples:
+    import std/options
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+    doAssert cli.parentOf(actCmd) == some(RootCommand)
+    doAssert cli.parentOf(RootCommand) == none(Command)
+
   let parent = Command cli.parent[Parameter command]
   if Parameter(parent) == InvalidParameter:
     none Command
@@ -905,6 +1542,15 @@ func parentOf*(cli: Cli, command: Command): Option[Command] =
 
 func pathOf*(cli: Cli, command: Command): seq[Command] =
   ## Returns the path leading to `command`.
+  runnableExamples:
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+    doAssert cli.pathOf(actCmd) == [RootCommand, actCmd]
+    doAssert cli.pathOf(RootCommand) == [RootCommand]
+
   result.add command
 
   var command = command
@@ -923,6 +1569,19 @@ func longNameOf*(cli: Cli, flag: Flag): Option[string] =
   ## Returns the first long name of `flag`, if one exists.
   ##
   ## A long name is defined as a name longer than one character.
+  runnableExamples:
+    import std/options
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("s")
+      .alias("str", "string")
+      .parser(string, (_, val, var str) => (str = val))
+      .addTo(cli)
+    doAssert cli.longNameOf(strFlag) == some("str")
+
   result = none string
   for name in cli.namesOf(flag):
     if name.len > 1:
@@ -932,6 +1591,19 @@ func shortNameOf*(cli: Cli, flag: Flag): Option[string] =
   ## Returns the first short name of `flag`, if one exists.
   ##
   ## A short name is defined as a one-character long name.
+  runnableExamples:
+    import std/options
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("string")
+      .alias("str", "s")
+      .parser(string, (_, val, var str) => (str = val))
+      .addTo(cli)
+    doAssert cli.shortNameOf(strFlag) == some("s")
+
   result = none string
   for name in cli.namesOf(flag):
     if name.len == 1:
@@ -939,30 +1611,120 @@ func shortNameOf*(cli: Cli, flag: Flag): Option[string] =
 
 func usageOf*(cli: Cli, command: Command): lent string =
   ## Returns the `usage` for `command`, as described with `describe`.
+  runnableExamples:
+    import std/sugar
+
+    let cli = commandBuilder(string)
+      .describe("some usage")
+      .initCli()
+    doAssert cli.usageOf(RootCommand) == "some usage"
+
   cli.usage[Parameter command]
 
 func usageOf*(cli: Cli, flag: Flag): lent string =
   ## Returns the `usage` for `flag`, as described with `describe`.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("string")
+      .describe("a string")
+      .parser((_, v, var s) => (s = v))
+      .addTo(cli)
+    doAssert cli.usageOf(strFlag) == "a string"
+
   cli.usage[Parameter flag]
 
 func usageOf*(cli: Cli, positional: Positional): lent string =
   ## Returns the `usage` for `positional`, as described with `describe`.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strPos = cli.positionalBuilder()
+      .name("STR")
+      .describe("a string")
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+    doAssert cli.usageOf(strPos) == "a string"
+
   cli.usage[Parameter positional]
 
 func placeholderOf*(cli: Cli, flag: Flag): string =
   ## Returns the `placeholder` for `flag`, as described with `describe`.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("string")
+      .describe("a string", "STR")
+      .parser((_, v, var s) => (s = v))
+      .addTo(cli)
+    let str2Flag = cli.flagBuilder()
+      .name("string2")
+      .describe("a string")
+      .parser((_, v, var s) => (s = v))
+      .addTo(cli)
+    doAssert cli.placeholderOf(strFlag) == "STR"
+    doAssert cli.placeholderOf(str2Flag) == ""
+
   cli.placeholder[Parameter flag]
 
 func isDispatcher*(cli: Cli, command: Command): bool =
   ## Returns whether `command` contains subcommands.
+  runnableExamples:
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+
+    doAssert cli.isDispatcher(RootCommand)
+    doAssert not cli.isDispatcher(actCmd)
+
   cli.command[command].isDispatcher()
 
 func hasDefaultCommand*(cli: Cli, command: Command): bool =
   ## Returns whether `command` has a default subcommand.
+  runnableExamples:
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+    cli.commandBuilder()
+      .name("def")
+      .default()
+      .addTo(cli, actCmd)
+
+    doAssert not cli.hasDefaultCommand(RootCommand)
+    doAssert cli.hasDefaultCommand(actCmd)
+
   cli.command[command].hasDefaultCommand()
 
 func defaultCommandOf*(cli: Cli, command: Command): Option[Command] =
   ## Returns the default subcommand of `command`.
+  runnableExamples:
+    import std/options
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+    let defCmd = cli.commandBuilder()
+      .name("def")
+      .default()
+      .addTo(cli, actCmd)
+
+    doAssert cli.defaultCommandOf(RootCommand) == none(Command)
+    doAssert cli.defaultCommandOf(actCmd) == some(defCmd)
+
   if cli.command[command].hasDefaultCommand():
     some(Command cli.command[command].positional[0])
   else:
@@ -970,6 +1732,23 @@ func defaultCommandOf*(cli: Cli, command: Command): Option[Command] =
 
 func classify*(cli: Cli, param: Parameter): ParameterKind =
   ## Returns the type of `param`.
+  runnableExamples:
+    import std/sugar
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("str")
+      .parser((_, v, var s) => (s = v))
+      .addTo(cli)
+    let strPos = cli.positionalBuilder()
+      .name("STR")
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+
+    doAssert cli.classify(Parameter RootCommand) == ParameterKind.Command
+    doAssert cli.classify(Parameter strFlag) == ParameterKind.Flag
+    doAssert cli.classify(Parameter strPos) == ParameterKind.Positional
+
   case cli.parser[param].kind
   of ParserKind.Command: ParameterKind.Command
   of ParserKind.Flag, FlagOptionalValue: ParameterKind.Flag
@@ -980,6 +1759,20 @@ func isDefault*(cli: Cli, command: Command): bool =
   ##
   ## .. note::
   ##   This is always false for `RootCommand`.
+  runnableExamples:
+    var cli = commandBuilder(string)
+      .initCli()
+    let actCmd = cli.commandBuilder()
+      .name("act")
+      .addTo(cli, RootCommand)
+    let defCmd = cli.commandBuilder()
+      .name("def")
+      .default()
+      .addTo(cli, actCmd)
+
+    doAssert not cli.isDefault(actCmd)
+    doAssert cli.isDefault(defCmd)
+
   cli.parentOf(command)
     .flatMap(
       proc (parent: Command): Option[bool] =
@@ -992,27 +1785,85 @@ func isDefault*(cli: Cli, command: Command): bool =
 
 func isValueOptional*(cli: Cli, flag: Flag): bool =
   ## Returns whether a value must be specified on the command line for `flag`.
+  runnableExamples:
+    import std/sugar
+    var cli = commandBuilder(string)
+      .initCli()
+    let strFlag = cli.flagBuilder()
+      .name("str")
+      .optionalParser((_, v, var s) => Action.Continue)
+      .addTo(cli)
+    let strReqFlag = cli.flagBuilder()
+      .name("str-req")
+      .parser((_, v, var s) => Action.Continue)
+      .addTo(cli)
+    let switchFlag = cli.flagBuilder()
+      .name("switch")
+      .parser(bool, (_, v, var s) => Action.Continue)
+      .addTo(cli)
+
+    doAssert cli.isValueOptional(strFlag)
+    doAssert not cli.isValueOptional(strReqFlag)
+    doAssert cli.isValueOptional(switchFlag)
+
   cli.parser[Parameter flag].kind == FlagOptionalValue
 
 func isOptional*(cli: Cli, positional: Positional): bool =
   ## Returns whether a value must be specified on the command line for
   ## `positional`.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let reqPos = cli.positionalBuilder()
+      .name("REQ")
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+    let optPos = cli.positionalBuilder()
+      .name("OPT")
+      .optional()
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+
+    doAssert not cli.isOptional(reqPos)
+    doAssert cli.isOptional(optPos)
+
   cli.parser[Parameter positional].kind in {OptionalPositional, OptionalCatchAll}
 
 func isCatchAll*(cli: Cli, positional: Positional): bool =
   ## Returns whether `positional` is a catch all parameter.
+  runnableExamples:
+    import std/sugar
+
+    var cli = commandBuilder(string)
+      .initCli()
+    let reqPos = cli.positionalBuilder()
+      .name("REQ")
+      .parser((v, var s) => (s = v))
+      .addTo(cli)
+    let anyPos = cli.positionalBuilder()
+      .name("ANY")
+      .catchAll()
+      .parser((v, var s) => Action.Continue)
+      .addTo(cli)
+
+    doAssert not cli.isCatchAll(reqPos)
+    doAssert cli.isCatchAll(anyPos)
+
   cli.parser[Parameter positional].kind in {CatchAll, OptionalCatchAll}
 
 proc helpFlagBuilder*[T](
   cli: var Cli[T],
   name: sink string = "help"
 ): FlagBuilder[T] =
-  ## Build a simple flag that triggers `Action.ShowHelp` when specified on the
+  ## Builds a simple flag that triggers `Action.ShowHelp` when specified on the
   ## command line.
   ##
   ## The flag can be added directly to a `cli` or further customized.
   ##
-  ## See also: `addHelpFlag <#addHelpFlag%2CCli[T]%2CCommand%2Csinkstring%2Cvarargs[string]>`_
+  ## See also:
+  ## - `addHelpFlag proc <#addHelpFlag,Cli[T],Command,sinkstring,varargs[string]>`_
   cli.flagBuilder
     .name(name)
     .optionalParser(
@@ -1026,10 +1877,11 @@ proc addHelpFlag*[T](
   name: sink string = "help",
   aliases: varargs[string] = []
 ): Flag {.discardable.} =
-  ## Add a flag triggering `Action.ShowHelp` with the given `name` and
+  ## Adds a flag triggering `Action.ShowHelp` with the given `name` and
   ## `aliases`.
   ##
-  ## See also: `helpFlagBuilder <#helpFlagBuilder%2CCli[T]%2Csinkstring>`_
+  ## See also:
+  ## - `helpFlagBuilder proc <#helpFlagBuilder,Cli[T],sinkstring>`_
   cli.helpFlagBuilder
     .name(name)
     .alias(aliases)
@@ -1395,7 +2247,8 @@ func parse*[T](
   ## Parses the given `args` list, collecting changes made by added parsers
   ## to `accumulator`.
   ##
-  ## See also: `run <#run%2CCli[T]%2CT%2Csinkseq[string]%2CFile>`_
+  ## See also:
+  ## - `run proc <#run,Cli[T],T,sinkseq[string],File>`_
   var ctx = ParseContext(
     lexer: initCmdLexer(args),
     command: RootCommand,
@@ -1408,11 +2261,14 @@ func parse*[T](
 func parse*[T](
   cli: Cli[T],
   args: sink seq[string],
+  defaults: sink T = default(T),
 ): T {.inline, raises: [ParseError].} =
   ## Parses the given `args` list, then returns the accumulated changes done by
   ## added parsers.
   ##
-  ## See also: `run <#run%2CCli[T]%2Csinkseq[string]%2CFile>`_
+  ## See also:
+  ## - `run proc <#run,Cli[T],sinkseq[string],File,sinkT>`_
+  result = defaults
   parse(cli, result, args)
 
 iterator flags*(cli: Cli, command: Command): Flag =
@@ -1526,7 +2382,7 @@ func flagsUsage*(cli: Cli, command: Command): string =
     result.add usage
 
 func displayOf(cli: Cli, positional: Positional): string =
-  ## Render the display form of a positional parameter.
+  ## Renders the display form of a positional parameter.
   if cli.isOptional(positional):
     result.add '['
     result.add cli.nameOf(positional)
@@ -1920,7 +2776,8 @@ proc run*[T](
   ## to this is when `HelpError` occurs, of which the command will terminate
   ## with a successful exit code.
   ##
-  ## See also: `parse <#parse%2CCli[T]%2CT%2Csinkseq[string]>`_
+  ## See also:
+  ## - `parse proc <#parse,Cli[T],T,sinkseq[string]>`_
   try:
     parse(cli, accumulator, args)
   except HelpError as e:
@@ -1935,11 +2792,14 @@ proc run*[T](
   cli: Cli[T],
   args: sink seq[string] = commandLineParams(),
   messageOutput: File = stdmsg,
+  defaults: sink T = default(T),
 ): T =
   ## Parses the command line, returning accumulated changes made by added
   ## parsers.
   ##
-  ## See `run <#run%2CCli[T]%2CT%2Csinkseq[string]%2CFile>`_ for more information.
+  ## See `run proc <#run,Cli[T],T,sinkseq[string],File>`_ for more information.
   ##
-  ## See also: `parse <#parse%2CCli[T]%2Csinkseq[string]>`_
+  ## See also:
+  ## - `parse proc <#parse,Cli[T],sinkseq[string],sinkT>`_
+  result = defaults
   run(cli, result, args, messageOutput)
