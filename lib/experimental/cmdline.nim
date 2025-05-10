@@ -231,29 +231,37 @@ runnableExamples("-r:off"):
 
 type
   Cli*[T] {.requiresInit.} = object
-    ## A command line interface.
+    ## A command line interface description.
     ##
     ## See also:
     ## - `initCli proc <#initCli,sinkCommandBuilder[T]>`_
-    command: Table[Command, CliCommand] ## Lookup mapping of command to lookup tables.
-    parser: Store[Parameter, ParserAny[T]] ## Parser to process input for Parameter.
-    name: Store[Parameter, string] ## Canonical names for all Parameters.
-    alias: Table[Parameter, seq[string]] ## Mapping of Parameter to aliases.
-    parent: Store[Parameter, Parameter] ## Mapping of Parameter to their parent.
+    command: Table[CommandId, CliCommand]
+      ## Lookup mapping of command to lookup tables.
+    parser: Store[ParameterId, ParserAny[T]]
+      ## Parser to process input for ParameterId.
+    name: Store[ParameterId, string]
+      ## Canonical names for all ParameterIds.
+    alias: Table[ParameterId, seq[string]]
+      ## Mapping of ParameterId to aliases.
+    parent: Store[ParameterId, ParameterId]
+      ## Mapping of ParameterId to their parent.
 
     # Documentation storage
     #
     # Might be useful to support not having these for space-constrained
     # targets using a define.
-    usage: Store[Parameter, string] ## Canonical usage for Parameters.
-    placeholder: Store[Parameter, string]
-      ## Canonical placeholder for Parameters. Only used for flags.
+    usage: Store[ParameterId, string] ## Canonical usage for ParameterIds.
+    placeholder: Store[ParameterId, string]
+      ## Canonical placeholder for ParameterIds. Only used for flags.
 
   CliCommand = object
     ## Lookup table for flags and positionals.
-    flag: Table[string, Parameter] ## Lookup mapping of flag names to Parameter.
-    command: Table[string, Command] ## Lookup mapping of command names to Command.
-    positional: seq[Parameter] ## Lookup mapping of position to Parameter.
+    flag: Table[string, ParameterId]
+      ## Lookup mapping of flag names to ParameterId.
+    command: Table[string, CommandId]
+      ## Lookup mapping of command names to CommandId.
+    positional: seq[ParameterId]
+      ## Lookup mapping of position to ParameterId.
 
   FlagBuilder*[T] = object
     ## Builder for command line flags.
@@ -290,7 +298,7 @@ type
     ## Action to be taken after parsing.
     Continue ## Continue parameter parsing.
     ShowHelp ## Abort and show help message.
-    DisableFlagProcessing ## Parameters following this will be considered
+    DisableFlagProcessing ## ParameterIds following this will be considered
                           ## to be values.
 
   MaybeAction* = Action | void
@@ -341,7 +349,7 @@ type
     ## .. _run(): #run,Cli[T],T,sinkseq[string],File
     ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
 
-  CommandParser*[T; R: MaybeAction] = proc (command: Command, accumulator: var T): R
+  CommandParser*[T; R: MaybeAction] = proc (command: CommandId, accumulator: var T): R
     ## A parser for command parameter with command `command`. The accumulator
     ## passed to `run()`_ or `parse()`_ can be accessed and modified via
     ## `accumulator`.
@@ -387,13 +395,13 @@ type
     lexer: CmdLexer ## Lexer driving the parse.
     nextPositional: Natural ## Next positional parser to use.
     positionalCount: Natural ## Number of positionals parsed.
-    command: Command ## The active command.
+    command: CommandId ## The active command.
     isValueOnly: bool ## Whether flags are ignored.
 
   ParseError* = object of CatchableError
     ## An error during command line parsing.
-    command*: Command ## Active command during error.
-    remaining*: seq[string] ## Parameters that were not parsed.
+    command*: CommandId ## Active command during error.
+    remaining*: seq[string] ## ParameterIds that were not parsed.
 
   FlagError* = object of ParseError
     ## An error parsing flags.
@@ -404,7 +412,7 @@ type
     flagValue*: Option[string] ## Inline value of flag causing error
   MissingValueError* = object of FlagError
     ## The flag parsed requires a value but was not provided.
-    flag*: Flag ## Handle to the flag
+    flag*: FlagId ## Handle to the flag
   InvalidValueError* = object of FlagError
     ## Invalid value passed to a flag.
     ##
@@ -412,7 +420,7 @@ type
     flagValue*: Option[string] ## The string value received. This should always
                                ## be `some(string)` for flags with non-optional
                                ## value.
-    flag*: Flag ## Handle to the flag.
+    flag*: FlagId ## Handle to the flag.
 
   PositionalError* = object of ParseError
     ## An error parsing positional parameters.
@@ -421,12 +429,12 @@ type
     ## The positional parsed was not recognized.
   MissingPositionalError* = object of PositionalError
     ## A required positional parameter is missing from input.
-    positional*: Positional ## Handle to the positional
+    positional*: PositionalId ## Handle to the positional
   InvalidPositionalError* = object of PositionalError
     ## The positional parsed was invalid.
     ##
     ## The `ValueError` causing this can be found in the `parent` field.
-    positional*: Positional ## Handle to the positional
+    positional*: PositionalId ## Handle to the positional
 
   CommandError* = object of ParseError
     ## An error parsing command.
@@ -439,50 +447,50 @@ type
     ## The command parsed was rejected by parser.
     ##
     ## The `ValueError` causing this can be found in the `parent` field.
-    targetCommand*: Command ## Handle to the target command
+    targetCommand*: CommandId ## Handle to the target command
 
   HelpError* = object of ParseError
     ## Help was requested using `Action.ShowHelp`.
     paramName*: string ## Name of the parameter triggering help, as specified by
                        ## input.
-    param*: Parameter ## Handle to the parameter triggering help.
+    param*: ParameterId ## Handle to the parameter triggering help.
 
   ParameterKind* {.pure.} = enum
     Command
     Flag
     Positional
 
-  Parameter* = distinct uint32
+  ParameterId* = distinct uint32
     ## A command line parameter. Values of this type are tied to the originating
     ## `Cli` instance.
     ##
-    ## A `Parameter` might be a `Command`, `Flag`, or `Positional`. The
+    ## A `ParameterId` might be a `CommandId`, `FlagId`, or `PositionalId`. The
     ## `classify` function can be used to distinguish between them.
 
-  Command* = distinct Parameter
+  CommandId* = distinct ParameterId
     ## A command line subcommand. Values of this type are tied to the
     ## originating `Cli` instance.
 
-  Flag* = distinct Parameter
+  FlagId* = distinct ParameterId
     ## A command line flag. Values of this type are tied to the originating
     ## `Cli` instance.
 
-  Positional* = distinct Parameter
+  PositionalId* = distinct ParameterId
     ## A command line positional parameter. Values of this type are tied to the
     ## originating `Cli` instance.
 
 const
-  InvalidParameter = high(Parameter)
+  InvalidParameter = high(ParameterId)
     ## An invalid parameter
-  RootCommand* = Command(0)
+  RootCommand* = CommandId(0)
     ## The top-level command of `Cli`
 
-proc hash(x: Parameter): Hash {.borrow.}
+proc hash(x: ParameterId): Hash {.borrow.}
 
-proc `==`*(a, b: Parameter): bool {.borrow.}
-proc `==`*(a, b: Command): bool {.borrow.}
-proc `==`*(a, b: Flag): bool {.borrow.}
-proc `==`*(a, b: Positional): bool {.borrow.}
+proc `==`*(a, b: ParameterId): bool {.borrow.}
+proc `==`*(a, b: CommandId): bool {.borrow.}
+proc `==`*(a, b: FlagId): bool {.borrow.}
+proc `==`*(a, b: PositionalId): bool {.borrow.}
 
 # FIXME: Put this in system.nim
 func drop[T](_: sink T) = discard
@@ -591,8 +599,8 @@ func alias*[T](b: sink CommandBuilder[T], names: varargs[string]): CommandBuilde
   result = b
   result.aliases.setLen(0)
 
-  # Not the fastest method, but it's expected that users will
-  # specify at most 4 of these.
+  # Not the fastest method, but it's assumed that users will
+  # specify a handful (approximately 1-4) of these.
   for name in names.items:
     if name == result.cmdName or name in result.aliases:
       continue
@@ -623,8 +631,8 @@ func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
   result = b
   result.aliases.setLen(0)
 
-  # Not the fastest method, but it's expected that users will
-  # specify at most 4 of these.
+  # Not the fastest method, but it's assumed that users will
+  # specify a handful (approximately 1-4) of these.
   for name in names.items:
     if name == result.flagName or name in result.aliases:
       continue
@@ -785,7 +793,7 @@ func parser*[T](
     doAssert cli.parse(@["act"]) == "acted"
 
   b.parser(
-    proc (command: Command, accumulator: var T): Action =
+    proc (command: CommandId, accumulator: var T): Action =
       p(command, accumulator)
   )
 
@@ -1192,10 +1200,10 @@ func isNil[T](p: ParserAny[T]): bool =
 
 func addCommon[T](
   cli: var Cli[T],
-  parent: Parameter,
+  parent: ParameterId,
   name, usage, placeholder: sink string,
   parser: sink ParserAny[T]
-): Parameter =
+): ParameterId =
   ## Adds a new parameter to `cli`.
   ##
   ## .. important::
@@ -1257,8 +1265,8 @@ func hasDefaultCommand(cmd: CliCommand): bool =
 func addTo*[T](
   b: sink CommandBuilder[T],
   cli: var Cli[T],
-  command: Command,
-): Command {.discardable.} =
+  command: CommandId,
+): CommandId {.discardable.} =
   ## Adds the command specified by `b` as a subcommand of `command`.
   ##
   ## A subcommand can only be added to `command` if:
@@ -1291,21 +1299,21 @@ func addTo*[T](
   if b.isDefault and cli.command[command].hasDefaultCommand:
     raise newException(ValueError, "Command already has a default subcommand registered")
 
-  result = Command cli.addCommon(Parameter command, b.cmdName, b.usage, "", b.cmdParser)
+  result = CommandId cli.addCommon(ParameterId command, b.cmdName, b.usage, "", b.cmdParser)
   cli.command[result] = CliCommand()
   cli.command[command].command[b.cmdName] = result
   if b.isDefault:
-    cli.command[command].positional.add(Parameter result)
+    cli.command[command].positional.add(ParameterId result)
   for alias in b.aliases.items:
     cli.command[command].command[alias] = result
   if b.aliases.len > 0:
-    cli.alias[Parameter result] = b.aliases
+    cli.alias[ParameterId result] = b.aliases
 
 func addTo*[T](
   b: sink FlagBuilder[T],
   cli: var Cli[T],
-  command: Command = RootCommand,
-): Flag {.discardable.} =
+  command: CommandId = RootCommand,
+): FlagId {.discardable.} =
   ## Adds the flag specified by `b` to `command`.
   ##
   ## A flag can only be added to `command` if:
@@ -1331,18 +1339,18 @@ func addTo*[T](
   assert not b.flagParser.isNil(), "Parser must be non-nil"
   assert b.flagParser.kind in {ParserKind.Flag, FlagOptionalValue}
 
-  result = Flag cli.addCommon(Parameter command, b.flagName, b.usage, b.placeholder, b.flagParser)
-  cli.command[command].flag[b.flagName] = Parameter result
+  result = FlagId cli.addCommon(ParameterId command, b.flagName, b.usage, b.placeholder, b.flagParser)
+  cli.command[command].flag[b.flagName] = ParameterId result
   for alias in b.aliases.items:
-    cli.command[command].flag[alias] = Parameter result
+    cli.command[command].flag[alias] = ParameterId result
   if b.aliases.len > 0:
-    cli.alias[Parameter result] = b.aliases
+    cli.alias[ParameterId result] = b.aliases
 
 func addTo*[T](
   b: sink PositionalBuilder[T],
   cli: var Cli[T],
-  command: Command = RootCommand,
-): Positional {.discardable.} =
+  command: CommandId = RootCommand,
+): PositionalId {.discardable.} =
   ## Adds the positional parameter specified by `b` to `command`.
   ##
   ## A positional parameter can only be added to `command` if:
@@ -1384,11 +1392,11 @@ func addTo*[T](
     else:
       discard "No constraints"
 
-  result = Positional cli.addCommon(Parameter command, b.posName, b.usage, placeholder = "", parser = b.posParser)
-  cli.command[command].positional.add Parameter(result)
+  result = PositionalId cli.addCommon(ParameterId command, b.posName, b.usage, placeholder = "", parser = b.posParser)
+  cli.command[command].positional.add ParameterId(result)
 
-func flagWithName*(cli: Cli, command: Command, name: string): Option[Flag] =
-  ## Returns the `Flag` handle for the flag identifiable by `name` registered
+func flagWithName*(cli: Cli, command: CommandId, name: string): Option[FlagId] =
+  ## Returns the `FlagId` handle for the flag identifiable by `name` registered
   ## for `command`.
   runnableExamples:
     import std/options
@@ -1403,14 +1411,14 @@ func flagWithName*(cli: Cli, command: Command, name: string): Option[Flag] =
       .addTo(cli)
     doAssert cli.flagWithName(RootCommand, "string") == some(strFlag)
     doAssert cli.flagWithName(RootCommand, "str") == some(strFlag)
-    doAssert cli.flagWithName(RootCommand, "not-found") == none(Flag)
+    doAssert cli.flagWithName(RootCommand, "not-found") == none(FlagId)
 
   assert command in cli.command, "Invalid command"
-  try: some(Flag cli.command[command].flag[name])
-  except KeyError: none Flag
+  try: some(FlagId cli.command[command].flag[name])
+  except KeyError: none FlagId
 
-func commandWithName*(cli: Cli, command: Command, name: string): Option[Command] =
-  ## Returns the `Command` handle for the subcommand identifiable by `name`
+func commandWithName*(cli: Cli, command: CommandId, name: string): Option[CommandId] =
+  ## Returns the `CommandId` handle for the subcommand identifiable by `name`
   ## registered for `command`.
   runnableExamples:
     import std/options
@@ -1424,13 +1432,13 @@ func commandWithName*(cli: Cli, command: Command, name: string): Option[Command]
 
     doAssert cli.commandWithName(RootCommand, "a") == some(actCmd)
     doAssert cli.commandWithName(RootCommand, "act") == some(actCmd)
-    doAssert cli.commandWithName(RootCommand, "not-found") == none(Command)
+    doAssert cli.commandWithName(RootCommand, "not-found") == none(CommandId)
 
   assert command in cli.command, "Invalid command"
-  try: some(Command cli.command[command].command[name])
-  except KeyError: none Command
+  try: some(CommandId cli.command[command].command[name])
+  except KeyError: none CommandId
 
-func nameOf*(cli: Cli, flag: Flag): lent string =
+func nameOf*(cli: Cli, flag: FlagId): lent string =
   ## Returns the canonical name for `flag`.
   runnableExamples:
     import std/sugar
@@ -1443,9 +1451,9 @@ func nameOf*(cli: Cli, flag: Flag): lent string =
       .addTo(cli)
     doAssert cli.nameOf(strFlag) == "string"
 
-  cli.name[Parameter flag]
+  cli.name[ParameterId flag]
 
-func nameOf*(cli: Cli, positional: Positional): lent string =
+func nameOf*(cli: Cli, positional: PositionalId): lent string =
   ## Returns the canonical name for `positional`.
   runnableExamples:
     import std/sugar
@@ -1459,9 +1467,9 @@ func nameOf*(cli: Cli, positional: Positional): lent string =
 
     doAssert cli.nameOf(strPos) == "STR"
 
-  cli.name[Parameter positional]
+  cli.name[ParameterId positional]
 
-func nameOf*(cli: Cli, command: Command): lent string =
+func nameOf*(cli: Cli, command: CommandId): lent string =
   ## Returns the canonical name for `command`.
   runnableExamples:
     var cli = commandBuilder(string)
@@ -1471,9 +1479,9 @@ func nameOf*(cli: Cli, command: Command): lent string =
       .addTo(cli, RootCommand)
     doAssert cli.nameOf(actCmd) == "act"
 
-  cli.name[Parameter command]
+  cli.name[ParameterId command]
 
-iterator namesOf*(cli: Cli, flag: Flag): lent string =
+iterator namesOf*(cli: Cli, flag: FlagId): lent string =
   ## Yields names that can be used to refer to `flag`.
   ##
   ## The first name yielded is always the canonical name of `flag`.
@@ -1491,13 +1499,13 @@ iterator namesOf*(cli: Cli, flag: Flag): lent string =
     doAssert toSeq(cli.namesOf(strFlag)) == ["string", "str", "s"]
 
   try:
-    yield cli.name[Parameter flag]
-    for name in cli.alias[Parameter flag].items:
+    yield cli.name[ParameterId flag]
+    for name in cli.alias[ParameterId flag].items:
       yield name
   except KeyError:
     discard "Flag has no aliases"
 
-iterator namesOf*(cli: Cli, command: Command): lent string =
+iterator namesOf*(cli: Cli, command: CommandId): lent string =
   ## Yields names that can be used to refer to `command`.
   ##
   ## The first name yielded is always the canonical name of `command`.
@@ -1513,16 +1521,16 @@ iterator namesOf*(cli: Cli, command: Command): lent string =
     doAssert toSeq(cli.namesOf(actCmd)) == ["act", "a", "do"]
 
   try:
-    yield cli.name[Parameter command]
-    for name in cli.alias[Parameter command].items:
+    yield cli.name[ParameterId command]
+    for name in cli.alias[ParameterId command].items:
       yield name
   except KeyError:
     discard "Command has no aliases"
 
-func parentOf*(cli: Cli, command: Command): Option[Command] =
+func parentOf*(cli: Cli, command: CommandId): Option[CommandId] =
   ## Returns the parent command of `command`.
   ##
-  ## `none(Command)` is only returned for `RootCommand`.
+  ## `none(CommandId)` is only returned for `RootCommand`.
   runnableExamples:
     import std/options
 
@@ -1532,15 +1540,15 @@ func parentOf*(cli: Cli, command: Command): Option[Command] =
       .name("act")
       .addTo(cli, RootCommand)
     doAssert cli.parentOf(actCmd) == some(RootCommand)
-    doAssert cli.parentOf(RootCommand) == none(Command)
+    doAssert cli.parentOf(RootCommand) == none(CommandId)
 
-  let parent = Command cli.parent[Parameter command]
-  if Parameter(parent) == InvalidParameter:
-    none Command
+  let parent = CommandId cli.parent[ParameterId command]
+  if ParameterId(parent) == InvalidParameter:
+    none CommandId
   else:
     some parent
 
-func pathOf*(cli: Cli, command: Command): seq[Command] =
+func pathOf*(cli: Cli, command: CommandId): seq[CommandId] =
   ## Returns the path leading to `command`.
   runnableExamples:
     var cli = commandBuilder(string)
@@ -1565,7 +1573,7 @@ func pathOf*(cli: Cli, command: Command): seq[Command] =
 
   reverse result
 
-func longNameOf*(cli: Cli, flag: Flag): Option[string] =
+func longNameOf*(cli: Cli, flag: FlagId): Option[string] =
   ## Returns the first long name of `flag`, if one exists.
   ##
   ## A long name is defined as a name longer than one character.
@@ -1587,7 +1595,7 @@ func longNameOf*(cli: Cli, flag: Flag): Option[string] =
     if name.len > 1:
       return some name
 
-func shortNameOf*(cli: Cli, flag: Flag): Option[string] =
+func shortNameOf*(cli: Cli, flag: FlagId): Option[string] =
   ## Returns the first short name of `flag`, if one exists.
   ##
   ## A short name is defined as a one-character long name.
@@ -1609,7 +1617,7 @@ func shortNameOf*(cli: Cli, flag: Flag): Option[string] =
     if name.len == 1:
       return some name
 
-func usageOf*(cli: Cli, command: Command): lent string =
+func usageOf*(cli: Cli, command: CommandId): lent string =
   ## Returns the `usage` for `command`, as described with `describe`.
   runnableExamples:
     import std/sugar
@@ -1619,9 +1627,9 @@ func usageOf*(cli: Cli, command: Command): lent string =
       .initCli()
     doAssert cli.usageOf(RootCommand) == "some usage"
 
-  cli.usage[Parameter command]
+  cli.usage[ParameterId command]
 
-func usageOf*(cli: Cli, flag: Flag): lent string =
+func usageOf*(cli: Cli, flag: FlagId): lent string =
   ## Returns the `usage` for `flag`, as described with `describe`.
   runnableExamples:
     import std/sugar
@@ -1635,9 +1643,9 @@ func usageOf*(cli: Cli, flag: Flag): lent string =
       .addTo(cli)
     doAssert cli.usageOf(strFlag) == "a string"
 
-  cli.usage[Parameter flag]
+  cli.usage[ParameterId flag]
 
-func usageOf*(cli: Cli, positional: Positional): lent string =
+func usageOf*(cli: Cli, positional: PositionalId): lent string =
   ## Returns the `usage` for `positional`, as described with `describe`.
   runnableExamples:
     import std/sugar
@@ -1651,9 +1659,9 @@ func usageOf*(cli: Cli, positional: Positional): lent string =
       .addTo(cli)
     doAssert cli.usageOf(strPos) == "a string"
 
-  cli.usage[Parameter positional]
+  cli.usage[ParameterId positional]
 
-func placeholderOf*(cli: Cli, flag: Flag): string =
+func placeholderOf*(cli: Cli, flag: FlagId): string =
   ## Returns the `placeholder` for `flag`, as described with `describe`.
   runnableExamples:
     import std/sugar
@@ -1673,9 +1681,9 @@ func placeholderOf*(cli: Cli, flag: Flag): string =
     doAssert cli.placeholderOf(strFlag) == "STR"
     doAssert cli.placeholderOf(str2Flag) == ""
 
-  cli.placeholder[Parameter flag]
+  cli.placeholder[ParameterId flag]
 
-func isDispatcher*(cli: Cli, command: Command): bool =
+func isDispatcher*(cli: Cli, command: CommandId): bool =
   ## Returns whether `command` contains subcommands.
   runnableExamples:
     var cli = commandBuilder(string)
@@ -1689,7 +1697,7 @@ func isDispatcher*(cli: Cli, command: Command): bool =
 
   cli.command[command].isDispatcher()
 
-func hasDefaultCommand*(cli: Cli, command: Command): bool =
+func hasDefaultCommand*(cli: Cli, command: CommandId): bool =
   ## Returns whether `command` has a default subcommand.
   runnableExamples:
     var cli = commandBuilder(string)
@@ -1707,7 +1715,7 @@ func hasDefaultCommand*(cli: Cli, command: Command): bool =
 
   cli.command[command].hasDefaultCommand()
 
-func defaultCommandOf*(cli: Cli, command: Command): Option[Command] =
+func defaultCommandOf*(cli: Cli, command: CommandId): Option[CommandId] =
   ## Returns the default subcommand of `command`.
   runnableExamples:
     import std/options
@@ -1722,15 +1730,15 @@ func defaultCommandOf*(cli: Cli, command: Command): Option[Command] =
       .default()
       .addTo(cli, actCmd)
 
-    doAssert cli.defaultCommandOf(RootCommand) == none(Command)
+    doAssert cli.defaultCommandOf(RootCommand) == none(CommandId)
     doAssert cli.defaultCommandOf(actCmd) == some(defCmd)
 
   if cli.command[command].hasDefaultCommand():
-    some(Command cli.command[command].positional[0])
+    some(CommandId cli.command[command].positional[0])
   else:
-    none(Command)
+    none(CommandId)
 
-func classify*(cli: Cli, param: Parameter): ParameterKind =
+func classify*(cli: Cli, param: ParameterId): ParameterKind =
   ## Returns the type of `param`.
   runnableExamples:
     import std/sugar
@@ -1745,16 +1753,16 @@ func classify*(cli: Cli, param: Parameter): ParameterKind =
       .parser((v, var s) => (s = v))
       .addTo(cli)
 
-    doAssert cli.classify(Parameter RootCommand) == ParameterKind.Command
-    doAssert cli.classify(Parameter strFlag) == ParameterKind.Flag
-    doAssert cli.classify(Parameter strPos) == ParameterKind.Positional
+    doAssert cli.classify(ParameterId RootCommand) == ParameterKind.Command
+    doAssert cli.classify(ParameterId strFlag) == ParameterKind.Flag
+    doAssert cli.classify(ParameterId strPos) == ParameterKind.Positional
 
   case cli.parser[param].kind
   of ParserKind.Command: ParameterKind.Command
   of ParserKind.Flag, FlagOptionalValue: ParameterKind.Flag
   of ParserKind.Positional..OptionalCatchAll: ParameterKind.Positional
 
-func isDefault*(cli: Cli, command: Command): bool =
+func isDefault*(cli: Cli, command: CommandId): bool =
   ## Returns whether `command` is the default subcommand of its parent.
   ##
   ## .. note::
@@ -1775,15 +1783,15 @@ func isDefault*(cli: Cli, command: Command): bool =
 
   cli.parentOf(command)
     .flatMap(
-      proc (parent: Command): Option[bool] =
+      proc (parent: CommandId): Option[bool] =
         cli.defaultCommandOf(parent)
           .map(
-            proc(x: Command): bool = x == command
+            proc(x: CommandId): bool = x == command
           )
     )
     .get(otherwise = false)
 
-func isValueOptional*(cli: Cli, flag: Flag): bool =
+func isValueOptional*(cli: Cli, flag: FlagId): bool =
   ## Returns whether a value must be specified on the command line for `flag`.
   runnableExamples:
     import std/sugar
@@ -1806,9 +1814,9 @@ func isValueOptional*(cli: Cli, flag: Flag): bool =
     doAssert not cli.isValueOptional(strReqFlag)
     doAssert cli.isValueOptional(switchFlag)
 
-  cli.parser[Parameter flag].kind == FlagOptionalValue
+  cli.parser[ParameterId flag].kind == FlagOptionalValue
 
-func isOptional*(cli: Cli, positional: Positional): bool =
+func isOptional*(cli: Cli, positional: PositionalId): bool =
   ## Returns whether a value must be specified on the command line for
   ## `positional`.
   runnableExamples:
@@ -1829,9 +1837,9 @@ func isOptional*(cli: Cli, positional: Positional): bool =
     doAssert not cli.isOptional(reqPos)
     doAssert cli.isOptional(optPos)
 
-  cli.parser[Parameter positional].kind in {OptionalPositional, OptionalCatchAll}
+  cli.parser[ParameterId positional].kind in {OptionalPositional, OptionalCatchAll}
 
-func isCatchAll*(cli: Cli, positional: Positional): bool =
+func isCatchAll*(cli: Cli, positional: PositionalId): bool =
   ## Returns whether `positional` is a catch all parameter.
   runnableExamples:
     import std/sugar
@@ -1851,7 +1859,7 @@ func isCatchAll*(cli: Cli, positional: Positional): bool =
     doAssert not cli.isCatchAll(reqPos)
     doAssert cli.isCatchAll(anyPos)
 
-  cli.parser[Parameter positional].kind in {CatchAll, OptionalCatchAll}
+  cli.parser[ParameterId positional].kind in {CatchAll, OptionalCatchAll}
 
 proc helpFlagBuilder*[T](
   cli: var Cli[T],
@@ -1863,7 +1871,7 @@ proc helpFlagBuilder*[T](
   ## The flag can be added directly to a `cli` or further customized.
   ##
   ## See also:
-  ## - `addHelpFlag proc <#addHelpFlag,Cli[T],Command,sinkstring,varargs[string]>`_
+  ## - `addHelpFlag proc <#addHelpFlag,Cli[T],CommandId,sinkstring,varargs[string]>`_
   cli.flagBuilder
     .name(name)
     .optionalParser(
@@ -1873,10 +1881,10 @@ proc helpFlagBuilder*[T](
 
 proc addHelpFlag*[T](
   cli: var Cli[T],
-  command: Command = RootCommand,
+  command: CommandId = RootCommand,
   name: sink string = "help",
   aliases: varargs[string] = []
-): Flag {.discardable.} =
+): FlagId {.discardable.} =
   ## Adds a flag triggering `Action.ShowHelp` with the given `name` and
   ## `aliases`.
   ##
@@ -1892,9 +1900,9 @@ func collectRemaining(lexer: var CmdLexer): seq[string] =
     result.add arg
 
 func newHelpError(
-  command: Command,
+  command: CommandId,
   paramName: sink string,
-  param: Parameter,
+  param: ParameterId,
   remaining: sink seq[string],
 ): ref HelpError {.raises: [].} =
   (ref HelpError)(
@@ -1906,7 +1914,7 @@ func newHelpError(
   )
 
 func newUnknownFlagError(
-  command: Command,
+  command: CommandId,
   flagName: sink string,
   flagValue: sink Option[string],
   remaining: sink seq[string],
@@ -1920,9 +1928,9 @@ func newUnknownFlagError(
   )
 
 func newMissingValueError(
-  command: Command,
+  command: CommandId,
   flagName: sink string,
-  flag: Flag,
+  flag: FlagId,
   remaining: sink seq[string],
 ): ref MissingValueError {.raises: [].} =
   (ref MissingValueError)(
@@ -1934,10 +1942,10 @@ func newMissingValueError(
   )
 
 func newInvalidValueError(
-  command: Command,
+  command: CommandId,
   parent: ref ValueError,
   flagName: sink string,
-  flag: Flag,
+  flag: FlagId,
   value: sink Option[string],
   remaining: sink seq[string],
 ): ref InvalidValueError {.raises: [].} =
@@ -1952,7 +1960,7 @@ func newInvalidValueError(
   )
 
 func newUnknownPositionalError(
-  command: Command,
+  command: CommandId,
   positionalValue: sink string,
   remaining: sink seq[string],
 ): ref UnknownPositionalError {.raises: [].} =
@@ -1964,10 +1972,10 @@ func newUnknownPositionalError(
   )
 
 func newInvalidPositionalError(
-  command: Command,
+  command: CommandId,
   parent: ref ValueError,
   value: sink string,
-  positional: Positional,
+  positional: PositionalId,
   remaining: sink seq[string],
 ): ref InvalidPositionalError {.raises: [].} =
   (ref InvalidPositionalError)(
@@ -1980,8 +1988,8 @@ func newInvalidPositionalError(
   )
 
 func newMissingPositionalError(
-  command: Command,
-  positional: Positional
+  command: CommandId,
+  positional: PositionalId
 ): ref MissingPositionalError {.raises: [].} =
   (ref MissingPositionalError)(
     msg: "missing required value for positional parameter",
@@ -1990,7 +1998,7 @@ func newMissingPositionalError(
   )
 
 func newUnknownCommandError(
-  command: Command,
+  command: CommandId,
   value: sink string,
   remaining: sink seq[string],
 ): ref UnknownCommandError {.raises: [].} =
@@ -2002,10 +2010,10 @@ func newUnknownCommandError(
   )
 
 func newInvalidCommandError(
-  command: Command,
+  command: CommandId,
   parent: ref ValueError,
   value: sink string,
-  target: Command,
+  target: CommandId,
   remaining: sink seq[string],
 ): ref InvalidCommandError {.raises: [].} =
   (ref InvalidCommandError)(
@@ -2018,7 +2026,7 @@ func newInvalidCommandError(
   )
 
 func newMissingCommandError(
-  command: Command,
+  command: CommandId,
 ): ref MissingCommandError {.raises: [].} =
   (ref MissingCommandError)(
     msg: "missing command",
@@ -2036,7 +2044,7 @@ func performAction[T](
   cli: Cli[T],
   accumulator: var T,
   input: sink string,
-  parameter: Parameter,
+  parameter: ParameterId,
   action: Action,
 ) {.tailcall.} =
   if action == ShowHelp:
@@ -2053,7 +2061,7 @@ func performAction[T](
 
   parseNext(ctx, cli, accumulator)
 
-func switchCommand(ctx: var ParseContext, command: Command) =
+func switchCommand(ctx: var ParseContext, command: CommandId) =
   ctx.command = command
   ctx.nextPositional = 0
   ctx.positionalCount = 0
@@ -2077,7 +2085,7 @@ func parsePositional[T](
             ctx.command,
             e,
             value,
-            Positional posId,
+            PositionalId posId,
             collectRemaining ctx.lexer
           )
 
@@ -2095,11 +2103,11 @@ func parseCommand[T](
   ctx: var ParseContext,
   cli: Cli[T],
   accumulator: var T,
-  command: Command,
+  command: CommandId,
   input: sink string,
 ) {.tailcall.} =
   let
-    parser = cli.parser[Parameter command]
+    parser = cli.parser[ParameterId command]
     action =
       try:
         if parser.cmdParser != nil:
@@ -2117,7 +2125,7 @@ func parseCommand[T](
 
   ctx.switchCommand(command)
 
-  performAction(ctx, cli, accumulator, input, Parameter command, action)
+  performAction(ctx, cli, accumulator, input, ParameterId command, action)
 
 func parseCommand[T](
   ctx: var ParseContext,
@@ -2165,7 +2173,7 @@ func parseFlag[T](
           raise newMissingValueError(
             ctx.command,
             option,
-            Flag flagId,
+            FlagId flagId,
             collectRemaining ctx.lexer
           )
 
@@ -2177,7 +2185,7 @@ func parseFlag[T](
         ctx.command,
         e,
         option,
-        Flag flagId,
+        FlagId flagId,
         optValue,
         collectRemaining ctx.lexer
       )
@@ -2218,7 +2226,7 @@ func parseNext[T](
     # TODO: remove this copy once tables return lent T
     let currentCommand = cli.command[ctx.command]
     if currentCommand.hasDefaultCommand:
-      let cmd = Command currentCommand.positional[0]
+      let cmd = CommandId currentCommand.positional[0]
 
       drop currentCommand
       drop option
@@ -2229,11 +2237,11 @@ func parseNext[T](
       let posId = currentCommand.positional[ctx.nextPositional]
       case cli.parser[posId].kind
       of ParserKind.Positional:
-        raise newMissingPositionalError(ctx.command, Positional posId)
+        raise newMissingPositionalError(ctx.command, PositionalId posId)
       of CatchAll:
         # Catch all hasn't collected any parameters
         if ctx.positionalCount <= ctx.nextPositional:
-          raise newMissingPositionalError(ctx.command, Positional posId)
+          raise newMissingPositionalError(ctx.command, PositionalId posId)
       of OptionalPositional, OptionalCatchAll:
         discard "nothing to do"
       else:
@@ -2244,8 +2252,8 @@ func parse*[T](
   accumulator: var T,
   args: sink seq[string],
 ) {.raises: [ParseError].} =
-  ## Parses the given `args` list, collecting changes made by added parsers
-  ## to `accumulator`.
+  ## Parses the given `args` list based on the description in `cli`, with
+  ## configured parsers updating values in the `accumulator`.
   ##
   ## See also:
   ## - `run proc <#run,Cli[T],T,sinkseq[string],File>`_
@@ -2263,37 +2271,40 @@ func parse*[T](
   args: sink seq[string],
   defaults: sink T = default(T),
 ): T {.inline, raises: [ParseError].} =
-  ## Parses the given `args` list, then returns the accumulated changes done by
-  ## added parsers.
+  ## Parses the given `args` list based on the description in `cli`, returning
+  ## accumulated changes from configured parsers.
+  ##
+  ## An initial value for the internal accumulator can be specified using
+  ## `defaults`.
   ##
   ## See also:
   ## - `run proc <#run,Cli[T],sinkseq[string],File,sinkT>`_
   result = defaults
   parse(cli, result, args)
 
-iterator flags*(cli: Cli, command: Command): Flag =
+iterator flags*(cli: Cli, command: CommandId): FlagId =
   ## Iterates through all added flags for `command`.
   # Not the most efficient, but CLIs shouldn't be big enough for this to be an
   # issue
   for i in 0 ..< cli.parser.nextId.int:
-    if cli.parent[Parameter i] == Parameter(command) and
-      cli.parser[Parameter i].kind in {ParserKind.Flag, FlagOptionalValue}:
-      yield Flag(i)
+    if cli.parent[ParameterId i] == ParameterId(command) and
+      cli.parser[ParameterId i].kind in {ParserKind.Flag, FlagOptionalValue}:
+      yield FlagId(i)
 
-iterator positionals*(cli: Cli, command: Command): Positional =
+iterator positionals*(cli: Cli, command: CommandId): PositionalId =
   ## Iterates through all added positional parameters for `command`.
   if not cli.command[command].isDispatcher:
     for i in cli.command[command].positional.items:
-      yield Positional(i)
+      yield PositionalId(i)
 
-iterator subcommands*(cli: Cli, command: Command): Command =
+iterator subcommands*(cli: Cli, command: CommandId): CommandId =
   ## Iterates through all added subcommands for `command`.
   for (param, parent) in cli.parent.pairs:
-    if parent == Parameter(command) and
+    if parent == ParameterId(command) and
       cli.parser[param].kind == ParserKind.Command:
-      yield Command(param)
+      yield CommandId(param)
 
-func flagsUsage*(cli: Cli, command: Command): string =
+func flagsUsage*(cli: Cli, command: CommandId): string =
   ## Produces an usage message for all flags registered for `command`.
   ##
   ## For each flag, the rendered message contains the first short and long
@@ -2381,7 +2392,7 @@ func flagsUsage*(cli: Cli, command: Command): string =
         if usage.len > 0: flagPad else: 0
     result.add usage
 
-func displayOf(cli: Cli, positional: Positional): string =
+func displayOf(cli: Cli, positional: PositionalId): string =
   ## Renders the display form of a positional parameter.
   if cli.isOptional(positional):
     result.add '['
@@ -2395,7 +2406,7 @@ func displayOf(cli: Cli, positional: Positional): string =
   if cli.isCatchAll(positional):
     result.add "..."
 
-func positionalsUsage*(cli: Cli, command: Command): string =
+func positionalsUsage*(cli: Cli, command: CommandId): string =
   ## Produces an usage message for all positionals registered for `command`.
   ##
   ## For each positional, the rendered message contains the name and the usage
@@ -2458,7 +2469,7 @@ func positionalsUsage*(cli: Cli, command: Command): string =
 
 func commandUsage*(
   cli: Cli,
-  command: Command,
+  command: CommandId,
   rootName: string = cli.nameOf(RootCommand)
 ): string =
   ## Produces an usage message for the given command. The message is meant to
@@ -2526,7 +2537,7 @@ func commandUsage*(
       result.add ' '
     result.add cli.displayOf(positional)
 
-func subcommandsUsage*(cli: Cli, command: Command): string =
+func subcommandsUsage*(cli: Cli, command: CommandId): string =
   ## Produces an usage message for all subcommands registered for `command`.
   ##
   ## The output is separated into two columns: the subcommand canonical name and
@@ -2560,7 +2571,7 @@ func subcommandsUsage*(cli: Cli, command: Command): string =
   install  install file(s) to a given destination"""
 
   var
-    commands: seq[Command]
+    commands: seq[CommandId]
     cmdPad: int
   for command in cli.subcommands(command):
     cmdPad = max(cmdPad, cli.nameOf(command).len)
@@ -2580,7 +2591,7 @@ func subcommandsUsage*(cli: Cli, command: Command): string =
         if usage.len > 0: cmdPad else: 0
     result.add usage
 
-func help*(cli: Cli, command: Command, rootName: string = cli.nameOf(RootCommand)): string =
+func help*(cli: Cli, command: CommandId, rootName: string = cli.nameOf(RootCommand)): string =
   ## Produces the help message for a `command`.
   ##
   ## See the code example for sample outputs.
@@ -2686,7 +2697,7 @@ func prettifyError*[T](cli: Cli[T], error: ref ParseError): string =
     else:
       "-" & name
 
-  func formatFlag(cli: Cli[T], flag: Flag, name: string): string =
+  func formatFlag(cli: Cli[T], flag: FlagId, name: string): string =
     let
       placeholder = cli.placeholderOf(flag)
       suffix =
@@ -2767,8 +2778,8 @@ proc run*[T](
   args: sink seq[string] = commandLineParams(),
   messageOutput: File = stdmsg,
 ) =
-  ## Parses the command line, collecting changes made by added parsers
-  ## to `accumulator`.
+  ## Parses the command line `args` based on the description in `cli`, with
+  ## configured parsers updating values in the `accumulator`.
   ##
   ## If an error occurs during parsing, the error message will be printed
   ## to `messageOutput` alongside helpful information and the command will
@@ -2794,8 +2805,11 @@ proc run*[T](
   messageOutput: File = stdmsg,
   defaults: sink T = default(T),
 ): T =
-  ## Parses the command line, returning accumulated changes made by added
-  ## parsers.
+  ## Parses the command line `args` based on the description in `cli`, returning
+  ## accumulated changes from configured parsers.
+  ##
+  ## An initial value for the internal accumulator can be specified using
+  ## `defaults`.
   ##
   ## See `run proc <#run,Cli[T],T,sinkseq[string],File>`_ for more information.
   ##

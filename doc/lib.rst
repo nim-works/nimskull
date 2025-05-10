@@ -383,7 +383,7 @@ Parsers
   to be somewhat error-correcting, so that even some "wild HTML" found on the
   web can be parsed with it.
 
-Command line parsers
+Command Line Parsers
 ++++++++++++++++++++
 
 * `experimental/cmdline <cmdline.html>`_

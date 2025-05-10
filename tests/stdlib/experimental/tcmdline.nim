@@ -1008,7 +1008,7 @@ block commands:
         unreachable("HelpError should be raised")
       except HelpError as e:
         doAssert e.command == notHelpCmd
-        doAssert e.param == Parameter(notHelpCmd)
+        doAssert e.param == ParameterId(notHelpCmd)
         doAssert e.paramName == "not-help"
 
     block:
@@ -1072,7 +1072,7 @@ block commands:
       unreachable("HelpError should be raised")
     except HelpError as e:
       doAssert e.command == barCmd
-      doAssert e.param == Parameter(barCmd)
+      doAssert e.param == ParameterId(barCmd)
       doAssert e.paramName == ""
 
   block:
