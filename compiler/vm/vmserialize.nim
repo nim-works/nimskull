@@ -75,6 +75,40 @@ proc initFromExpr(dest: LocHandle, tree: MirTree, n: var int, env: MirEnv,
                               dest.typ.seqElemType)
     iterTree(j):
       arg recurse(slice[j])
+  of akOpenArray:
+    # the input is some container construction. The container is constructed
+    # into its own location, to which the openArray value then points
+    var len: int
+    var data: CellPtr = nil
+    case tree[n].kind
+    of mnkStrLit:
+      let str {.cursor.} = env[next().strVal]
+      len = str.len
+      if len > 0:
+        # allocate a payload and copy the character array:
+        data = c.allocator.allocTypedLocations(
+          dest.typ.seqElemType,
+          len,
+          len * dest.typ.seqElemStride)
+        let slice = loadFullSlice(c.allocator, data, dest.typ.seqElemType)
+        safeCopyMem(byteView(slice), str.toOpenArray(0, str.high), str.len)
+    of mnkArrayConstr, mnkSeqConstr:
+      len = tree[n].len.int
+      if len > 0:
+        # allocate a payload and put the elements into it:
+        data = c.allocator.allocTypedLocations(
+          dest.typ.seqElemType,
+          len,
+          len * dest.typ.seqElemStride)
+        let slice = loadFullSlice(c.allocator, data, dest.typ.seqElemType)
+        iterTree(j):
+          arg recurse(slice[j])
+    else:
+      unreachable(tree[n].kind)
+
+    # the openArray value refers to the whole sequence
+    deref(dest).oaVal =
+      VmOpenArray(data: cast[VmMemPointer](data), length: len)
   of akPtr:
     # nothing to do, only nil literals are allowed here
     discard next()

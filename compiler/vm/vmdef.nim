@@ -112,6 +112,7 @@ type
 
     akString
     akSeq
+    akOpenArray
     akRef
     akCallable # TODO: rename to akProcedural or akFuncHandle
 
@@ -186,7 +187,7 @@ type
       targetType*: PVmType
     of akSet:
       setLength*: int ## The number of elements in the set
-    of akSeq, akString:
+    of akSeq, akString, akOpenArray:
       # TODO: remove stride information and merge this branch with
       #       `akPtr`/`akRef`
       seqElemStride*: int
@@ -288,6 +289,11 @@ type
     length*: int
     data*: CellPtr
 
+  VmOpenArray* = object
+    ## An openArray as stored in VM memory.
+    data*: VmMemPointer
+    length*: int
+
   VmString* = distinct VmSeq
 
   Atom* {.union.} = object
@@ -297,6 +303,7 @@ type
     ptrVal*: pointer ## akPtr
     strVal*: VmString ## akString
     seqVal*: VmSeq ## akSeq
+    oaVal*: VmOpenArray
     refVal*: HeapSlotHandle ## akRef
     callableVal*: VmFunctionPtr ## akCallable
 
@@ -830,6 +837,7 @@ proc init*(cache: var TypeInfoCache) =
 
   setInfo(akSeq, VmSeq)
   setInfo(akString, VmString)
+  setInfo(akOpenArray, VmOpenArray)
   setInfo(akPtr, ptr Atom)
   setInfo(akRef, HeapSlotHandle)
   setInfo(akCallable, VmFunctionPtr)

@@ -89,6 +89,7 @@ type
     opcIndexChck, ## abort execution if the index is not in bounds
 
     opcArrCopy,
+    opcSlice,
 
     # NimNode manipulation opcodes
 

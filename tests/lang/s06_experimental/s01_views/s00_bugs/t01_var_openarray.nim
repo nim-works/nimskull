@@ -3,7 +3,6 @@ description: '''
 `var openarray` is allowed as the type of a `var` binding, but it's unclear
 whether this is going to stay
 '''
-knownIssue.vm: "`toOpenArray` is not yet supported"
 """
 
 {.experimental: "views".}
