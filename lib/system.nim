@@ -2986,7 +2986,7 @@ template once*(body: untyped): untyped =
 
 {.pop.} # warning[GcMem]: off, warning[Uninit]: off
 
-proc substr*(s: string, first, last: int): string =
+proc substr*(s: openArray[char], first, last: int): string =
   ## Copies a slice of `s` into a new string and returns this new
   ## string.
   ##
@@ -3007,7 +3007,7 @@ proc substr*(s: string, first, last: int): string =
   for i in 0 .. L-1:
     result[i] = s[i+first]
 
-proc substr*(s: string, first = 0): string =
+proc substr*(s: openArray[char], first = 0): string =
   result = substr(s, first, high(s))
 
 when defined(nimscript):
