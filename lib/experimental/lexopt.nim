@@ -233,22 +233,17 @@ iterator remaining*(l: var CmdLexer): string =
   ##
   ## If the previous option returned from `next()` have a value that was not
   ## consumed by `value()`, `UnexpectedValueError` will be raised.
-  ##
-  ## As a special case, any short options within a bundle (ie. `-abcde`) that
-  ## have not been processed by `next()` is considered the value of the last
-  ## short option returned and will raise `UnexpectedValueError`.
   if l.valueIdx > 0:
     if l.current.isLongOpt:
       raise newUnexpectedValueError(l.current[0..<l.valueIdx],
                                     l.current[l.valueIdx + 1..^1])
+    elif l.current[l.valueIdx] in ValueSeparators:
+      raise newUnexpectedValueError("-" & $l.current[l.valueIdx - 1],
+                                    l.current[l.valueIdx + 1..^1])
     else:
-      let value =
-        if l.current[l.valueIdx] in ValueSeparators:
-          l.current[l.valueIdx + 1..^1]
-        else:
-          l.current[l.valueIdx..^1]
-
-      raise newUnexpectedValueError("-" & $l.current[l.valueIdx - 1], value)
+      yield "-" & l.current[l.valueIdx..^1]
+      l.valueIdx = 0
+      inc l.index
 
   while l.index < l.cmdline.len:
     yield move l.current
