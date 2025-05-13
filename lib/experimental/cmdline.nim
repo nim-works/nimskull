@@ -6,22 +6,6 @@
 # See the file "copying.txt", included in this distribution, for
 # details about copyright.
 
-from os import commandLineParams
-
-import std/algorithm
-import std/hashes
-import std/options
-import std/sequtils
-import std/strutils
-import std/tables
-
-import std/private/containers
-
-import cmdline/parsers
-export parsers
-
-import lexopt
-
 ## This module implements a fast and lightweight declarative command line
 ## parser, aiming to simplify the creation of user-friendly command-line
 ## interfaces.
@@ -228,6 +212,92 @@ runnableExamples("-r:off"):
 ##   -f, --force      force removal
 ##   -r, --recursive  recursively remove files
 ## ```
+##
+## ## Interacting with the parsing process
+##
+## `cmdline` allows registered parsers to interact with the command-line
+## parsing process via a few mechanisms:
+##
+## Parsers may signal errors in value interpretation by raising a
+## `ValueError`, which will be processed automatically by the library. Any
+## other exceptions are considered internal errors, and will be propagated
+## directly to caller.
+runnableExamples:
+  proc errorParser(key, value: string, acc: var string) =
+    raise newException(ValueError, "some error with: " & value)
+
+  proc faultyParser(key, value: string, acc: var string) =
+    raise newException(IOError, "something unexpected")
+
+  var cli = commandBuilder(string).initCli()
+  cli.flagBuilder()
+    .name("error")
+    .parser(errorParser)
+    .addTo(cli)
+  cli.flagBuilder()
+    .name("fault")
+    .parser(faultyParser)
+    .addTo(cli)
+
+  doAssertRaises(InvalidValueError):
+    discard cli.parse(@["--error=value"])
+
+  doAssertRaises(IOError):
+    discard cli.parse(@["--fault=value"])
+
+## Parsers may control parsing behavior following its parameter by returning an
+## `Action`. The default action taken if not specified is `Action.Continue`.
+runnableExamples:
+  import std/sugar
+
+  proc actionParser(key, value: string, acc: var seq[string]): Action =
+    case value
+    of "help": Action.ShowHelp
+    of "noflag": Action.DisableFlagProcessing
+    else: Action.Continue
+
+  var cli = commandBuilder(seq[string]).initCli()
+  cli.flagBuilder()
+    .name("action")
+    .parser(actionParser)
+    .addTo(cli)
+  # To collect anything that's not a flag
+  cli.positionalBuilder()
+    .name("ANY")
+    .catchAll()
+    .optional()
+    .parser((v, var s) => s.add v)
+    .addTo(cli)
+
+  doAssertRaises(HelpError):
+    discard cli.parse(@["--action=help", "--invalid-flag"])
+
+  doAssert cli.parse(
+    @["start", "--action=none", "--action=noflag", "--action=help"]
+  ) == ["start", "--action=help"]
+
+from os import commandLineParams
+
+import
+  std/[
+    algorithm,
+    hashes,
+    options,
+    sequtils,
+    strutils,
+    tables
+  ],
+  std/private/[
+    containers
+  ],
+  cmdline/[
+    parsers
+  ],
+  experimental/[
+    lexopt
+  ]
+
+export parsers
 
 type
   Cli*[T] {.requiresInit.} = object
@@ -298,71 +368,55 @@ type
     ## Action to be taken after parsing.
     Continue ## Continue parameter parsing.
     ShowHelp ## Abort and show help message.
-    DisableFlagProcessing ## ParameterIds following this will be considered
-                          ## to be values.
+    DisableFlagProcessing ## Parameters following this will no longer be
+                          ## interpreted as flags.
 
   MaybeAction* = Action | void
     ## Typeclass to support parsers returning either `Action` or nothing.
 
   FlagParser*[T; R: MaybeAction] = proc (option, value: string, accumulator: var T): R
     ## A parser for flag with name `option` and value `value`. The accumulator
-    ## passed to `run()`_ or `parse()`_ can be accessed and modified via
+    ## passed to `run`_ or `parse`_ can be accessed and modified via
     ## `accumulator`.
     ##
-    ## A parser may choose to return an `Action` or not return anything,
-    ## which will be interpreted as `Action.Continue`.
+    ## See also:
+    ## - `Interacting with the parsing process <#interacting-with-the-parsing-process>`_
     ##
-    ## A parser may raise `ValueError` for invalid inputs, which will be
-    ## processed accordingly by the library. Any other exceptions signify
-    ## an internal error and will not be handled automatically.
-    ##
-    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
-    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
+    ## .. _run: #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse: #parse,Cli[T],T,sinkseq[string]
 
   FlagOptionalParser*[T; R: MaybeAction] = proc (option: string, value: Option[string], accumulator: var T): R
     ## A parser for flag with name `option` and optional value `value`. The
-    ## accumulator passed to `run()`_ or `parse()`_ can be accessed and
+    ## accumulator passed to `run`_ or `parse`_ can be accessed and
     ## modified via `accumulator`.
     ##
-    ## The parser may choose to return an `Action` or not return anything,
-    ## which will be interpreted as `Action.Continue`.
+    ## See also:
+    ## - `Interacting with the parsing process <#interacting-with-the-parsing-process>`_
     ##
-    ## The parser may raise `ValueError` for invalid inputs, which will be
-    ## processed accordingly by the library. Any other exceptions signify
-    ## an internal error and will not be handled automatically.
-    ##
-    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
-    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
+    ## .. _run: #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse: #parse,Cli[T],T,sinkseq[string]
 
   PositionalParser*[T; R: MaybeAction] = proc (value: string, accumulator: var T): R
     ## A parser for positional parameter with value `value`. The accumulator
-    ## passed to `run()`_ or `parse()`_ can be accessed and modified via
+    ## passed to `run`_ or `parse`_ can be accessed and modified via
     ## `accumulator`.
     ##
-    ## The parser may choose to return an `Action` or not return anything,
-    ## which will be interpreted as `Action.Continue`.
+    ## See also:
+    ## - `Interacting with the parsing process <#interacting-with-the-parsing-process>`_
     ##
-    ## The parser may raise `ValueError` for invalid inputs, which will be
-    ## processed accordingly by the library. Any other exceptions signify
-    ## an internal error and will not be handled automatically.
-    ##
-    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
-    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
+    ## .. _run: #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse: #parse,Cli[T],T,sinkseq[string]
 
   CommandParser*[T; R: MaybeAction] = proc (command: CommandId, accumulator: var T): R
     ## A parser for command parameter with command `command`. The accumulator
-    ## passed to `run()`_ or `parse()`_ can be accessed and modified via
+    ## passed to `run`_ or `parse`_ can be accessed and modified via
     ## `accumulator`.
     ##
-    ## The parser may choose to return an `Action` or not return anything,
-    ## which will be interpreted as `Action.Continue`.
+    ## See also:
+    ## - `Interacting with the parsing process <#interacting-with-the-parsing-process>`_
     ##
-    ## The parser may raise `ValueError` for invalid inputs, which will be
-    ## processed accordingly by the library. Any other exceptions signify
-    ## an internal error and will not be handled automatically.
-    ##
-    ## .. _run(): #run,Cli[T],T,sinkseq[string],File
-    ## .. _parse(): #parse,Cli[T],T,sinkseq[string]
+    ## .. _run: #run,Cli[T],T,sinkseq[string],File
+    ## .. _parse: #parse,Cli[T],T,sinkseq[string]
 
   FlagTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: U, accumulator: var T): R
     ## Typed variant of `FlagParser <#FlagParser>`_.
@@ -384,11 +438,14 @@ type
 
   ParserAny[T] = object
     case kind: ParserKind
-    of FlagOptionalValue: optParser: FlagOptionalParser[T, Action]
-    of ParserKind.Flag: parser: FlagParser[T, Action]
-    of ParserKind.Positional, OptionalPositional, CatchAll,
-       OptionalCatchAll: posParser: PositionalParser[T, Action]
-    of ParserKind.Command: cmdParser: CommandParser[T, Action]
+    of FlagOptionalValue:
+      optParser: FlagOptionalParser[T, Action]
+    of ParserKind.Flag:
+      parser: FlagParser[T, Action]
+    of ParserKind.Positional..OptionalCatchAll:
+      posParser: PositionalParser[T, Action]
+    of ParserKind.Command:
+      cmdParser: CommandParser[T, Action]
 
   ParseContext = object
     ## Parser internal state.
@@ -539,8 +596,8 @@ func name*[T](b: sink FlagBuilder[T], name: string): FlagBuilder[T] =
   ## Sets the canonical name of this flag, which is used to identify
   ## this flag on the command line.
   ##
-  ## If `name` is one-character long, it can also be recognized on the command
-  ## line using the short form syntax (e.g. `-n`).
+  ## If `name` is only one ASCII character long, it may use the short form
+  ## syntax (e.g. `-n`).
   ##
   ## See also:
   ## - `alias func <#alias,sinkFlagBuilder[T],varargs[string]>`_
@@ -609,7 +666,7 @@ func alias*[T](b: sink CommandBuilder[T], names: varargs[string]): CommandBuilde
 func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
   ## Sets aliases for this flag.
   ##
-  ## The command can be matched using any of the provided `names` in addition to
+  ## The flag can be matched using any of the provided `names` in addition to
   ## its canonical name.
   ##
   ## See also:
@@ -640,11 +697,11 @@ func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
 
 func default*[T](b: sink CommandBuilder[T]): CommandBuilder[T] =
   ## Marks this command as the default subcommand of the current dispatcher.
-  ## When no subcommand are specified on the command line, this command
-  ## will be selected.
+  ## When no subcommand is present on the command line, this command will be
+  ## selected.
   ##
   ## Only one default subcommand is permitted per command. Attempting to
-  ## add more than one is considered an error.
+  ## add another default subcommand to a command will cause an error.
   ##
   ## This attribute is ignored for the root command.
   runnableExamples:
@@ -801,10 +858,12 @@ func optionalParser*[T](
   b: sink FlagBuilder[T],
   p: sink FlagOptionalParser[T, Action],
 ): FlagBuilder[T] =
-  ## Sets the parser for this flag, and mark the flag as not requiring any value.
+  ## Sets the parser for this flag, and marks the flag as not requiring any
+  ## value.
   ##
-  ## Flags with optional value will only receive their value when it is
-  ## specified inline, for example: `--flag=value` or `--flag:value`.
+  ## For flags with an optional value, their parser will only be called when
+  ## the value is specified inline, for example: `--flag=value` or
+  ## `--flag:value`.
   ##
   ## See also:
   ## - `parser proc <#parser,sinkFlagBuilder[T],sinkFlagParser[T,Action]>`_
@@ -837,8 +896,8 @@ func optionalParser*[T](
   b: sink FlagBuilder[T],
   p: sink FlagOptionalParser[T, void],
 ): FlagBuilder[T] =
-  ## Sets the parser for this flag, and mark the flag as not requiring any value.
-  ## On successful parse, `Action.Continue` is taken as the default action.
+  ## Sets the parser for this flag with `Action.Continue` as the default action,
+  ## and marks the flag as not requiring any value.
   ##
   ## Flags with optional value will only receive their value when it is
   ## specified inline, for example: `--flag=value` or `--flag:value`.
@@ -866,9 +925,9 @@ func optionalParser*[T](
   )
 
 func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, Action]): FlagBuilder[T] =
-  ## Sets the parser for this flag, and mark the flag as requiring values.
+  ## Sets the parser for this flag, and marks the flag as requiring values.
   ##
-  ## Flags with required value can receive any of the following forms:
+  ## Flags with a required value can receive any of the following forms:
   ##
   ## - `--flag=value`
   ## - `--flag:value`
@@ -903,10 +962,10 @@ func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, Action]): FlagBuil
   result.flagParser = ParserAny[T](kind: ParserKind.Flag, parser: p)
 
 func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, void]): FlagBuilder[T] =
-  ## Sets the parser for this flag, and mark the flag as requiring values.
-  ## On successful parse, `Action.Continue` is taken as the default action.
+  ## Sets the parser for this flag with `Action.Continue` as the default action,
+  ## and marks the flag as requiring values.
   ##
-  ## Flags with required value can receive any of the following forms:
+  ## Flags with a required value can receive any of the following forms:
   ##
   ## - `--flag=value`
   ## - `--flag:value`
@@ -940,7 +999,8 @@ func optionalParser*[T, U; R: MaybeAction](
   _: typedesc[U],
   parser: sink FlagOptionalTypedParser[T, U, R],
 ): FlagBuilder[T] =
-  ## Sets the parser for this flag, and mark the flag as not requiring any value.
+  ## Sets the parser for this flag, and marks the flag as not requiring any
+  ## value.
   ##
   ## Input string values from the command line will first be parsed using
   ## `parseCli` before handing off to the parser. See `parsers module`_ for
@@ -985,7 +1045,7 @@ proc parser*[T, U; R: MaybeAction](
   _: typedesc[U],
   parser: sink FlagTypedParser[T, U, R],
 ): FlagBuilder[T] =
-  ## Set the parser for this flag, and mark the flag as requiring values.
+  ## Sets the parser for this flag, and marks the flag as requiring values.
   ##
   ## Input string values from the command line will first be parsed using
   ## `parseCli` before handing off to the parser. See `parsers module`_ for
@@ -995,7 +1055,7 @@ proc parser*[T, U; R: MaybeAction](
   ## require a value to be passed. If values are to be passed, it must be
   ## inlined (i.e. `--flag=false`).
   ##
-  ## Flags with required value can receive any of the following forms:
+  ## Flags with a required value can receive any of the following forms:
   ##
   ## - `--flag=value`
   ## - `--flag:value`
@@ -1178,10 +1238,7 @@ func describe*[T](
   b: sink PositionalBuilder[T],
   usage: sink string,
 ): PositionalBuilder[T] =
-  ## Sets a short `usage` description and a value `placeholder` for this flag.
-  ##
-  ## For required flags, an empty placeholder defaults to `VALUE`. For optional
-  ## flags, an empty placeholder will be omitted from documentation rendering.
+  ## Sets a short `usage` description for this positional.
   ##
   ## .. note::
   ##
@@ -1224,10 +1281,11 @@ func initCli*[T](b: sink CommandBuilder[T]): Cli[T] =
   ##
   ## Unlike subcommands, the root command may:
   ##
-  ## - Have no `name` set. The `name` of a root command is used for
-  ##   documentation generation and does not participate in parsing.
+  ## - Have an empty (or unset) `name`, since the `name` is not used during
+  ##   parsing. A `name`, if specified, will be used in documentation
+  ##   generation.
   ##
-  ## The root command can be referred to using `RootCommand` constant.
+  ## The root command can be referred to using the `RootCommand` constant.
   ##
   ## See also:
   ## - `commandBuilder proc <#commandBuilder,typedesc>`_
@@ -1271,17 +1329,17 @@ func addTo*[T](
   ##
   ## A subcommand can only be added to `command` if:
   ##
-  ## - `command` does not contain any positional parameters.
-  ## - A non-empty `name` must be set.
-  ## - None of the names specified by either `name` or `alias` are added to
-  ##   `command` previously.
+  ## - `command` has no positional parameters.
+  ## - The subcommand has a non-empty name.
+  ## - Neither the name nor aliases are used by previously added subcommands.
   ##
   ## `ValueError` will be raised if any of the specified constraints are
   ## violated.
   ##
   ## See also:
   ## - `commandBuilder proc <#commandBuilder,Cli[T]>`_
-  assert b.cmdName.len > 0, "Command name must not be empty"
+  if b.cmdName == "":
+    raise newException(ValueError, "Command name must not be empty")
   if b.cmdName in cli.command[command].command:
     raise newException(ValueError, "Command '" & b.cmdName & "' already exists")
   for alias in b.aliases.items:
@@ -1318,17 +1376,17 @@ func addTo*[T](
   ##
   ## A flag can only be added to `command` if:
   ##
-  ## - A non-empty `name` must be set.
-  ## - None of the names specified by either `name` or `alias` are added to
-  ##   `command` previously.
-  ## - A `parser` or `optionalParser` must be set.
+  ## - The flag has a non-empty name.
+  ## - Neither the name nor aliases are used by previously added flags.
+  ## - A parser or optional parser as set for the flag.
   ##
   ## `ValueError` will be raised if any of the specified constraints are
   ## violated.
   ##
   ## See also:
   ## - `flagBuilder proc <#flagBuilder,Cli[T]>`_
-  assert b.flagName.len > 0, "Flag name must not be empty"
+  if b.flagName == "":
+    raise newException(ValueError, "Flag name must not be empty")
   if b.flagName in cli.command[command].flag:
     raise newException(ValueError, "Flag '" & b.flagName & "' already exists")
   for alias in b.aliases.items:
@@ -1336,7 +1394,8 @@ func addTo*[T](
     if alias in cli.command[command].flag:
       raise newException(ValueError, "Flag '" & alias & "' already exists")
 
-  assert not b.flagParser.isNil(), "Parser must be non-nil"
+  if b.flagParser.isNil():
+    raise newException(ValueError, "Parser must be non-nil")
   assert b.flagParser.kind in {ParserKind.Flag, FlagOptionalValue}
 
   result = FlagId cli.addCommon(ParameterId command, b.flagName, b.usage, b.placeholder, b.flagParser)
@@ -1356,24 +1415,26 @@ func addTo*[T](
   ## A positional parameter can only be added to `command` if:
   ##
   ## - `command` does not contain any subcommands.
-  ## - A non-empty `name` must be set and must not have been added to `command`
-  ##   previously.
-  ## - A `parser` must be set.
-  ## - If non-optional, must be added prior to any optional parameters.
-  ## - If catch all, must be added after all other parameters.
+  ## - The parameter has a non-empty name.
+  ## - The name is not used by any previously added positional parameters.
+  ## - A parser was set for the parameter.
+  ## - No catch-all parameter have been added yet.
+  ## - For non-optional positionals, no optional parameters have been added yet.
   ##
   ## `ValueError` will be raised if any of the specified constraints are
   ## violated.
   ##
   ## See also:
   ## - `positionalBuilder proc <#positionalBuilder,Cli[T]>`_
-  assert b.posName.len > 0, "Positional name should not be empty"
+  if b.posName == "":
+    raise newException(ValueError, "Positional name should not be empty")
   for param in cli.command[command].positional.items:
     if b.posName == cli.name[param]:
       raise newException(ValueError):
         "Positional with name '" & cli.name[param] & "' already exists"
 
-  assert not b.posParser.isNil(), "Parser must be non-nil"
+  if b.posParser.isNil():
+    raise newException(ValueError, "Parser must be non-nil")
   assert b.posParser.kind in {ParserKind.Positional..OptionalCatchAll}
 
   if cli.command[command].isDispatcher:
@@ -1482,9 +1543,8 @@ func nameOf*(cli: Cli, command: CommandId): lent string =
   cli.name[ParameterId command]
 
 iterator namesOf*(cli: Cli, flag: FlagId): lent string =
-  ## Yields names that can be used to refer to `flag`.
-  ##
-  ## The first name yielded is always the canonical name of `flag`.
+  ## Returns all names that can be used to refer to `flag`. The canonical name
+  ## is always returned first.
   runnableExamples:
     import std/sequtils
     import std/sugar
@@ -1506,9 +1566,8 @@ iterator namesOf*(cli: Cli, flag: FlagId): lent string =
     discard "Flag has no aliases"
 
 iterator namesOf*(cli: Cli, command: CommandId): lent string =
-  ## Yields names that can be used to refer to `command`.
-  ##
-  ## The first name yielded is always the canonical name of `command`.
+  ## Returns all names that can be used to refer to `command`. The canonical
+  ## name is always returned first.
   runnableExamples:
     import std/sequtils
 
@@ -1758,9 +1817,12 @@ func classify*(cli: Cli, param: ParameterId): ParameterKind =
     doAssert cli.classify(ParameterId strPos) == ParameterKind.Positional
 
   case cli.parser[param].kind
-  of ParserKind.Command: ParameterKind.Command
-  of ParserKind.Flag, FlagOptionalValue: ParameterKind.Flag
-  of ParserKind.Positional..OptionalCatchAll: ParameterKind.Positional
+  of ParserKind.Command:
+    ParameterKind.Command
+  of ParserKind.Flag, FlagOptionalValue:
+    ParameterKind.Flag
+  of ParserKind.Positional..OptionalCatchAll:
+    ParameterKind.Positional
 
 func isDefault*(cli: Cli, command: CommandId): bool =
   ## Returns whether `command` is the default subcommand of its parent.
@@ -1792,7 +1854,7 @@ func isDefault*(cli: Cli, command: CommandId): bool =
     .get(otherwise = false)
 
 func isValueOptional*(cli: Cli, flag: FlagId): bool =
-  ## Returns whether a value must be specified on the command line for `flag`.
+  ## Returns whether a value for `flag` is optional on the command line.
   runnableExamples:
     import std/sugar
     var cli = commandBuilder(string)
@@ -1817,8 +1879,7 @@ func isValueOptional*(cli: Cli, flag: FlagId): bool =
   cli.parser[ParameterId flag].kind == FlagOptionalValue
 
 func isOptional*(cli: Cli, positional: PositionalId): bool =
-  ## Returns whether a value must be specified on the command line for
-  ## `positional`.
+  ## Returns whether a value for `positional` is optional on the command line.
   runnableExamples:
     import std/sugar
 
@@ -1862,7 +1923,7 @@ func isCatchAll*(cli: Cli, positional: PositionalId): bool =
   cli.parser[ParameterId positional].kind in {CatchAll, OptionalCatchAll}
 
 proc helpFlagBuilder*[T](
-  cli: var Cli[T],
+  cli: Cli[T],
   name: sink string = "help"
 ): FlagBuilder[T] =
   ## Builds a simple flag that triggers `Action.ShowHelp` when specified on the
@@ -2203,10 +2264,7 @@ func parseNext[T](
     else:
       ctx.lexer
         .value()
-        .map(
-          proc (value: string): (CmdlineKind, string) =
-            (cmdValue, value)
-        )
+        .map(proc (value: auto): auto = (cmdValue, value))
         .get(otherwise = (cmdEnd, ""))
 
   case kind
@@ -2283,7 +2341,7 @@ func parse*[T](
   parse(cli, result, args)
 
 iterator flags*(cli: Cli, command: CommandId): FlagId =
-  ## Iterates through all added flags for `command`.
+  ## Returns all flags for `command`.
   # Not the most efficient, but CLIs shouldn't be big enough for this to be an
   # issue
   for i in 0 ..< cli.parser.nextId.int:
@@ -2292,28 +2350,23 @@ iterator flags*(cli: Cli, command: CommandId): FlagId =
       yield FlagId(i)
 
 iterator positionals*(cli: Cli, command: CommandId): PositionalId =
-  ## Iterates through all added positional parameters for `command`.
+  ## Returns all positional parameters for `command`.
   if not cli.command[command].isDispatcher:
     for i in cli.command[command].positional.items:
       yield PositionalId(i)
 
 iterator subcommands*(cli: Cli, command: CommandId): CommandId =
-  ## Iterates through all added subcommands for `command`.
+  ## Returns all subcommands for `command`.
   for (param, parent) in cli.parent.pairs:
     if parent == ParameterId(command) and
       cli.parser[param].kind == ParserKind.Command:
       yield CommandId(param)
 
 func flagsUsage*(cli: Cli, command: CommandId): string =
-  ## Produces an usage message for all flags registered for `command`.
+  ## Produces a usage message for all flags registered for `command`.
   ##
   ## For each flag, the rendered message contains the first short and long
   ## name, a placeholder and the described `usage`.
-  ##
-  ## For flags with required values, the placeholder is rendered as `VALUE`
-  ## if not set.
-  ##
-  ## A placeholder is not shown for flags with optional values if not set.
   ##
   ## The output is separated into two columns: how to specify the flag on
   ## the command line and its associated `usage`.
@@ -2407,7 +2460,7 @@ func displayOf(cli: Cli, positional: PositionalId): string =
     result.add "..."
 
 func positionalsUsage*(cli: Cli, command: CommandId): string =
-  ## Produces an usage message for all positionals registered for `command`.
+  ## Produces a usage message for all positionals registered for `command`.
   ##
   ## For each positional, the rendered message contains the name and the usage
   ## as described by `describe`. The name is wrapped in either `<>` or `[]`
@@ -2472,7 +2525,7 @@ func commandUsage*(
   command: CommandId,
   rootName: string = cli.nameOf(RootCommand)
 ): string =
-  ## Produces an usage message for the given command. The message is meant to
+  ## Produces a usage message for the given command. The message is meant to
   ## convey the general shape of the command line.
   ##
   ## The name of the root command can be set for this message using `rootName`.
@@ -2538,7 +2591,7 @@ func commandUsage*(
     result.add cli.displayOf(positional)
 
 func subcommandsUsage*(cli: Cli, command: CommandId): string =
-  ## Produces an usage message for all subcommands registered for `command`.
+  ## Produces a usage message for all subcommands registered for `command`.
   ##
   ## The output is separated into two columns: the subcommand canonical name and
   ## its associated `usage`. A `[default]` suffix is added to the usage message
@@ -2687,8 +2740,8 @@ Options:
     result.add flags
 
 func prettifyError*[T](cli: Cli[T], error: ref ParseError): string =
-  ## Produce a pretty error message for `error`. The provided `error` must be
-  ## produced by `parse(cli)`.
+  ## Produces a pretty error message for `error`. The provided `error` must have
+  ## been raised by `parse(cli)`.
   func prefixedFlag(name: string): string =
     if name.len > 1:
       "--" & name

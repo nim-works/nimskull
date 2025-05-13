@@ -391,7 +391,7 @@ Command Line Parsers
   providing an easy to use solution for command line interfaces.
 
 * `experimental/lexopt <lexopt.html>`_
-  The `lexopt` module implements an user-driven command-line option lexer.
+  The `lexopt` module implements a user-driven command-line option lexer.
 
 * `parseopt <parseopt.html>`_
   The `parseopt` module implements a command line option parser.
