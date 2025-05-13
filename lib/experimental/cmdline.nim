@@ -328,7 +328,7 @@ type
     ## Lookup table for flags and positionals.
     flag: Table[string, ParameterId]
       ## Lookup mapping of flag names to ParameterId.
-    command: Table[string, CommandId]
+    subcommand: Table[string, CommandId]
       ## Lookup mapping of command names to CommandId.
     positional: seq[ParameterId]
       ## Lookup mapping of position to ParameterId.
@@ -349,16 +349,18 @@ type
     ##
     ## See also:
     ## - `positionalBuilder proc <#positionalBuilder,Cli[T]>`_
-    posParser: ParserAny[T]
+    posParser: PositionalParser[T, Action]
     posName: string
     usage: string
+    isOptional: bool
+    isCatchAll: bool
 
   CommandBuilder*[T] = object
     ## Builder for command line subcommands.
     ##
     ## See also:
     ## - `commandBuilder proc <#commandBuilder,Cli[T]>`_
-    cmdParser: ParserAny[T]
+    cmdParser: CommandParser[T, Action]
     cmdName: string
     aliases: seq[string]
     usage: string
@@ -740,24 +742,7 @@ func catchAll*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
     doAssert cli.parse(@["a", "b", "c"]) == ["a", "b", "c"]
 
   result = b
-  let parser =
-    case result.posParser.kind
-    of ParserKind.Command..FlagOptionalValue:
-      nil
-    of ParserKind.Positional..OptionalCatchAll:
-      result.posParser.posParser
-
-  case result.posParser.kind
-  of ParserKind.Command..ParserKind.Positional, CatchAll:
-    result.posParser = ParserAny[T](
-      kind: ParserKind.CatchAll,
-      posParser: parser
-    )
-  of OptionalPositional, OptionalCatchAll:
-    result.posParser = ParserAny[T](
-      kind: OptionalCatchAll,
-      posParser: parser
-    )
+  result.isCatchAll = true
 
 func optional*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
   ## Marks this positional as optional. When not specified on the command line,
@@ -780,24 +765,7 @@ func optional*[T](b: sink PositionalBuilder[T]): PositionalBuilder[T] =
     doAssert cli.parse(@["a"]) == "a"
 
   result = b
-  let parser =
-    case result.posParser.kind
-    of ParserKind.Command..FlagOptionalValue:
-      nil
-    of ParserKind.Positional..OptionalCatchAll:
-      result.posParser.posParser
-
-  case result.posParser.kind
-  of ParserKind.Command..OptionalPositional:
-    result.posParser = ParserAny[T](
-      kind: OptionalPositional,
-      posParser: parser
-    )
-  of CatchAll, OptionalCatchAll:
-    result.posParser = ParserAny[T](
-      kind: OptionalCatchAll,
-      posParser: parser
-    )
+  result.isOptional = true
 
 func parser*[T](
   b: sink CommandBuilder[T],
@@ -824,7 +792,7 @@ func parser*[T](
       discard cli.parse(@["help"])
 
   result = b
-  result.cmdParser = ParserAny[T](kind: ParserKind.Command, cmdParser: p)
+  result.cmdParser = p
 
 func parser*[T](
   b: sink CommandBuilder[T],
@@ -1130,11 +1098,7 @@ func parser*[T](
     doAssert cli.parse(@["a", "-b"]) == "-b"
 
   result = b
-  case result.posParser.kind
-  of ParserKind.Positional..OptionalCatchAll:
-    result.posParser.posParser = p
-  else:
-    result.posParser = ParserAny[T](kind: ParserKind.Positional, posParser: p)
+  result.posParser = p
 
 func parser*[T](
   b: sink PositionalBuilder[T],
@@ -1271,7 +1235,7 @@ func addCommon[T](
   discard cli.parser.add(parser)
   discard cli.parent.add(parent)
 
-func initCli*[T](b: sink CommandBuilder[T]): Cli[T] =
+func initCli*[T: not void](b: sink CommandBuilder[T]): Cli[T] =
   ## Creates a new `Cli`, with `b` used to construct the root command.
   ##
   ## The root command must:
@@ -1299,7 +1263,7 @@ func initCli*[T](b: sink CommandBuilder[T]): Cli[T] =
     placeholder: default(typeof result.placeholder),
   )
 
-  assert b.cmdParser.isNil(), "Root parser cannot be non-nil"
+  assert b.cmdParser == nil, "Root parser cannot be non-nil"
   assert b.aliases == [], "Root parser cannot have aliases"
 
   discard result.addCommon(
@@ -1312,7 +1276,7 @@ func initCli*[T](b: sink CommandBuilder[T]): Cli[T] =
   result.command[RootCommand] = CliCommand()
 
 func isDispatcher(cmd: CliCommand): bool =
-  cmd.command.len > 0
+  cmd.subcommand.len > 0
 
 func hasPositional(cmd: CliCommand): bool =
   not cmd.isDispatcher and cmd.positional.len > 0
@@ -1340,16 +1304,12 @@ func addTo*[T](
   ## - `commandBuilder proc <#commandBuilder,Cli[T]>`_
   if b.cmdName == "":
     raise newException(ValueError, "Command name must not be empty")
-  if b.cmdName in cli.command[command].command:
+  if b.cmdName in cli.command[command].subcommand:
     raise newException(ValueError, "Command '" & b.cmdName & "' already exists")
   for alias in b.aliases.items:
     assert alias != "", "Command alias cannot be empty"
-    if alias in cli.command[command].command:
+    if alias in cli.command[command].subcommand:
       raise newException(ValueError, "Command '" & alias & "' already exists")
-
-  if b.cmdParser.isNil():
-    b.cmdParser = ParserAny[T](kind: ParserKind.Command)
-  assert b.cmdParser.kind == ParserKind.Command
 
   if cli.command[command].hasPositional:
     raise newException(ValueError, "Cannot add subcommand to command with positional parameters")
@@ -1357,13 +1317,19 @@ func addTo*[T](
   if b.isDefault and cli.command[command].hasDefaultCommand:
     raise newException(ValueError, "Command already has a default subcommand registered")
 
-  result = CommandId cli.addCommon(ParameterId command, b.cmdName, b.usage, "", b.cmdParser)
+  result = CommandId cli.addCommon(
+    ParameterId command,
+    b.cmdName,
+    b.usage,
+    "",
+    ParserAny[T](kind: ParserKind.Command, cmdParser: b.cmdParser)
+  )
   cli.command[result] = CliCommand()
-  cli.command[command].command[b.cmdName] = result
+  cli.command[command].subcommand[b.cmdName] = result
   if b.isDefault:
     cli.command[command].positional.add(ParameterId result)
   for alias in b.aliases.items:
-    cli.command[command].command[alias] = result
+    cli.command[command].subcommand[alias] = result
   if b.aliases.len > 0:
     cli.alias[ParameterId result] = b.aliases
 
@@ -1398,7 +1364,13 @@ func addTo*[T](
     raise newException(ValueError, "Parser must be non-nil")
   assert b.flagParser.kind in {ParserKind.Flag, FlagOptionalValue}
 
-  result = FlagId cli.addCommon(ParameterId command, b.flagName, b.usage, b.placeholder, b.flagParser)
+  result = FlagId cli.addCommon(
+    ParameterId command,
+    b.flagName,
+    b.usage,
+    b.placeholder,
+    b.flagParser
+  )
   cli.command[command].flag[b.flagName] = ParameterId result
   for alias in b.aliases.items:
     cli.command[command].flag[alias] = ParameterId result
@@ -1433,9 +1405,8 @@ func addTo*[T](
       raise newException(ValueError):
         "Positional with name '" & cli.name[param] & "' already exists"
 
-  if b.posParser.isNil():
+  if b.posParser == nil:
     raise newException(ValueError, "Parser must be non-nil")
-  assert b.posParser.kind in {ParserKind.Positional..OptionalCatchAll}
 
   if cli.command[command].isDispatcher:
     raise newException(ValueError, "Cannot add positional parameters: command is a dispatcher")
@@ -1447,13 +1418,29 @@ func addTo*[T](
       raise newException(ValueError):
         "Cannot add positional after catch all positional: " & cli.name[lastPos]
     of OptionalPositional:
-      if b.posParser.kind notin {OptionalPositional, OptionalCatchAll}:
+      if not b.isOptional:
         raise newException(ValueError):
           "Cannot add non-optional positional after optional positional: " & cli.name[lastPos]
     else:
       discard "No constraints"
 
-  result = PositionalId cli.addCommon(ParameterId command, b.posName, b.usage, placeholder = "", parser = b.posParser)
+  let parser =
+    if b.isOptional and b.isCatchAll:
+      ParserAny[T](kind: OptionalCatchAll, posParser: b.posParser)
+    elif b.isOptional:
+      ParserAny[T](kind: OptionalPositional, posParser: b.posParser)
+    elif b.isCatchAll:
+      ParserAny[T](kind: CatchAll, posParser: b.posParser)
+    else:
+      ParserAny[T](kind: ParserKind.Positional, posParser: b.posParser)
+
+  result = PositionalId cli.addCommon(
+    ParameterId command,
+    b.posName,
+    b.usage,
+    "",
+    parser
+  )
   cli.command[command].positional.add ParameterId(result)
 
 func flagWithName*(cli: Cli, command: CommandId, name: string): Option[FlagId] =
@@ -1496,7 +1483,7 @@ func commandWithName*(cli: Cli, command: CommandId, name: string): Option[Comman
     doAssert cli.commandWithName(RootCommand, "not-found") == none(CommandId)
 
   assert command in cli.command, "Invalid command"
-  try: some(CommandId cli.command[command].command[name])
+  try: some(CommandId cli.command[command].subcommand[name])
   except KeyError: none CommandId
 
 func nameOf*(cli: Cli, flag: FlagId): lent string =
@@ -1843,15 +1830,12 @@ func isDefault*(cli: Cli, command: CommandId): bool =
     doAssert not cli.isDefault(actCmd)
     doAssert cli.isDefault(defCmd)
 
-  cli.parentOf(command)
-    .flatMap(
-      proc (parent: CommandId): Option[bool] =
-        cli.defaultCommandOf(parent)
-          .map(
-            proc(x: CommandId): bool = x == command
-          )
-    )
-    .get(otherwise = false)
+  let parent = cli.parentOf(command)
+  let default =
+    if parent.isSome: cli.defaultCommandOf(parent.get)
+    else: none(CommandId)
+
+  default == some(command)
 
 func isValueOptional*(cli: Cli, flag: FlagId): bool =
   ## Returns whether a value for `flag` is optional on the command line.
@@ -2195,7 +2179,7 @@ func parseCommand[T](
   value: sink string,
 ) {.tailcall.} =
   let cmd =
-    try: cli.command[ctx.command].command[value]
+    try: cli.command[ctx.command].subcommand[value]
     except KeyError:
       raise newUnknownCommandError(
         ctx.command,
