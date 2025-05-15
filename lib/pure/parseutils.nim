@@ -580,7 +580,9 @@ elif defined(js):
     `result` = Number(`a2`);
     """
 
-  proc parseBiggestFloat*(s: string, number: var BiggestFloat, start: int): int {.noSideEffect.} =
+  {.checks: off.} # TODO: Make the parsing work with checks enabled
+  proc parseBiggestFloat*(s: string, number: var BiggestFloat,
+                          start: int = 0): int {.noSideEffect.} =
     var sign: bool
     var i = start
     if s[i] == '+': inc(i)
@@ -610,19 +612,19 @@ elif defined(js):
       buf.add s[i]
       inc(i)
     template eatUnderscores =
-      while i in 0..s.high and s[i] == '_': inc(i)
-    while i in 0..s.high and s[i] in {'0'..'9'}: # Read integer part
+      while s[i] == '_': inc(i)
+    while s[i] in {'0'..'9'}: # Read integer part
       buf.add s[i]
       inc(i)
       eatUnderscores()
-    if i in 0..s.high and s[i] == '.': # Decimal?
+    if s[i] == '.': # Decimal?
       addInc()
-      while i in 0..s.high and s[i] in {'0'..'9'}: # Read fractional part
+      while s[i] in {'0'..'9'}: # Read fractional part
         addInc()
         eatUnderscores()
     # Again, read integer and fractional part
     if buf.len == ord(sign): return 0
-    if i in 0..s.high and s[i] in {'e', 'E'}: # Exponent?
+    if s[i] in {'e', 'E'}: # Exponent?
       addInc()
       if s[i] == '+': inc(i)
       elif s[i] == '-': addInc()
@@ -632,11 +634,13 @@ elif defined(js):
         eatUnderscores()
     number = parseFloatNative(buf)
     result = i - start
+  {.checks: on.}
 else:
-  proc c_strtod(buf: cstring, endptr: ptr cstring): float64 {.importc: "strtod", header: "<stdlib.h>", noSideEffect.}
+  proc c_strtod(buf: cstring, endptr: ptr cstring): float64 {.
+    importc: "strtod", header:"<stdlib.h>", noSideEffect.}
   const powtens = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9,
-              1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
-              1e20, 1e21, 1e22]
+                   1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
+                   1e20, 1e21, 1e22]
 
   proc parseBiggestFloat*(s: string, number: var BiggestFloat,
                           start = 0): int {.noSideEffect.} =
