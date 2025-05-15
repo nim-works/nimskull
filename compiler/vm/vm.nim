@@ -20,8 +20,7 @@
 import
   std/[
     strutils,
-    tables,
-    parseutils
+    tables
   ],
   compiler/ast/[
     ast,
@@ -1782,31 +1781,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
       checkHandle(regs[rb])
       regs[ra].intVal = ord(bitSetIn(bitSet(regs[rb].handle), regs[rc].intVal))
-    of opcParseFloat:
-      # TODO: this op has really unusual semantics. Turn it into a callback?
-
-      # a = number of chars read
-      # c[] = parseFloat(rb, rd)
-      decodeBC(rkInt)
-      inc pc
-      assert c.code[pc].opcode == opcParseFloat
-      let rd = c.code[pc].regA
-
-      checkHandle(regs[rb])
-      checkHandle(regs[rc])
-      assert regs[rc].handle.typ.kind == akFloat
-
-      # because the ``number`` parameter of ``parseBiggestFloat`` is an out
-      # parameter, no valid input value needs to be provided
-      var number: BiggestFloat
-      # TODO: don't do a string copy here
-      let r = parseBiggestFloat($regs[rb].strVal, number, regs[rd].intVal.int)
-      if r != 0:
-        # only write back the number if parsing succeeded (matching the
-        # behaviour of ``parseBiggestFloat``)
-        writeFloat(regs[rc].handle, number)
-
-      regs[ra].intVal = r
     of opcRangeChck:
       # Checks if a is in range [b, c], aborts execution otherwise
       let rb = instr.regB

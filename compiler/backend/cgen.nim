@@ -95,7 +95,7 @@ when options.hasTinyCBackend:
   import backend/tccgen
 
 const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
-                    mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
+                    mAppendSeqElem, mEnumToStr, mExit,
                     mAbsI, mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
 

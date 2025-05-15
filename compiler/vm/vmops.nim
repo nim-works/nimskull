@@ -65,6 +65,7 @@ from std/times import getTime
 from std/hashes import hash
 from std/osproc import nil
 from system/formatfloat import writeFloatToBufferSprintf
+from std/parseutils import parseBiggestFloat
 
 from compiler/modules/modulegraphs import `$`
 
@@ -352,6 +353,13 @@ iterator basicOps*(): Override =
     of 1: setResult(a, round(getFloat(a, 0)))
     of 2: setResult(a, round(getFloat(a, 0), getInt(a, 1).int))
     else: doAssert false, $n
+
+  override "stdlib.parseutils.parseBiggestFloat", proc(a: VmArgs) {.nimcall.} =
+    var num: BiggestFloat
+    copyMem(num.addr, a.getHandle(1).rawPointer, sizeof(num))
+    let parsed = a.getString(0).parseBiggestFloat(num, int a.getInt(2))
+    copyMem(a.getHandle(1).rawPointer, num.addr, sizeof(num))
+    a.setResult(parsed)
 
   wrap1s(getMD5, md5op)
 
