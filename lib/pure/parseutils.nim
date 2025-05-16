@@ -580,7 +580,7 @@ elif defined(js):
     `result` = Number(`a2`);
     """
 
-  {.checks: off.} # TODO: Make the parsing work with checks enabled
+  {.push checks: off.} # TODO: Make the parsing work with checks enabled
   proc parseBiggestFloat*(s: string, number: var BiggestFloat,
                           start: int = 0): int {.noSideEffect.} =
     var sign: bool
@@ -634,7 +634,7 @@ elif defined(js):
         eatUnderscores()
     number = parseFloatNative(buf)
     result = i - start
-  {.checks: on.}
+  {.pop.}
 else:
   proc c_strtod(buf: cstring, endptr: ptr cstring): float64 {.
     importc: "strtod", header:"<stdlib.h>", noSideEffect.}
