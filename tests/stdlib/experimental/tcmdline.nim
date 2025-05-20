@@ -1,7 +1,10 @@
 discard """
-description: "Tests for the cmdline module"
-targets: "c js vm"
-knownIssue.vm: "tables crashes with 'trying to access location outside of VM's memory'"
+  description: "Tests for the cmdline module"
+  targets: "c js vm"
+  knownIssue.vm: '''
+    `.tailcall` in combination with `sink` is not supported due to `vmgen` bug,
+    causing an error at run-time 
+  '''
 """
 
 import std/setutils
