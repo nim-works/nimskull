@@ -58,12 +58,12 @@ when not isNimVmTarget and not defined(js):
     stderr* {.importc: stderrName, header: "<stdio.h>".}: File
       ## The standard error stream.
 
-when defined(useStdoutAsStdmsg):
-  template stdmsg*: File = stdout
-else:
-  template stdmsg*: File = stderr
-    ## Template which expands to either stdout or stderr depending on
-    ## `useStdoutAsStdmsg` compile-time switch.
+  when defined(useStdoutAsStdmsg):
+    template stdmsg*: File = stdout
+  else:
+    template stdmsg*: File = stderr
+      ## Template which expands to either stdout or stderr depending on
+      ## `useStdoutAsStdmsg` compile-time switch.
 
 when defined(windows):
   proc c_fileno(f: File): cint {.
