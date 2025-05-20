@@ -378,10 +378,9 @@ type
   MaybeAction* = Action | void
     ## Typeclass to support parsers returning either `Action` or nothing.
 
-  FlagParser*[T; R: MaybeAction] = proc (option, value: string, accumulator: var T): R
-    ## A parser for flag with name `option` and value `value`. The accumulator
-    ## passed to `run`_ or `parse`_ can be accessed and modified via
-    ## `accumulator`.
+  FlagParser*[T; R: MaybeAction] = proc (name, value: string, accumulator: var T): R
+    ## A parser for flag with `option` and `value`. The accumulator passed to
+    ## `run`_ or `parse`_ can be accessed and modified via `accumulator`.
     ##
     ## See also:
     ## - `Interacting with the parsing process <#interacting-with-the-parsing-process>`_
@@ -389,10 +388,10 @@ type
     ## .. _run: #run,Cli[T],T,sinkseq[string],File
     ## .. _parse: #parse,Cli[T],T,sinkseq[string]
 
-  FlagOptionalParser*[T; R: MaybeAction] = proc (option: string, value: Option[string], accumulator: var T): R
-    ## A parser for flag with name `option` and optional value `value`. The
-    ## accumulator passed to `run`_ or `parse`_ can be accessed and
-    ## modified via `accumulator`.
+  FlagOptionalParser*[T; R: MaybeAction] = proc (name: string, value: Option[string], accumulator: var T): R
+    ## A parser for flag with `name` and optional `value`. The accumulator
+    ## passed to `run`_ or `parse`_ can be accessed and modified via
+    ## `accumulator`.
     ##
     ## See also:
     ## - `Interacting with the parsing process <#interacting-with-the-parsing-process>`_
@@ -422,10 +421,10 @@ type
     ## .. _run: #run,Cli[T],T,sinkseq[string],File
     ## .. _parse: #parse,Cli[T],T,sinkseq[string]
 
-  FlagTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: U, accumulator: var T): R
+  FlagTypedParser*[T; U; R: MaybeAction] = proc (name: string, value: U, accumulator: var T): R
     ## Typed variant of `FlagParser <#FlagParser>`_.
 
-  FlagOptionalTypedParser*[T; U; R: MaybeAction] = proc (option: string, value: Option[U], accumulator: var T): R
+  FlagOptionalTypedParser*[T; U; R: MaybeAction] = proc (name: string, value: Option[U], accumulator: var T): R
     ## Typed variant of `FlagOptionalParser <#FlagOptionalParser>`_.
 
   TypedPositionalParser*[T; U; R: MaybeAction] = proc (value: U, accumulator: var T): R
@@ -889,8 +888,8 @@ func optionalParser*[T](
     doAssert cli.parse(@["--string:help"]) == "help"
 
   b.optionalParser(
-    proc (option: string, value: Option[string], accumulator: var T): Action =
-      p(option, value, accumulator)
+    proc (name: string, value: Option[string], accumulator: var T): Action =
+      p(name, value, accumulator)
   )
 
 func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, Action]): FlagBuilder[T] =
@@ -959,8 +958,8 @@ func parser*[T](b: sink FlagBuilder[T], p: sink FlagParser[T, void]): FlagBuilde
     doAssert cli.parse(@["--string", "help"]) == "help"
 
   b.parser(
-    proc (option: string, value: string, accumulator: var T): Action =
-      p(option, value, accumulator)
+    proc (name: string, value: string, accumulator: var T): Action =
+      p(name, value, accumulator)
   )
 
 func optionalParser*[T, U; R: MaybeAction](
@@ -1004,9 +1003,9 @@ func optionalParser*[T, U; R: MaybeAction](
     result = b.optionalParser(FlagOptionalParser[T, R] parser)
   else:
     result = b.optionalParser(
-      proc (option: string, value: Option[string], r: var T): Action =
+      proc (name: string, value: Option[string], r: var T): Action =
         let value = value.map(proc (x: string): U = parseCli(U, x))
-        parser(option, value, r)
+        parser(name, value, r)
     )
 
 proc parser*[T, U; R: MaybeAction](
@@ -1064,8 +1063,8 @@ proc parser*[T, U; R: MaybeAction](
 
   when U is bool:
     result = b.optionalParser(
-      proc (option: string, value: Option[string], r: var T): R =
-        parser(option, parseCli(U, value.get("true")), r)
+      proc (name: string, value: Option[string], r: var T): R =
+        parser(name, parseCli(U, value.get("true")), r)
     )
 
   elif U is string:
@@ -2195,14 +2194,14 @@ func parseFlag[T](
   cli: Cli[T],
   accumulator: var T,
   kind: CmdlineKind,
-  option: sink string,
+  name: sink string,
 ) {.tailcall.} =
   let flagId =
-    try: cli.commands[ctx.command].flags[option]
+    try: cli.commands[ctx.command].flags[name]
     except KeyError:
       raise newUnknownFlagError(
         ctx.command,
-        option,
+        name,
         ctx.lexer.value(delimitedOnly = true),
         collectRemaining ctx.lexer
       )
@@ -2213,30 +2212,30 @@ func parseFlag[T](
     try:
       case parser.kind
       of FlagOptionalValue:
-        parser.optParser(option, optValue, accumulator)
+        parser.optParser(name, optValue, accumulator)
       of ParserKind.Flag:
         if optValue.isNone:
           raise newMissingValueError(
             ctx.command,
-            option,
+            name,
             FlagId flagId,
             collectRemaining ctx.lexer
           )
 
-        parser.parser(option, optValue.unsafeGet(), accumulator)
+        parser.parser(name, optValue.unsafeGet(), accumulator)
       else:
         unreachable()
     except ValueError as e:
       raise newInvalidValueError(
         ctx.command,
         e,
-        option,
+        name,
         FlagId flagId,
         optValue,
         collectRemaining ctx.lexer
       )
 
-  performAction(ctx, cli, accumulator, option, flagId, action)
+  performAction(ctx, cli, accumulator, name, flagId, action)
 
 func parseNext[T](
   ctx: var ParseContext,
