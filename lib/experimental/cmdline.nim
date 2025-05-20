@@ -700,9 +700,8 @@ func alias*[T](b: sink FlagBuilder[T], names: varargs[string]): FlagBuilder[T] =
     result.aliases.add names
 
 func default*[T](b: sink CommandBuilder[T]): CommandBuilder[T] =
-  ## Marks this command as the default subcommand of the current dispatcher.
-  ## When no subcommand is present on the command line, this command will be
-  ## selected.
+  ## Marks this command as the default subcommand of its parent. When no
+  ## subcommand is present on the command line, this command will be selected.
   ##
   ## Only one default subcommand is permitted per command. Attempting to
   ## add another default subcommand to a command will cause an error.
@@ -1277,14 +1276,14 @@ func initCli*[T: not void](b: sink CommandBuilder[T]): Cli[T] =
   )
   result.commands[RootCommand] = CliCommand()
 
-func isDispatcher(cmd: CliCommand): bool =
+func hasSubcommand(cmd: CliCommand): bool =
   cmd.subcommands.len > 0
 
 func hasPositional(cmd: CliCommand): bool =
-  not cmd.isDispatcher and cmd.positionals.len > 0
+  not cmd.hasSubcommand and cmd.positionals.len > 0
 
-func hasDefaultCommand(cmd: CliCommand): bool =
-  cmd.isDispatcher and cmd.positionals.len > 0
+func hasDefaultSubcommand(cmd: CliCommand): bool =
+  cmd.hasSubcommand and cmd.positionals.len > 0
 
 func addTo*[T](
   b: sink CommandBuilder[T],
@@ -1316,7 +1315,7 @@ func addTo*[T](
   if cli.commands[command].hasPositional:
     raise newException(ValueError, "Cannot add subcommand to command with positional parameters")
 
-  if b.isDefault and cli.commands[command].hasDefaultCommand:
+  if b.isDefault and cli.commands[command].hasDefaultSubcommand:
     raise newException(ValueError, "Command already has a default subcommand registered")
 
   result = CommandId cli.addCommon(
@@ -1410,8 +1409,8 @@ func addTo*[T](
   if b.posParser == nil:
     raise newException(ValueError, "Parser must be non-nil")
 
-  if cli.commands[command].isDispatcher:
-    raise newException(ValueError, "Cannot add positional parameters: command is a dispatcher")
+  if cli.commands[command].hasSubcommand:
+    raise newException(ValueError, "Cannot add positional parameters: command has subcommands")
 
   if cli.commands[command].hasPositional:
     let lastPos = cli.commands[command].positionals[^1]
@@ -1731,7 +1730,7 @@ func placeholderOf*(cli: Cli, flag: FlagId): string =
 
   cli.placeholders[ParameterId flag]
 
-func isDispatcher*(cli: Cli, command: CommandId): bool =
+func hasSubcommand*(cli: Cli, command: CommandId): bool =
   ## Returns whether `command` contains subcommands.
   runnableExamples:
     var cli = commandBuilder(string)
@@ -1740,12 +1739,12 @@ func isDispatcher*(cli: Cli, command: CommandId): bool =
       .name("act")
       .addTo(cli, RootCommand)
 
-    doAssert cli.isDispatcher(RootCommand)
-    doAssert not cli.isDispatcher(actCmd)
+    doAssert cli.hasSubcommand(RootCommand)
+    doAssert not cli.hasSubcommand(actCmd)
 
-  cli.commands[command].isDispatcher()
+  cli.commands[command].hasSubcommand()
 
-func hasDefaultCommand*(cli: Cli, command: CommandId): bool =
+func hasDefaultSubcommand*(cli: Cli, command: CommandId): bool =
   ## Returns whether `command` has a default subcommand.
   runnableExamples:
     var cli = commandBuilder(string)
@@ -1758,10 +1757,10 @@ func hasDefaultCommand*(cli: Cli, command: CommandId): bool =
       .default()
       .addTo(cli, actCmd)
 
-    doAssert not cli.hasDefaultCommand(RootCommand)
-    doAssert cli.hasDefaultCommand(actCmd)
+    doAssert not cli.hasDefaultSubcommand(RootCommand)
+    doAssert cli.hasDefaultSubcommand(actCmd)
 
-  cli.commands[command].hasDefaultCommand()
+  cli.commands[command].hasDefaultSubcommand()
 
 func defaultCommandOf*(cli: Cli, command: CommandId): Option[CommandId] =
   ## Returns the default subcommand of `command`.
@@ -1781,7 +1780,7 @@ func defaultCommandOf*(cli: Cli, command: CommandId): Option[CommandId] =
     doAssert cli.defaultCommandOf(RootCommand) == none(CommandId)
     doAssert cli.defaultCommandOf(actCmd) == some(defCmd)
 
-  if cli.commands[command].hasDefaultCommand():
+  if cli.commands[command].hasDefaultSubcommand():
     some(CommandId cli.commands[command].positionals[0])
   else:
     none(CommandId)
@@ -2261,7 +2260,7 @@ func parseNext[T](
       ctx.isValueOnly = true
       drop option
       parseNext(ctx, cli, accumulator)
-    elif (block: cli.commands[ctx.command].isDispatcher):
+    elif (block: cli.commands[ctx.command].hasSubcommand):
       parseCommand(ctx, cli, accumulator, option)
     else:
       parsePositional(ctx, cli, accumulator, option)
@@ -2269,13 +2268,13 @@ func parseNext[T](
     # Verify that we collected all required parameters
     # TODO: remove this copy once tables return lent T
     let currentCommand = cli.commands[ctx.command]
-    if currentCommand.hasDefaultCommand:
+    if currentCommand.hasDefaultSubcommand:
       let cmd = CommandId currentCommand.positionals[0]
 
       drop currentCommand
       drop option
       parseCommand(ctx, cli, accumulator, cmd, "")
-    elif currentCommand.isDispatcher:
+    elif currentCommand.hasSubcommand:
       raise newMissingCommandError(ctx.command)
     elif ctx.nextPositional < currentCommand.positionals.len:
       let posId = currentCommand.positionals[ctx.nextPositional]
@@ -2337,7 +2336,7 @@ iterator flags*(cli: Cli, command: CommandId): FlagId =
 
 iterator positionals*(cli: Cli, command: CommandId): PositionalId =
   ## Returns all positional parameters for `command`.
-  if not cli.commands[command].isDispatcher:
+  if not cli.commands[command].hasSubcommand:
     for i in cli.commands[command].positionals.items:
       yield PositionalId(i)
 
@@ -2566,9 +2565,9 @@ func commandUsage*(
     result.add ' '
   result.add "[OPTIONS]"
 
-  if cli.hasDefaultCommand(command):
+  if cli.hasDefaultSubcommand(command):
     result.add " [COMMAND]"
-  elif cli.isDispatcher(command):
+  elif cli.hasSubcommand(command):
     result.add " <COMMAND>"
 
   for positional in cli.positionals(command):
