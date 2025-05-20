@@ -1,5 +1,7 @@
 discard """
 description: "Tests for the cmdline module"
+targets: "c js vm"
+knownIssue.vm: "tables crashes with 'trying to access location outside of VM's memory'"
 """
 
 import std/setutils

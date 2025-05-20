@@ -276,7 +276,9 @@ runnableExamples:
     @["start", "--action=none", "--action=noflag", "--action=help"]
   ) == ["start", "--action=help"]
 
-from os import commandLineParams
+# XXX: VM cannot compile std/os
+when not defined(vm):
+  from std/os import nil
 
 import
   std/[
@@ -2809,48 +2811,49 @@ func prettifyError*[T](cli: Cli[T], error: ref ParseError): string =
   else:
     "unexpected error parsing command line: " & error.msg
 
-proc run*[T](
-  cli: Cli[T],
-  accumulator: var T,
-  args: sink seq[string] = commandLineParams(),
-  messageOutput: File = stdmsg,
-) =
-  ## Parses the command line `args` based on the description in `cli`, with
-  ## configured parsers updating values in the `accumulator`.
-  ##
-  ## If an error occurs during parsing, the error message will be printed
-  ## to `messageOutput` alongside helpful information and the command will
-  ## terminate with a failure exit code automatically. The only exception
-  ## to this is when `HelpError` occurs, of which the command will terminate
-  ## with a successful exit code.
-  ##
-  ## See also:
-  ## - `parse proc <#parse,Cli[T],T,sinkseq[string]>`_
-  try:
-    parse(cli, accumulator, args)
-  except HelpError as e:
-    messageOutput.writeLine(cli.help(e.command))
-    quit 0
-  except ParseError as e:
-    messageOutput.writeLine("error: ", cli.prettifyError(e))
-    messageOutput.writeLine("\nUsage: ", cli.commandUsage(e.command))
-    quit 1
+when declared(os.commandLineParams) and declared(stdmsg):
+  proc run*[T](
+    cli: Cli[T],
+    accumulator: var T,
+    args: sink seq[string] = os.commandLineParams(),
+    messageOutput: File = stdmsg,
+  ) =
+    ## Parses the command line `args` based on the description in `cli`, with
+    ## configured parsers updating values in the `accumulator`.
+    ##
+    ## If an error occurs during parsing, the error message will be printed
+    ## to `messageOutput` alongside helpful information and the command will
+    ## terminate with a failure exit code automatically. The only exception
+    ## to this is when `HelpError` occurs, of which the command will terminate
+    ## with a successful exit code.
+    ##
+    ## See also:
+    ## - `parse proc <#parse,Cli[T],T,sinkseq[string]>`_
+    try:
+      parse(cli, accumulator, args)
+    except HelpError as e:
+      messageOutput.writeLine(cli.help(e.command))
+      quit 0
+    except ParseError as e:
+      messageOutput.writeLine("error: ", cli.prettifyError(e))
+      messageOutput.writeLine("\nUsage: ", cli.commandUsage(e.command))
+      quit 1
 
-proc run*[T](
-  cli: Cli[T],
-  args: sink seq[string] = commandLineParams(),
-  messageOutput: File = stdmsg,
-  defaults: sink T = default(T),
-): T =
-  ## Parses the command line `args` based on the description in `cli`, returning
-  ## accumulated changes from configured parsers.
-  ##
-  ## An initial value for the internal accumulator can be specified using
-  ## `defaults`.
-  ##
-  ## See `run proc <#run,Cli[T],T,sinkseq[string],File>`_ for more information.
-  ##
-  ## See also:
-  ## - `parse proc <#parse,Cli[T],sinkseq[string],sinkT>`_
-  result = defaults
-  run(cli, result, args, messageOutput)
+  proc run*[T](
+    cli: Cli[T],
+    args: sink seq[string] = os.commandLineParams(),
+    messageOutput: File = stdmsg,
+    defaults: sink T = default(T),
+  ): T =
+    ## Parses the command line `args` based on the description in `cli`, returning
+    ## accumulated changes from configured parsers.
+    ##
+    ## An initial value for the internal accumulator can be specified using
+    ## `defaults`.
+    ##
+    ## See `run proc <#run,Cli[T],T,sinkseq[string],File>`_ for more information.
+    ##
+    ## See also:
+    ## - `parse proc <#parse,Cli[T],sinkseq[string],sinkT>`_
+    result = defaults
+    run(cli, result, args, messageOutput)
