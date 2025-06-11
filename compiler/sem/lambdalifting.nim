@@ -642,12 +642,7 @@ proc liftCapturedVars(n: PNode, graph: ModuleGraph, idgen: IdGenerator,
   ## environment field access, and usages of closure routines (except for
   ## iterators) are transformed into closure construction expressions.
   ##
-  ## In addition, the current enivornment (which can either be the root
-  ## routines local environment or some outer environment) is added as the
-  ## hidden parameter to each closure routine defined in the root
-  ## routine.
-  ##
-  ## `n` is assumed to be owned, and is thus modified in-place.
+  ## `n` is expected to be a production and is modified in-place.
   result = n
   case n.kind
   of nkSym:
@@ -724,7 +719,7 @@ proc liftIterToProc*(g: ModuleGraph; fn: PSym; body: PNode; ptrType: PType;
 proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
                   idgen: IdGenerator): tuple[body: PNode, env: PSym] =
   ## Performs multiple things:
-  ## * produce an object type that contains all local variables and
+  ## * produces an object type that contains all local variables and
   ##   parameters of `fn` (with body `body`) that inner routines close
   ##   over
   ## * injects the AST for setting up an instance of the environment
