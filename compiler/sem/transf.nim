@@ -90,10 +90,6 @@ type
     graph: ModuleGraph
     idgen: IdGenerator
 
-    env: PSym ## the symbol of the local (or parameter) through which
-              ## the lifted local environment is accessed. 'nil', if
-              ## none exists.
-
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
 proc pushTransCon(c: PTransf, t: PTransCon) =
@@ -135,7 +131,7 @@ proc transformSymAux(c: PTransf, n: PNode): PNode =
       # which is only available after transforming the routine...
       discard transformBody(c.graph, c.idgen, s, true)
 
-      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c), c.env)
+      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c))
     elif s.kind in {skProc, skFunc, skConverter, skMethod}:
       # top level .closure procs are still somewhat supported for 'Nake':
       ensureEnvParam(c.graph, c.idgen, s)
@@ -1335,10 +1331,15 @@ proc transform(c: PTransf, n: PNode): PNode =
     # it can happen that for-loop-inlining produced a fresh
     # set of variables, including some computed environment
     # (bug #2604). We need to patch this environment here too:
-    let a = n[1]
-    if a.kind == nkSym:
+    if c.inlining > 0:
       result = copyTree(n)
-      result[1] = transformSymAux(c, a)
+      result[1] = transform(c, n[1])
+    elif n[0].kind == nkSym and n[0].sym.isIterator:
+      # must be a preliminary construction created by lambda lifting; complete
+      # it, but first transform the iterator so that it has a proper
+      # environment type
+      discard transformBody(c.graph, c.idgen, n[0].sym, true)
+      result = transformIterConstr(c.graph, n, c.idgen, getCurrOwner(c))
     else:
       result = n
   of nkOfBranch:
@@ -1566,7 +1567,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ## Application always happens in that exact order.
   g.config.timeTracer.traceSym(tikTransform, prc)
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
-  (result, c.env) = liftLambdas(g, prc, body, c.idgen)
+  result = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
   result = eliminateUnreachable(g, result)
