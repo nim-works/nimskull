@@ -782,24 +782,23 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
     var d = initDetectionPass(g, fn, idgen)
     detectCapturedVars(body, fn, d)
 
-    if d.requireUp or d.accessOuter or d.closureProcCalled or
-       d.capturedVars.len > 0:
+    if d.capturedVars.len > 0 or
+       (not d.requireUp and not d.accessOuter and d.closureProcCalled):
+      # TODO: an unnecessary env is currently when there are only inner
+      #       .closure procedures that don't close over anything. Find a good
+      #       way to mark all real closures as such and then ignore all other
+      #       .closure routines during lambda lifting
       let t = produceEnvType(d, idgen, fn, fn.info)
       prepareInnerRoutines(d, idgen, t, fn.info)
-
-      let
-        c = initLiftingPass(d, newEnvVar(g.cache, fn, t, fn.info, idgen))
-        transformed = liftCapturedVars(body, g, idgen, c)
-
-      # XXX: if only the outer environment needs to be passed to inner
-      #      routines and nothing in `fn` itself needs to be lifted,
-      #      then we don't need a dedicated environment that stores just
-      #      the up reference
-      if d.requireUp or d.closureProcCalled or d.capturedVars.len > 0:
-        result = rawClosureCreation(g, idgen, c, body.info)
-        result.add transformed
-      else:
-        result = transformed
+      let c = initLiftingPass(d, newEnvVar(g.cache, fn, t, fn.info, idgen))
+      result = rawClosureCreation(g, idgen, c, body.info)
+      result.add liftCapturedVars(body, g, idgen, c)
+    elif d.requireUp or d.accessOuter:
+      # the procedure only access the env parameter, without creating its
+      # own environment
+      let param = getHiddenParam(g, fn)
+      prepareInnerRoutines(d, idgen, param.typ, fn.info)
+      result = liftCapturedVars(body, g, idgen, initLiftingPass(d, param))
     else:
       # nothing to do
       result = body
