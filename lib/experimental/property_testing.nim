@@ -109,7 +109,7 @@ type
   Random* = object
     ## random number generator, allows abstraction over algorithm
     seed: uint32
-    rng: MersenneTwister
+    rng: MersenneTwister # TODO: this should not be hard coded
     calls: uint          ## number of calls
   
   ArbitraryKind = enum
@@ -169,8 +169,8 @@ proc runIdToFrequency(r: RunId): int =
 proc map[T, U](s: Shrinkable[T], mapper: proc(t: T): U): Shrinkable[U] =
   result = Shrinkable[U](value: mapper(s.value))
 
-proc filter[T](s: Shrinkable[T], predicate: proc(t: T): bool): Shrinkable[T] =
-  result = Shrinkable[T](value: predicate(s.value))
+proc filter[T](s: Shrinkable[T], predicate: proc(t: T): bool): Option[T] =
+  result = if predicate(s.value): some(s.value) else: none[T]()
 
 proc shrinkableOf[T](v: T): Shrinkable[T] =
   result = Shrinkable[T](value: v)
@@ -186,7 +186,6 @@ proc generate*[T](a: Arbitrary[T], mrng: var Random): Shrinkable[T] =
 
 proc map*[T,U](o: Arbitrary[T], mapper: proc(t: T): U): Arbitrary[U] =
   ## creates a new Arbitrary with mapped values
-  ## XXX: constraining U by T isn't possible right now, need to fix generics
   var orig = o
   let
     mgenerate = proc(a: Arbitrary[U], mrng: var Random): Shrinkable[U] =
@@ -201,7 +200,7 @@ proc filter*[T](o: Arbitrary[T], predicate: proc(t: T): bool): Arbitrary[T] =
   let
     mgenerate = proc(a: Arbitrary[T], mrng: var Random): Shrinkable[T] =
                   var g = a.generate(mrng)
-                  while not g.filter(predicate):
+                  while g.filter(predicate).isNone:
                     g = a.generate(mrng)
                   result = g
 
@@ -236,7 +235,7 @@ proc sample*[T](a: Arbitrary[T], n: uint, mrng: var Random): seq[Shrinkable[T]] 
 #-- Random Number Generation
 # XXX: the trick with rngs is that the number of calls to them matter, so we'll
 #      have to start tracking number of calls in between arbitrary generation
-#      other such things (well beyond just the seed) in order to quickly
+#      and other such things (well beyond just the seed) in order to quickly
 #      reproduce a failure. Additionally, different psuedo random number
 #      generation schemes are required because they have various distribution
 #      and performance characteristics which quickly become relevant at scale.
@@ -264,7 +263,7 @@ proc nextInt(r: var Random; min, max: int): int =
 #-- Property
 
 converter toPTStatus(b: bool): PTStatus =
-  ## yes, they're evil, but in this case they're incredibly helpful
+  ## yes, converters are evil, but in this case they're incredibly helpful
   ## XXX: does this need to be exported?
   if b: ptPass else: ptFail
 
@@ -277,7 +276,8 @@ proc withBias[T](arb: var Arbitrary[T], f: Frequency): var Arbitrary[T] =
   return arb
 
 proc toss(mrng: var Random) {.inline.} =
-  ## skips 42 numbers to introduce noise between generate calls
+  ## skips 42 numbers to introduce noise between generate calls, think toss as
+  ## in tossing dice
   for _ in 0..41:
     discard mrng.nextInt()
 
@@ -432,7 +432,9 @@ proc enumArb*[T: enum](): Arbitrary[T] =
 
 proc nimNodeArb*(): Arbitrary[NimNode] =
   # XXX: what is even going on?
-  result = enumArb[NimNodeKind]().map(k => newNimNode(k))
+  result = enumArb[NimNodeKind]()
+            .filter(k => k notin {nnkError, nnkSym, nnkType, nnkIdent})
+            .map(k => newNimNode(k))
 
 #-- Assert Property Reporting
 
@@ -641,18 +643,20 @@ proc stopInnerSpec(ctx: var GlobalContext) =
 
 template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
   block:
+    {.push hint[XDeclaredButNotUsed]: off.}
+
     template forAll[A](
         name: string = "",
         arb1: Arbitrary[A],
         pred: Predicate[A] # XXX: move the predicate decl inline
-        ) {.hint[XDeclaredButNotUsed]: off.} =
+        ) =
       discard execProperty(globalCtx, name, arb1, pred, defAssertPropParams())
     
     template forAll[A,B](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B],
         pred: Predicate[(A, B)] # XXX: move the predicate decl inline
-        ) {.hint[XDeclaredButNotUsed]: off.} =
+        ) =
       discard execProperty(globalCtx, name, arb1, arb2, pred,
                            defAssertPropParams())
     
@@ -660,12 +664,11 @@ template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
         pred: Predicate[(A, B, C)] # XXX: move the predicate decl inline
-        ) {.hint[XDeclaredButNotUsed]: off.} =
+        ) =
       discard execProperty(globalCtx, name, arb1, arb2, arb3, pred,
                            defAssertPropParams())
 
-    template ctSpec(name: string = "", b: untyped): untyped {.hint[XDeclaredButNotUsed]: off.} =
-      {.error: "ctSpec can only be used once at the top level".}
+    {.pop.}
 
     template spec(name: string = "", b: untyped): untyped =
       globalCtx.startInnerSpec(name)
@@ -690,18 +693,6 @@ template spec*(n: string = "", body: untyped): untyped =
   else:
     echo "Success"
     quit(QuitSuccess)
-
-macro ctSpec*(n: string = "", body: untyped): untyped =
-  quote do:
-    const ctx = block:
-      let
-        n = `n`
-        name = if n.len == 0: "" else: " " & n
-      var globalCtx = GlobalContext(hasFailure: false,
-                        specNames: if n.len > 0: @[n] else: @[])
-      specAux(globalCtx, `body`)
-    when ctx.hasFailure:
-      {.error: fmt"Compile time spec{name} failed".}
 
 #-- Hackish Tests
 
@@ -756,17 +747,6 @@ when isMainModule:
              proc(ss: (string, string)): PTStatus =
                let (a, b) = ss
                a.len + b.len <= (a & b).len)
-  
-  ctSpec "NimNode":
-    forAll("generate NimNodes for no good reason",
-            nimNodeArb(),
-            proc(n: NimNode): PTStatus = true)
-
-    when false:
-      # XXX: Use this for debugging
-      var rnd = newRandom(cast[uint32](clamp(toUnix(getTime()), 0'i64, uint32.high.int64)))
-      for i in enumArb().sample(10, rnd):
-        echo i.value
 
   # block:
     # XXX: this tests the failure branch but isn't running right now
