@@ -103,7 +103,7 @@ type
   PossibleRunId* = int
    ## separate from `RunId` to support 0 value, indicating non-specified
   
-  Predicate*[T] = proc(s: T): PTStatus
+  PropCheck*[T] = proc(s: T): PTStatus {.noSideEffect.}
     ## test function to see if a property holds
   
   Random* = object
@@ -131,7 +131,7 @@ type
   Property*[T] = object
     ## a condition that must hold for an arbitrary as specified by a predicate
     arb: Arbitrary[T]
-    predicate: Predicate[T]
+    predicate: PropCheck[T]
   
   Frequency* = int
     ## future use to allow specification of biased generation
@@ -267,7 +267,7 @@ converter toPTStatus(b: bool): PTStatus =
   ## XXX: does this need to be exported?
   if b: ptPass else: ptFail
 
-proc newProperty*[T](arb: Arbitrary[T], p: Predicate): Property[T] =
+proc newProperty*[T](arb: Arbitrary[T], p: PropCheck): Property[T] =
   result = Property[T](arb: arb, predicate: p)
 
 proc withBias[T](arb: var Arbitrary[T], f: Frequency): var Arbitrary[T] =
@@ -549,7 +549,7 @@ proc execProperty*[A](
   ctx: var GlobalContext,
   name: string,
   arb: Arbitrary[A],
-  pred: Predicate[A],
+  pred: PropCheck[A],
   params: AssertParams = defAssertPropParams()): AssertReport[A] =
 
   result = startReport[A](name, params.seed)
@@ -576,7 +576,7 @@ proc execProperty*[A, B](
   ctx: var GlobalContext,
   name: string,
   arb1: Arbitrary[A], arb2: Arbitrary[B],
-  pred: Predicate[(A, B)],
+  pred: PropCheck[(A, B)],
   params: AssertParams = defAssertPropParams()): AssertReport[(A,B)] =
 
   result = startReport[(A, B)](name, params.seed)
@@ -604,7 +604,7 @@ proc execProperty*[A, B, C](
   ctx: var GlobalContext,
   name: string,
   arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
-  pred: Predicate[(A, B, C)],
+  pred: PropCheck[(A, B, C)],
   params: AssertParams = defAssertPropParams()): AssertReport[(A,B,C)] =
 
   result = startReport[(A, B, C)](name, params.seed)
@@ -648,14 +648,14 @@ template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
     template forAll[A](
         name: string = "",
         arb1: Arbitrary[A],
-        pred: Predicate[A] # XXX: move the predicate decl inline
+        pred: PropCheck[A] # XXX: move the predicate decl inline
         ) =
       discard execProperty(globalCtx, name, arb1, pred, defAssertPropParams())
     
     template forAll[A,B](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B],
-        pred: Predicate[(A, B)] # XXX: move the predicate decl inline
+        pred: PropCheck[(A, B)] # XXX: move the predicate decl inline
         ) =
       discard execProperty(globalCtx, name, arb1, arb2, pred,
                            defAssertPropParams())
@@ -663,7 +663,7 @@ template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
     template forAll[A,B,C](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
-        pred: Predicate[(A, B, C)] # XXX: move the predicate decl inline
+        pred: PropCheck[(A, B, C)] # XXX: move the predicate decl inline
         ) =
       discard execProperty(globalCtx, name, arb1, arb2, arb3, pred,
                            defAssertPropParams())
@@ -704,15 +704,15 @@ when isMainModule:
       forAll("are >= 0, yes it's silly ", uint32Arb(),
              proc(i: uint32): PTStatus = i >= 0)
 
-      let
+      const
         min: uint32 = 100000000
         max = high(uint32)
       forAll(fmt"within the range[{min}, {max}]", uint32Arb(min, max),
-             proc(i: uint32): PTStatus = i >= min and i <= max)
+             func(i: uint32): PTStatus = i >= min and i <= max)
 
     spec "enums":
       forAll("are typically ordinals", enumArb[NimNodeKind](),
-             proc(n: NimNodeKind): PTStatus =
+             func(n: NimNodeKind): PTStatus =
                n > NimNodeKind.low  or n == NimNodeKind.low or
                n < NimNodeKind.high or n == NimNodeKind.high
             )
@@ -721,7 +721,7 @@ when isMainModule:
       spec "are ordinals":
         forAll("forming a bijection with int values between 0..255 (inclusive)",
                charArb(),
-               proc(c: char): PTStatus =
+               func(c: char): PTStatus =
                  c == chr(ord(c)) and ord(c) >= 0 and ord(c) <= 255)
 
         block:
@@ -733,25 +733,25 @@ when isMainModule:
             (prev, curr, next)
           forAll("have successors and predecessors or are at the end range",
                  charArb().map(gen),
-                 proc(cs: (char, char, char)): PTStatus =
+                 func(cs: (char, char, char)): PTStatus =
                    let (a, b, c) = cs
                    (a < b and b < c) or (a <= b and b < c) or (a < b and b <= c))
       forAll("ascii - are from 0 to 127",
              charAsciiArb(),
-             proc(c: char): PTStatus =
+             func(c: char): PTStatus =
                c.ord >= 0 or c.ord <= 127)
 
     spec "strings":
       forAll("concatenation - len is >= the sum of the len of the parts",
              stringArb(), stringArb(),
-             proc(ss: (string, string)): PTStatus =
+             func(ss: (string, string)): PTStatus =
                let (a, b) = ss
                a.len + b.len <= (a & b).len)
 
   # block:
     # XXX: this tests the failure branch but isn't running right now
     # test failure at the end because the assert exits early
-    # let foo = proc(t: ((uint32, uint32))): PTStatus =
+    # let foo = func(t: ((uint32, uint32))): PTStatus =
     #             let (a, b) = t
     #             case a + b > a
     #             of true: ptPass
