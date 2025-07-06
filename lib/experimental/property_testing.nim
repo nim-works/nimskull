@@ -557,13 +557,13 @@ proc execProperty*[A](
   ctx: var GlobalContext,
   name: string,
   arb: Arbitrary[A],
-  pred: PropCheck[A],
+  propCheck: PropCheck[A],
   params: AssertParams = defAssertPropParams()): AssertReport[A] =
 
   result = startReport[A](name, params.seed)
   var
     rng = params.random # XXX: need a var version
-    p = newProperty(arb, pred)
+    p = newProperty(arb, propCheck)
 
   while(result.runId < params.runsBeforeSuccess):
     result.startRun()
@@ -584,14 +584,14 @@ proc execProperty*[A, B](
   ctx: var GlobalContext,
   name: string,
   arb1: Arbitrary[A], arb2: Arbitrary[B],
-  pred: PropCheck[(A, B)],
+  propCheck: PropCheck[(A, B)],
   params: AssertParams = defAssertPropParams()): AssertReport[(A,B)] =
 
   result = startReport[(A, B)](name, params.seed)
   var
     rng = params.random # XXX: need a var version
     arb = tupleArb[A,B](arb1, arb2)
-    p = newProperty(arb, pred)
+    p = newProperty(arb, propCheck)
 
   while(result.runId < params.runsBeforeSuccess):
     result.startRun()
@@ -612,14 +612,14 @@ proc execProperty*[A, B, C](
   ctx: var GlobalContext,
   name: string,
   arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
-  pred: PropCheck[(A, B, C)],
+  propCheck: PropCheck[(A, B, C)],
   params: AssertParams = defAssertPropParams()): AssertReport[(A,B,C)] =
 
   result = startReport[(A, B, C)](name, params.seed)
   var
     rng = params.random # XXX: need a var version
     arb = tupleArb[A,B,C](arb1, arb2, arb3)
-    p = newProperty(arb, pred)
+    p = newProperty(arb, propCheck)
 
   while(result.runId < params.runsBeforeSuccess):
     result.startRun()
@@ -656,24 +656,24 @@ template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
     template forAll[A](
         name: string = "",
         arb1: Arbitrary[A],
-        pred: PropCheck[A] # XXX: move the predicate decl inline
+        propCheck: PropCheck[A] # XXX: move the predicate decl inline
         ) =
-      discard execProperty(globalCtx, name, arb1, pred, defAssertPropParams())
+      discard execProperty(globalCtx, name, arb1, propCheck, defAssertPropParams())
     
     template forAll[A,B](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B],
-        pred: PropCheck[(A, B)] # XXX: move the predicate decl inline
+        propCheck: PropCheck[(A, B)] # XXX: move the predicate decl inline
         ) =
-      discard execProperty(globalCtx, name, arb1, arb2, pred,
+      discard execProperty(globalCtx, name, arb1, arb2, propCheck,
                            defAssertPropParams())
     
     template forAll[A,B,C](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
-        pred: PropCheck[(A, B, C)] # XXX: move the predicate decl inline
+        propCheck: PropCheck[(A, B, C)] # XXX: move the predicate decl inline
         ) =
-      discard execProperty(globalCtx, name, arb1, arb2, arb3, pred,
+      discard execProperty(globalCtx, name, arb1, arb2, arb3, propCheck,
                            defAssertPropParams())
 
     {.pop.}
@@ -735,7 +735,7 @@ when isMainModule:
         block:
           let gen = proc(c: char): (char, char, char) =
             let
-              prev = if c == low(char): c else: pred(c)
+              prev = if c == low(char): c else: propCheck(c)
               curr = c
               next = if c == high(char): c else: succ(c)
             (prev, curr, next)
