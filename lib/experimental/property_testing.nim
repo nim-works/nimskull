@@ -433,6 +433,7 @@ proc enumArb*[T: enum](): Arbitrary[T] =
 proc constArb*[T](v: T): Arbitrary[T] =
   ## creates an arbitrary that produces the same value over and over again
   result = Arbitrary[T](
+    kind: akExhaustive,
     mgenerate: proc(arb: Arbitrary[T], rng: var Random): Shrinkable[T] =
                   result = shrinkableOf(v)
   )
