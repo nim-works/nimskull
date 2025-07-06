@@ -430,6 +430,13 @@ proc enumArb*[T: enum](): Arbitrary[T] =
                     pos = 0
   )
 
+proc constArb*[T](v: T): Arbitrary[T] =
+  ## creates an arbitrary that produces the same value over and over again
+  result = Arbitrary[T](
+    mgenerate: proc(arb: Arbitrary[T], rng: var Random): Shrinkable[T] =
+                  result = shrinkableOf(v)
+  )
+
 proc nimNodeArb*(): Arbitrary[NimNode] =
   # XXX: what is even going on?
   result = enumArb[NimNodeKind]()
