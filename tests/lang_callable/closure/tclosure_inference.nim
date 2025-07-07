@@ -13,7 +13,7 @@ proc test1() =
 
   var x = 0
   proc inner() =
-    echo x
+    doAssert x == 0
 
   inner2()
 
@@ -66,8 +66,8 @@ proc test4() =
 
   var x = 0
   proc inner() =
-    # ... and does
-    echo x
+    # ... and it does close over something
+    doAssert x == 0
 
   inner2()
 
@@ -93,7 +93,7 @@ proc test6() =
   proc inner() =
     # `inner` doesn't close over anything *directly*
     proc innerInner[T]() =
-      echo x # generic routine closes over something
+      doAssert x == 0 # generic routine closes over something
     innerInner[int]()
     # `inner` still closes over something indirectly, by using `innerInner`
 
