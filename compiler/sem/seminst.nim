@@ -360,7 +360,10 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
   let oldMatchedConcept = c.matchedConcept
   c.matchedConcept = nil
   let oldScope = c.currentScope
-  while not isTopLevel(c): c.currentScope = c.currentScope.parent
+  # instantiate the generic within the same scope it was defined in, if
+  # possible
+  while not isTopLevel(c) and not strTableContains(c.currentScope.symbols, fn):
+    c.currentScope = c.currentScope.parent
   result = copySym(fn, nextSymId c.idgen)
   incl(result.flags, sfFromGeneric)
   result.owner = fn
