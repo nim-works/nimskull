@@ -705,8 +705,6 @@ template spec*(n: string = "", body: untyped): untyped =
 #-- Hackish Tests
 
 when isMainModule:
-  from macros import NimNodeKind
-
   spec "nim":
     spec "uint32":
       forAll("are >= 0, yes it's silly ", uint32Arb(),
@@ -735,9 +733,10 @@ when isMainModule:
         block:
           let gen = proc(c: char): (char, char, char) =
             let
-              prev = if c == low(char): c else: pred(c)
+              # xxx: pred/succ should be used here; they trigger a compiler bug
+              prev = if c == low(char): c else: char(uint8(c) - 1'u8)
               curr = c
-              next = if c == high(char): c else: succ(c)
+              next = if c == high(char): c else: char(uint8(c) + 1'u8)
             (prev, curr, next)
           forAll("have successors and predecessors or are at the end range",
                  charArb().map(gen),
