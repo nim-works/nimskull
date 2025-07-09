@@ -735,7 +735,7 @@ when isMainModule:
         block:
           let gen = proc(c: char): (char, char, char) =
             let
-              prev = if c == low(char): c else: propCheck(c)
+              prev = if c == low(char): c else: pred(c)
               curr = c
               next = if c == high(char): c else: succ(c)
             (prev, curr, next)
