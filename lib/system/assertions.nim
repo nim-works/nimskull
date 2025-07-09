@@ -113,3 +113,51 @@ template doAssertRaises*(exception: typedesc, code: untyped) =
     except: raisedForeign()
   if wrong:
     raiseAssert(begin & " nothing was raised" & msgEnd)
+
+# ------------- unreachable -------------
+
+func unreachableImpl(str: string, loc: InstantiationInfo) {.
+    noinline, noreturn.} =
+  var msg: string
+  msg.toLocation(loc.filename, loc.line, loc.column + 1)
+  msg.add:
+    if str.len > 0: " unreachable: "
+    else:           " unreachable"
+  msg.add str
+  raiseAssert(msg)
+
+func unreachableImpl(e: enum, loc: InstantiationInfo) {.noinline, noreturn.} =
+  ## A bit more efficient than ``unreachable($e)``, as the stringification
+  ## code is not part of the callsite (less I-cache pressure).
+  unreachableImpl($e, loc)
+
+template unreachable*() =
+  ## Marks a point in the program as being unreachable. At run-time, behaves
+  ## the same as:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##   doAssert false, "unreachable"
+  ##
+  ## but the intention is clearer and the call marks the execution path as not
+  ## returning anything.
+  runnableExamples:
+    for i in 1..5:
+      if i mod 2 == 0:
+        echo:
+          case i
+          of 2: "two"
+          of 4: "four"
+          else: unreachable()
+
+  unreachableImpl("", instantiationInfo(-1))
+
+template unreachable*(msg: string) =
+  ## Same as `unreachable <#unreachable>`_, but with the error message
+  ## including the extra `msg`.
+  unreachableImpl(msg, instantiationInfo(-1))
+
+template unreachable*(e: enum) =
+  ## Same as `unreachable <#unreachable>`_, but reports `e` as the message.
+  ## Prefer this routine over using ``unreachable($e)``.
+  unreachableImpl(e, instantiationInfo(-1))

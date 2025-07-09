@@ -19,9 +19,6 @@ import
   ],
   compiler/sem/[
     ast_analysis
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

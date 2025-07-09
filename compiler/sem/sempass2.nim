@@ -35,7 +35,6 @@ import
   ],
   compiler/utils/[
     debugutils,
-    idioms
   ],
   compiler/sem/[
     varpartitions,
@@ -1643,23 +1642,28 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
     of skProc, skFunc, skIterator:
       # NOTE: a routine using the closure calling convention means that it
       # *may* captures something (it might not). A routine not using the
-      # closure calling convention means that it *can't* capture anything,
+      # closure calling convention means that it *cannot* capture anything,
       # so we don't need to analyse the latter
-      if s.typ != nil and s.typ.callConv == ccClosure and
-         s.owner.kind != skModule: # don't analyse top-level closure iterators
-        if s.owner.id == owner.id:
-          # a procedure that's defined directly inside the currently analysed
-          # procedure is used as a value. Recurse into it to see if it captures
-          # an entity outside of `top`
-          result = detectCapture(s, top, s.ast[bodyPos], marker)
+      if s.typ != nil and s.skipGenericOwner.kind != skModule:
+        # top-level routines cannot capture anything and are thus not relevant
+        if s.isOwnedBy(top) or sfForward notin s.flags:
+          # an inner routine is used, scan it if hasn't been already
+          if s.typ.callConv == ccClosure and not containsOrIncl(marker, s.id):
+            if s.isOwnedBy(top):
+              result = detectCapture(s, top, s.ast[bodyPos], marker)
+            else:
+              # treat as capturing, even if `s` doesn't close over anything
+              # in practice
+              # TODO: fix lambdalifting such that not all .closure routines are
+              #       considered capturing and remove this workaround
+              result = n
         else:
-          # procedure A that uses the closure calling convention is used in
-          # procedure B, but A is not an inner procedure of B. Because of a
-          # limitation of the lambda-lifting implementation, B needs to be
-          # treated as capturing something
-          # XXX: fixing this requires two things: 1) tracking which routine
-          #      really captures something, and 2) fixing ``lambdalifting``
-          result = detect(s)
+          # an outer (relative to `top`), still forwarded routine is used
+          if s.typ.callConv == ccClosure or
+             tfExplicitCallConv notin s.typ.flags:
+            # conservatively assume that the routine will capture something
+            result = n
+
     else:
       discard "not relevant"
   of nkWithoutSons - {nkSym, nkCommentStmt}:

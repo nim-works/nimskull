@@ -392,6 +392,7 @@ testinstance:
     var issue15516: MyObject
     var issue12636_1: Stack[5, MyObject]
     var issue12636_2: Stack2[MyObject]
+    var seLarge: set[0..64] # only needs more than 64 elements
 
     var
       e1: Enum1
@@ -410,7 +411,8 @@ testinstance:
     else:
       doAssert sizeof(SimpleAlignment) > 10
 
-    testSizeAlignOf(t,a,b,c,d,e,f,g,ro,go,po, e1, e2, e4, e8, eoa, eob, capo, issue15516, issue12636_1, issue12636_2)
+    testSizeAlignOf(t,a,b,c,d,e,f,g,ro,go,po, e1, e2, e4, e8, eoa, eob, capo,
+                    issue15516, issue12636_1, issue12636_2, seLarge)
 
     type
       WithBitsize {.objectconfig.} = object

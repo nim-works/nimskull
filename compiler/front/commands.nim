@@ -51,7 +51,6 @@ import
   ],
   compiler/utils/[
     nversion,
-    idioms,
   ]
 
 # xxx: legacy reports cruft

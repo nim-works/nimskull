@@ -6,6 +6,9 @@ import
     hashes,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_query,
     ast_types
@@ -20,9 +23,6 @@ import
   ],
   compiler/ic/[
     bitabs
-  ],
-  compiler/utils/[
-    containers
   ]
 
 type

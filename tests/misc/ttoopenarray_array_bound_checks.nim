@@ -4,7 +4,7 @@ discard """
     Regression test for ``toOpenArray`` calls not bound-checking dereferenced
     pointer-to-array values
   '''
-  knownIssue.vm: "`toOpenArray` is not yet supported"
+  knownIssue.vm: "`toOpenArray` bound checking is not implemented"
 """
 
 template check(x: untyped) =

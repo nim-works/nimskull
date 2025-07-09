@@ -118,6 +118,11 @@ func mapInteriorPointerToCell(a: VmAllocator, p: pointer): CellId =
 
   result = -1
 
+func mapInteriorPointerToCell*(a: VmAllocator, p: VmMemPointer): CellId {.
+    inline.} =
+  ## Maps an interior ponter to a cell ID.
+  mapInteriorPointerToCell(a, cast[pointer](p))
+
 func mapToCell*(a: VmAllocator, p: CellPtr): lent VmCell =
   let id = mapPointerToCell(a, p)
   assert id != -1, "pointer wasn't checked"

@@ -5,12 +5,11 @@ import
   std/[
     hashes
   ],
+  std/private/[
+    containers
+  ],
   compiler/mir/[
     mirtrees
-  ],
-  compiler/utils/[
-    containers,
-    idioms
   ]
 
 type

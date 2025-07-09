@@ -169,9 +169,6 @@ import
   compiler/sem/[
     lowerings,
     lambdalifting
-  ],
-  compiler/utils/[
-    idioms,
   ]
 
 type

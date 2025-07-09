@@ -18,6 +18,9 @@ import
     hashes,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     ast_types,
@@ -38,10 +41,6 @@ import
   ],
   compiler/ic/[
     bitabs
-  ],
-  compiler/utils/[
-    containers,
-    idioms
   ]
 
 # XXX: sighashes are currently needed for merging generic instantiations, but

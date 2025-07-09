@@ -15,9 +15,6 @@ import
   compiler/front/[
     options
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmdef
   ],
@@ -51,7 +48,7 @@ func hash(t: VmType): Hash =
   let h = hash(t.kind)
   let body =
     case t.kind
-    of akSeq:                 hash(t.seqElemType)
+    of akSeq, akOpenArray:    hash(t.seqElemType)
     of akPtr, akRef:          hash(t.targetType)
     of akSet:                 hash(t.setLength)
     of akCallable:            hash(t.routineSig.int)
@@ -77,7 +74,7 @@ func `==`(a, b: VmType): bool =
   template cmpField(n): untyped = a.n == b.n
 
   case a.kind
-  of akSeq:                 cmpField(seqElemType)
+  of akSeq, akOpenArray:    cmpField(seqElemType)
   of akPtr, akRef:          cmpField(targetType)
   of akSet:                 cmpField(setLength)
   of akCallable:            cmpField(routineSig)
@@ -257,7 +254,14 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure;
   #       type was just created
 
   case t.kind
-  of tyVar, tyLent, tyPtr:
+  of tyVar, tyLent:
+    if t.base.skipTypes(abstractInst).kind == tyOpenArray:
+      return genType(c, t.base, cl)
+    else:
+      res.typ = VmType(kind: akPtr,
+                       targetType: genType(c, t[0], cl).typ)
+
+  of tyPtr:
     res.typ = VmType(kind: akPtr,
                      targetType: genType(c, t[0], cl).typ)
 
@@ -265,8 +269,12 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure;
     res.typ = VmType(kind: akRef,
                      targetType: genType(c, t[0], cl).typ)
 
-  of tySequence, tyOpenArray:
+  of tySequence:
     res.typ = VmType(kind: akSeq,
+                     seqElemType: genType(c, t[0], cl).typ)
+
+  of tyOpenArray:
+    res.typ = VmType(kind: akOpenArray,
                      seqElemType: genType(c, t[0], cl).typ)
 
   of tyProc:
@@ -389,7 +397,7 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure;
 
       # tuples and arrays use deferred size computation; seqs use
       # deferred stride computation
-      if typ.kind in {akObject, akArray, akSeq}:
+      if typ.kind in {akObject, akArray, akSeq, akOpenArray}:
         cl.sizeQueue.add(result.typ)
 
   # add a lookup entry from the `PType` ID to the `VmType`
@@ -732,7 +740,7 @@ func genAllTypes(c: var TypeInfoCache, cl: var GenClosure) =
     case ty.kind:
     of akObject, akArray:
       discard calcSizeAndAlign(ty[])
-    of akSeq:
+    of akSeq, akOpenArray:
       # seqs are added after their element type, so the element type has it's
       # size calcualated by now
       ty.seqElemStride = int paddedSize(ty.seqElemType[])

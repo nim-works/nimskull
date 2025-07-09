@@ -14,9 +14,6 @@ import
     ast,
     wordrecg,
     idents,
-  ],
-  compiler/utils/[
-    idioms,
   ]
 
 proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =

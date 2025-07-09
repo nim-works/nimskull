@@ -807,6 +807,10 @@ proc computeLiveRanges(c: var Partitions; n: PNode) =
       else:
         for i in 0..<child.len-2:
           registerVariable(c, child[i])
+          if child.kind == nkVarTuple:
+            # an unpacking definition where the rhs is not a literal tuple
+            # construction. The vars are always owning
+            pretendOwnsData(c, child[i].sym)
           #deps(c, child[i], last)
 
   of nkAsgn, nkFastAsgn:

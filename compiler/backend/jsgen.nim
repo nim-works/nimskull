@@ -30,6 +30,9 @@ import
     tables,
     intsets
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_idgen,
     ast_query,
@@ -53,8 +56,6 @@ import
     msgs
   ],
   compiler/utils/[
-    containers,
-    idioms,
     int128,
     nversion,
     ropes,
@@ -187,7 +188,7 @@ const
   sfModuleInit* = sfMainModule
     ## the procedure is the 'init' procedure of a module
 
-  NonMagics* = { mAbsI, mDotDot, mParseBiggestFloat, mExit }
+  NonMagics* = { mAbsI, mDotDot, mExit }
     ## magics that are treated like normal procedures by the code
     ## generator
 
@@ -1846,9 +1847,6 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
   of mNewStringOfCap:
     unaryExpr(p, n, r, "mnewString", "mnewString(0)")
   of mAbsI, mDotDot:
-    genCall(p, n, r)
-  of mParseBiggestFloat:
-    useMagic(p, "nimParseBiggestFloat")
     genCall(p, n, r)
   # of mAccessEnv:
   #   unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")

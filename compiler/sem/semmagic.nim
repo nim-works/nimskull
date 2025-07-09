@@ -31,7 +31,7 @@ proc semAddrCall(c: PContext, n: PNode): PNode =
   if result[0].kind == nkError:
     result = c.config.wrapError(result)
   else:
-    result.typ = makePtrType(c, result[0].typ)
+    result.typ = makePtrType(c, result[0].typ.skipTypes({tySink}))
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
   addInNimDebugUtils(c.config, "semTypeOf", n, result)

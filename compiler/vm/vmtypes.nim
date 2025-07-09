@@ -2,9 +2,6 @@
 ## `VmType`s and working with them in general.
 
 import
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmdef
   ]

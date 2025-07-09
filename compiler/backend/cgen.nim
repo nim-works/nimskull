@@ -18,6 +18,9 @@ import
     tables,
     sets
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_query,
     ast_types,
@@ -46,13 +49,11 @@ import
     msgs
   ],
   compiler/utils/[
-    containers,
     platform,
     nversion,
     bitsets,
     ropes,
     pathutils,
-    idioms,
     int128,
     tracer
   ],
@@ -94,7 +95,7 @@ when options.hasTinyCBackend:
   import backend/tccgen
 
 const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
-                    mAppendSeqElem, mEnumToStr, mExit, mParseBiggestFloat,
+                    mAppendSeqElem, mEnumToStr, mExit,
                     mAbsI, mDotDot, mEqCString, mIsolate}
   ## magics that are treated like normal procedures by the code generator.
 

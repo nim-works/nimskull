@@ -14,6 +14,9 @@
 ## via the pass interface.
 
 import
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     ast_idgen,
@@ -30,10 +33,6 @@ import
   ],
   compiler/sem/[
     passes
-  ],
-  compiler/utils/[
-    containers,
-    idioms
   ]
 
 from compiler/mir/injecthooks import getOp

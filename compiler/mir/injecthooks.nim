@@ -30,9 +30,6 @@ import
   ],
   compiler/sem/[
     sighashes
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 # XXX: reports are a code smell meaning data types are misplaced

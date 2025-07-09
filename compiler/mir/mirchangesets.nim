@@ -3,15 +3,15 @@
 ## `TreeChangeset <treechangesets.html#TreeChangeset>`_.
 
 import
+  std/private/[
+    containers
+  ],
   compiler/mir/[
     mirbodies,
     mirconstr,
     mirtrees,
     sourcemaps,
     treechangesets
-  ],
-  compiler/utils/[
-    containers
   ]
 
 type

@@ -10,11 +10,9 @@ import
     nimsets,
     types
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmaux,
+    vmchecks,
     vmdef,
     vmmemory,
     vmobjects,
@@ -341,6 +339,40 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
         vt.seqElemType,
         t.elemType(),
         info)
+    of akOpenArray:
+      # openArray stores an unsafe host pointer, requiring manual access
+      # validation in order to not access host memory
+      let
+        len        = atom.oaVal.length
+        elem       = vt.seqElemType
+        slice      = toSlice(atom.oaVal, elem, c.allocator)
+        formalElem = t.elemType()
+      var hasError = false
+
+      proc error(c: TCtx, kind: AstDiagVmKind, formal: PType,
+                 info: TLineInfo): PNode =
+        c.config.newError(
+          wrongNode(),
+          PAstDiag(kind: adVmError, vmErr: AstDiagVmError(kind: kind)))
+
+      result = newNodeIT(nkBracket, info, formal, len)
+      for i in 0..<len:
+        case checkValid(c.allocator, slice[i])
+        of avrNoError:
+          result[i] =
+            deserialize(c, byteView(slice[i]), elem, formalElem, info)
+        of avrNoLocation:
+          result[i] = error(c, adVmAccessNoLocation, formal, info)
+          hasError = true
+        of avrOutOfBounds:
+          result[i] = error(c, adVmAccessOutOfBounds, formal, info)
+          hasError = true
+        of avrTypeMismatch:
+          result[i] = error(c, adVmAccessTypeMismatch, formal, info)
+          hasError = true
+
+      if hasError:
+        result = c.config.wrapError(result)
     else:
       unreachable($vt.kind)
 

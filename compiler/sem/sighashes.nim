@@ -23,7 +23,6 @@ import
   ],
   compiler/utils/[
     ropes,
-    idioms
   ]
 
 proc `&=`(c: var MD5Context, s: string) = md5Update(c, s, s.len)

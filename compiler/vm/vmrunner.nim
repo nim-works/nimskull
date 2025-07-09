@@ -32,7 +32,6 @@ import
     bitabs
   ],
   compiler/utils/[
-    idioms,
     pathutils,
     bitsets
   ],
@@ -95,6 +94,33 @@ proc loadConst(s: PackedEnv, idx: int, dst: LocHandle,
     while i < L:
       result += loadConst(s, idx+1+result, getItemHandle(dst, i, mem.allocator), mem)
       inc i
+  of akOpenArray:
+    var
+      len: int
+      data: CellPtr
+    case n.kind
+    of pdkString:
+      let str {.cursor.} = s.strings[n.pos.LitId]
+      len = str.len
+      data = mem.allocator.allocTypedLocations(
+        dst.typ.seqElemType,
+        len,
+        len * dst.typ.seqElemStride)
+      let slice = loadFullSlice(mem.allocator, data, dst.typ.seqElemType)
+      safeCopyMem(byteView(slice), toOpenArray(str, 0, str.high), str.len)
+    of pdkArray:
+      len = n.pos.int
+      data = mem.allocator.allocTypedLocations(
+        dst.typ.seqElemType,
+        len,
+        len * dst.typ.seqElemStride)
+      let slice = loadFullSlice(mem.allocator, data, dst.typ.seqElemType)
+      for i in 0..<len:
+        result += loadConst(s, idx + i + 1, slice[i], mem)
+    else:
+      unreachable()
+
+    deref(dst).oaVal = VmOpenArray(data: cast[VmMemPointer](data), length: len)
 
   of akString:
     assert n.kind == pdkString

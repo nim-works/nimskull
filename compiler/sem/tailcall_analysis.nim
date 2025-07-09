@@ -27,9 +27,6 @@ import
   ],
   compiler/front/[
     msgs
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 from compiler/ast/report_enums import ReportKind

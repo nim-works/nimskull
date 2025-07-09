@@ -29,7 +29,6 @@ import
   compiler/utils/[
     pathutils,
     platform,
-    idioms,
   ]
 
 from compiler/ast/ast import setUseIc

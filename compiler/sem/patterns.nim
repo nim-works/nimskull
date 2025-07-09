@@ -21,9 +21,6 @@ import
     sigmatch,
     aliases,
     parampatterns
-  ],
-  compiler/utils/[
-    idioms
   ]
 
 type

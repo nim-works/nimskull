@@ -30,9 +30,6 @@ import
     options,
     msgs
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/sem/[
     semdata,
     sighashes,

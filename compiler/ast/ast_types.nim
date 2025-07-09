@@ -787,7 +787,7 @@ type
     mSetLengthStr, mSetLengthSeq,
     mIsPartOf, mAstToStr,
     mSwap, mIsNil, mArrToSeq,
-    mNewString, mNewStringOfCap, mParseBiggestFloat,
+    mNewString, mNewStringOfCap,
     mMove, mWasMoved, mDestroy, mTrace,
     mDefault, mFinished, mIsolate, mAccessEnv, mAccessTypeField, mReset,
     mArray, mOpenArray, mRange, mSet, mSeq, mVarargs,

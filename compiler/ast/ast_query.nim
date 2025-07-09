@@ -12,7 +12,6 @@ import
   ],
   compiler/utils/[
     int128,    # Values for integer nodes
-    idioms,    # `unreachable`
   ]
 
 const

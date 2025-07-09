@@ -13,14 +13,14 @@ import
   std/[
     options
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_types
   ],
   compiler/mir/[
     mirtrees
-  ],
-  compiler/utils/[
-    containers
   ]
 
 type

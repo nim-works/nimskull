@@ -20,8 +20,7 @@
 import
   std/[
     strutils,
-    tables,
-    parseutils
+    tables
   ],
   compiler/ast/[
     ast,
@@ -634,6 +633,15 @@ template `strVal=`*(r: TFullReg, s: string) =
     assert r.handle.typ.kind == akString
   newVmString(deref(r.handle).strVal, s, c.allocator)
 
+proc toSlice(h: LocHandle, a: VmAllocator): VmSlice =
+  let typ = h.typ
+  case typ.kind
+  of akString:   toSlice(deref(h).strVal.VmSeq, typ.seqElemType, a)
+  of akSeq:      toSlice(deref(h).seqVal,       typ.seqElemType, a)
+  of akOpenArray:toSlice(deref(h).oaVal,        typ.seqElemType, a)
+  of akArray:    toSlice(h)
+  else:          unreachable(typ.kind)
+
 proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmType)): bool =
   ## Convert the value in register `src` from `st` to `dt` and write the result
   ## to register `dest`
@@ -1010,7 +1018,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         # TODO: Remove this case once openArray handling is reworked
         regs[ra].setHandle:
           getItemHandle(regs[rb].strVal.VmSeq, srcTyp, idx, c.allocator)
-      of akSeq, akArray:
+      of akSeq, akArray, akOpenArray:
         regs[ra].setHandle(getItemHandle(regs[rb].handle, idx, c.allocator))
       else:
         unreachable(srcTyp.kind)
@@ -1031,7 +1039,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         regs[ra].setAddress(
           regs[rb].strVal.data.applyOffset(idx.uint * t.sizeInBytes),
           t)
-      of akSeq, akArray:
+      of akSeq, akArray, akOpenArray:
+        # only the address is computed, no openArray check is necessary
         let h = getItemHandle(src, idx, c.allocator)
         regs[ra].setAddress(h.p, h.typ)
       else:
@@ -1068,6 +1077,12 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           toSlice(deref(dest).strVal.VmSeq, dTyp.seqElemType, c.allocator)
         of akSeq:
           toSlice(deref(dest).seqVal, dTyp.seqElemType, c.allocator)
+        of akOpenArray:
+          let tmp = toSlice(deref(dest).oaVal, dTyp.seqElemType, c.allocator)
+          # an openArray is non-owning, meaning that the pointed-to-sequence is
+          # not guaranteed to still exist
+          checkHandle(c.allocator, tmp[idx])
+          tmp
         of akArray:
           toSlice(dest)
         of akInt, akFloat, akSet, akPtr, akRef, akObject, akPNode, akCallable,
@@ -1766,31 +1781,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
       checkHandle(regs[rb])
       regs[ra].intVal = ord(bitSetIn(bitSet(regs[rb].handle), regs[rc].intVal))
-    of opcParseFloat:
-      # TODO: this op has really unusual semantics. Turn it into a callback?
-
-      # a = number of chars read
-      # c[] = parseFloat(rb, rd)
-      decodeBC(rkInt)
-      inc pc
-      assert c.code[pc].opcode == opcParseFloat
-      let rd = c.code[pc].regA
-
-      checkHandle(regs[rb])
-      checkHandle(regs[rc])
-      assert regs[rc].handle.typ.kind == akFloat
-
-      # because the ``number`` parameter of ``parseBiggestFloat`` is an out
-      # parameter, no valid input value needs to be provided
-      var number: BiggestFloat
-      # TODO: don't do a string copy here
-      let r = parseBiggestFloat($regs[rb].strVal, number, regs[rd].intVal.int)
-      if r != 0:
-        # only write back the number if parsing succeeded (matching the
-        # behaviour of ``parseBiggestFloat``)
-        writeFloat(regs[rc].handle, number)
-
-      regs[ra].intVal = r
     of opcRangeChck:
       # Checks if a is in range [b, c], aborts execution otherwise
       let rb = instr.regB
@@ -1866,15 +1856,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
     of opcArrCopy:
       let rb = instr.regB
       let rc = instr.regC
-
-      proc toSlice(h: LocHandle, a: VmAllocator): VmSlice =
-        let typ = h.typ
-        case typ.kind
-        of akString: toSlice(deref(h).strVal.VmSeq, typ.seqElemType, a)
-        of akSeq:    toSlice(deref(h).seqVal,       typ.seqElemType, a)
-        of akArray:  toSlice(h)
-        else:        unreachable(typ.kind)
-
       checkHandle(regs[ra])
       checkHandle(regs[rb])
 
@@ -1898,6 +1879,25 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         raiseVmError(reportVmIdx(L, src.len - 1))
 
       c.memory.arrayCopy(byteView(dest), byteView(src), L, src.typ, true)
+    of opcSlice:
+      decodeBC(akOpenArray)
+      checkHandle(regs[ra])
+      checkHandle(regs[rb])
+      inc pc
+      let
+        lo = regs[rc].intVal
+        hi = regs[c.code[pc].regB].intVal
+        # the user ought to know what they're doing, so prevent the length from
+        # going below zero and don't report any run-time error
+        len = max(hi - lo + 1, 0)
+        slice = toSlice(regs[rb].handle, c.allocator)
+      if lo < 0 or hi >= slice.len or len == 0:
+        # out of bounds or empty; create an openArray for which an access
+        # will error
+        regs[ra].atomVal.oaVal = VmOpenArray(data: nil, length: len.int)
+      else:
+        # the data pointer points to the start of the first element
+        regs[ra].atomVal.oaVal = VmOpenArray(data: slice[lo].p, length: len.int)
     of opcIndCall, opcIndCallAsgn:
       # dest = call regStart, n; where regStart = fn, arg1, ...
       let rb = instr.regB
@@ -2286,7 +2286,8 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
           res = atom.ptrVal == nil
         of akCallable:
           res = atom.callableVal.isNil
-        of akInt, akFloat, akSet, akObject, akArray, akPNode, akDiscriminator:
+        of akInt, akFloat, akSet, akObject, akArray, akPNode, akDiscriminator,
+           akOpenArray:
           unreachable(regs[rb].kind)
       of rkNimNode:
         res = regs[rb].nimNode.kind == nkNilLit
@@ -2335,7 +2336,7 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       decodeBC(rkNimNode)
       checkHandle(regs[rc])
       let typ = regs[rc].handle.typ
-      assert typ.kind in {akSeq, akArray} # varargs
+      assert typ.kind in {akSeq, akArray, akOpenArray} # varargs
       assert typ.elemType().kind == akPNode
       let x = regs[rc].handle
       var u = regs[rb].nimNode

@@ -443,14 +443,19 @@ block opts:
 
     block afterOpts:
       ## Use `remaining()` after stepping
-      const values = ["-it-s", "free", "--real", "estate"]
-      var lexer = initCmdLexer(@["-1", "--second"] & @values)
+      const values = ["-undle", "-it-s", "free", "--real", "estate"]
+      var lexer = initCmdLexer(
+        @["-1", "--second", "-bundle", "-it-s", "free", "--real", "estate"]
+      )
 
       var (kind, option) = lexer.next()
       doAssert (kind, option) == (cmdShort, "1"):
         "Unexpected value: " & $(kind, option)
       (kind, option) = lexer.next()
       doAssert (kind, option) == (cmdLong, "second"):
+        "Unexpected value: " & $(kind, option)
+      (kind, option) = lexer.next()
+      doAssert (kind, option) == (cmdShort, "b"):
         "Unexpected value: " & $(kind, option)
 
       let collected = toSeq(lexer.remaining())
@@ -459,7 +464,7 @@ block opts:
 
     block unexpected:
       ## UnexpectedValueError when remaining() is called where inline values exist
-      var lexer = initCmdLexer(@["-d:useMalloc", "--run:false", "-bundle"])
+      var lexer = initCmdLexer(@["-d:useMalloc", "--run:false"])
 
       var (kind, option) = lexer.next()
       doAssert (kind, option) == (cmdShort, "d"):
@@ -484,23 +489,3 @@ block opts:
       except UnexpectedValueError as e:
         doAssert e.opt == "--run"
         doAssert e.value == "false"
-
-      discard lexer.value()
-
-      # Special case: unconsumed bundle is treated as inline value
-      (kind, option) = lexer.next()
-      doAssert (kind, option) == (cmdShort, "b"):
-        "Unexpected value: " & $(kind, option)
-      (kind, option) = lexer.next()
-      doAssert (kind, option) == (cmdShort, "u"):
-        "Unexpected value: " & $(kind, option)
-      (kind, option) = lexer.next()
-      doAssert (kind, option) == (cmdShort, "n"):
-        "Unexpected value: " & $(kind, option)
-      try:
-        for _ in lexer.remaining():
-          doAssert false, "unreachable"
-        doAssert false, "the previous call should've failed"
-      except UnexpectedValueError as e:
-        doAssert e.opt == "-n"
-        doAssert e.value == "dle"

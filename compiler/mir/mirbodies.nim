@@ -2,15 +2,15 @@
 ## modifying it.
 
 import
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_types
   ],
   compiler/mir/[
     mirtrees,
     sourcemaps
-  ],
-  compiler/utils/[
-    containers
   ]
 
 type

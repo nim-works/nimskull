@@ -13,6 +13,9 @@ import
   std/[
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_types,
     ast_idgen,
@@ -37,8 +40,6 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    containers,
-    idioms,
     int128
   ]
 

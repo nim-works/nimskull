@@ -35,6 +35,9 @@ import
     intsets,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast_query,
     ast_types,
@@ -64,8 +67,6 @@ import
     modulelowering
   ],
   compiler/utils/[
-    containers,
-    idioms,
     pathutils,
     platform,
     ropes,

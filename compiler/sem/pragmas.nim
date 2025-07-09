@@ -36,8 +36,7 @@ import
   ],
   compiler/utils/[
     pathutils,
-    debugutils,
-    idioms
+    debugutils
   ],
   compiler/sem/[
     semdata,

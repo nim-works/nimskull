@@ -35,7 +35,6 @@ import
   ],
   compiler/utils/[
     platform,
-    idioms,
   ]
 
 # xxx: legacy reports cruft

@@ -22,7 +22,6 @@ import
     in_options
   ],
   compiler/utils/[
-    idioms,
     int128 # Values for integer nodes
   ],
   std/[

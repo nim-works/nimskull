@@ -47,8 +47,7 @@ import
   ],
   compiler/utils/[
     nversion,
-    astrepr,
-    idioms
+    astrepr
   ],
   compiler/front/[
     msgs
@@ -1601,7 +1600,21 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "` can be defined only in the same module with its type (" & r.typ.render & ")"
 
     of rsemUnexpectedTypeBoundOpSignature:
-      result = "signature for '" & r.symstr & "' must be proc[T: object](x: var T)"
+      let typ = copyType(r.sym.typ, r.sym.typ.itemId, r.sym.typ.owner)
+
+      # set the calling convention to 'nimcall' and remove 'explicitCallConv'
+      # so it's not rendered
+      typ.callConv = ccNimCall
+      typ.flags.excl tfExplicitCallConv
+
+      let msg =
+        if r.sym.magic == mDeepCopy:
+          "where T is 'ptr' or 'ref' of either 'distinct' or 'object'"
+        else:
+          "where T is 'distinct' or 'object'"
+    
+      result = "'$1' must satisfy the signature '$2' $3" %
+               [r.str, typ.render, msg]
 
     of rsemRebidingDeepCopy:
       result = "cannot bind another 'deepCopy' to: " & r.typ.render
