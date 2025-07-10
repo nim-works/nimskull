@@ -1,5 +1,5 @@
 discard """
-  targets: "c js"
+  targets: "c js vm"
 """
 
 import std/enumutils
@@ -11,6 +11,12 @@ template main =
     type B[T] = enum b0 = 2, b1 = 4
     doAssert A.toSeq == [a0, a1, a2]
     doAssert B[float].toSeq == [B[float].b0, B[float].b1]
+  
+  block: # len
+    type A3 = enum a0, a1, a2
+    type B3 = enum b0 = 2, b1 = 4, b2 = 8, b3 = 16
+    doAssert len(A3) == 3
+    doAssert B3.len == 4
 
   block: # symbolName
     block:

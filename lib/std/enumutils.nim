@@ -175,3 +175,7 @@ func symbolName*[T: enum](a: T): string =
     assert c1.symbolName == "c1"
   const names = enumNames(T)
   names[a.symbolRank]
+
+func len*[T: enum](E: typedesc[T]): int =
+  for e in E.items:
+    inc result
