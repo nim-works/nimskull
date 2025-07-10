@@ -176,6 +176,6 @@ func symbolName*[T: enum](a: T): string =
   const names = enumNames(T)
   names[a.symbolRank]
 
-func len*[T: enum](E: typedesc[T]): uint16 =
+func len*[T: enum](E: typedesc[T]): int =
   for e in E.items:
     inc result
