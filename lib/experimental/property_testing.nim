@@ -10,6 +10,7 @@ from std/strutils import join, repeat
 from std/sugar import `=>` # XXX: maybe a bust because inference can't keep up
 from std/sequtils import toSeq, apply
 from std/times import toUnix, getTime
+from std/enumutils import items # TODO: swap to `len` after it's merged
 
 # XXX: Once this is mature enough (repeatability, shrinking, and API) move out
 #      of experimental.
@@ -61,7 +62,7 @@ from std/times import toUnix, getTime
 ## valid ASTs can be generated quickly.
 ## 
 ## Shrinking: automatically generated programs will often contain a lot of
-## noise, a shrinking can do much to provide small failure demonstrating
+## noise, shrinking can do much to provide small failure demonstrating
 ## scenarios.
 ## 
 ## Replay: when you can generate tests, test suites start taking longer very
@@ -122,7 +123,11 @@ type
     ##      language stability is the big reason for making this whole property
     ##      based testing framework. :D
     mgenerate: proc(a: Arbitrary[T], mrng: var Random): Shrinkable[T]
-    kind: ArbitraryKind # XXX: setup support for exhaustive kinds
+    case kind: ArbitraryKind # XXX: setup support for exhaustive kinds
+    of akExhaustive:
+      size: uint8
+    of akLarge:
+      discard
 
   Shrinkable*[T] = object
     ## future support for shrinking
@@ -373,6 +378,7 @@ proc charArb*(min, max: char): Arbitrary[char] =
     pos: int = 0
   result = Arbitrary[char](
     kind: akExhaustive,
+    size: high(uint8),
     mgenerate: proc(arb: Arbitrary[char], rng: var Random): Shrinkable[char] =
                   let
                     endPos = vals.len - 1
@@ -411,29 +417,43 @@ proc stringAsciiArb*(min: uint32 = 0, max: uint32 = 1000): Arbitrary[string] {.i
   ## create strings using the ascii character range with len of `min` to `max`
   stringArb(min, max, charAsciiArb())
 
+func enumLen[T: enum](E: typedesc[T]): int =
+  # TODO: remove after `enumutils.len` is merged
+  for _ in E.items:
+    inc result
+
 proc enumArb*[T: enum](): Arbitrary[T] =
   # XXX: use a uint32 arb to get a value between the current pos and end of seq, then swap access over that
   var
     vals = toSeq(T.low..T.high)
     pos: int = 0
-  result = Arbitrary[T](
-    kind: akExhaustive,
-    mgenerate: proc(arb: Arbitrary[T], rng: var Random): Shrinkable[T] =
-                  let
-                    endPos = max(0, vals.len - 1)
-                    atEnd = pos == endPos
-                    swapPos = if atEnd: endPos
-                              else: rng.nextInt(pos, endPos)
-                  result = shrinkableOf(vals.swapAccess(pos, swapPos))
-                  inc pos
-                  if pos == endPos:
-                    pos = 0
-  )
+  let length = enumLen(T)
+  if length < int(high(uint8)):
+    result = Arbitrary[T](
+      kind: akExhaustive,
+      size: uint8(length)
+    )
+  else:
+    result = Arbitrary[T](
+      kind: akLarge,
+    )
+  result.mgenerate = 
+    proc(arb: Arbitrary[T], rng: var Random): Shrinkable[T] =
+      let
+        endPos = max(0, vals.len - 1)
+        atEnd = pos == endPos
+        swapPos = if atEnd: endPos
+                  else: rng.nextInt(pos, endPos)
+      result = shrinkableOf(vals.swapAccess(pos, swapPos))
+      inc pos
+      if pos == endPos:
+        pos = 0
 
-proc constArb*[T](v: T): Arbitrary[T] =
+proc constArb*[T: not void](v: T): Arbitrary[T] =
   ## creates an arbitrary that produces the same value over and over again
   result = Arbitrary[T](
     kind: akExhaustive,
+    size: 1,
     mgenerate: proc(arb: Arbitrary[T], rng: var Random): Shrinkable[T] =
                   result = shrinkableOf(v)
   )
@@ -764,73 +784,3 @@ when isMainModule:
     #             of true: ptPass
     #             of false: ptFail
     # forAll("classic math assumption should fail", uint32Arb(), uint32Arb(), foo)
-
-#-- Macro approach, need to revisit
-
-when false:
-  # XXX: need to make these work, they move into the library part
-  proc initArbitrary[T: tuple]: Arbitrary[T] =
-    # Temporary procedure we need to figure out how to make for *all* types
-    let size = 100u32
-    result = Arbitrary[T](
-      mgenerate: proc(arb: Arbitrary[T], rng: var Random): Shrinkable[T] =
-        var a = default T
-        for field in a.fields:
-          field = type(field)(rng.nextUint32() mod size)
-    )
-
-  macro execProperty*(name: string, values: varargs[typed],
-                        params = defAssertPropParams(), body: untyped): untyped =
-    ## Generates and runs a property. Currently this auto-generates parameter
-    ## names from a to z based on the tuple width -- 26 parameters is good enough
-    ## for now.
-    # XXX: do we want to make the parameter naming explicit?
-    var tupleTyp = nnkTupleConstr.newTree()
-    let
-      isTuple = values.kind == nnkBracket and values[0].kind == nnkTupleConstr
-      values = if isTuple: values[0] else: values
-      possibleIdents = {'a'..'z'}.toSeq
-      idents = block: # Generate the tuple, and the name unpack varaibles
-        var
-          idents: seq[NimNode]
-        for i, x in values:
-          let retT = x[0].getImpl[3][0][1]
-          idents.add ident($possibleIdents[i])
-          tupleTyp.add retT
-        idents
-
-    # make the `let (a, b ...) = input`
-    let unpackNode = nnkLetSection.newTree(nnkVarTuple.newTree(idents))  
-    unpackNode[0].add newEmptyNode(), ident"input"
-    
-    body.insert 0, unpackNode # add unpacking to the first step
-
-    result = newStmtList()
-    result.add newProc(ident"test",
-                      [
-                        ident"PTStatus",
-                        newIdentDefs(ident"input", tupleTyp, newEmptyNode())
-                      ],
-                      body) # Emit the proc
-    result.add quote do:
-      var
-        arb = initArbitrary[`tupleTyp`]()
-        report = startReport[`tupleTyp`](`name`)
-        rng = `params`.random
-        p = newProperty(arb, test)
-      while report.runId < `params`.runsBeforeSuccess:
-        report.startRun()
-        let
-          s: Shrinkable[`tupleTyp`] = p.generate(rng, report.runId)
-          r: PTStatus = p.run(s.value)
-          didSucceed = r notin {ptFail, ptPreCondFail}
-        
-        if not didSucceed:
-          report.recordFailure(s.value, r)
-    
-      # XXX: useful for debugging the macro code
-      # echo result.repr
-
-      echo report
-      if report.hasFailure:
-        doAssert report.isSuccessful, $report
