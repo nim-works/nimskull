@@ -187,44 +187,44 @@ proc verifyTailCalls*(g: ModuleGraph, owner: PSym, body: PNode) =
 
 # ------------- routine generation -------------
 
-proc genApply*(c: PContext, s: PSym) =
+proc genApply*(g: ModuleGraph, idgen: IdGenerator, s: PSym) =
   ## Generates the 'apply' procedure for routine `s`. The apply procedure
   ## adapts `s` to the signature expected by the `Continuation` object.
   ##
   ## Also makes sure that the tuple for storing the parameter doesn't exceed
   ## the maximum allowed space; an error is reported if it does.
-  var apply = newSym(s.kind, s.name, nextSymId(c.idgen), s, s.info, nil)
+  var apply = newSym(s.kind, s.name, nextSymId(idgen), s, s.info, nil)
   apply.flags.incl sfInjectDestructors
   apply.flags.incl sfGeneratedOp
 
   let
     contType    = s.typ.n[0][3].typ # use the hidden type
-    tupType     = newParamTuple(c.config, c.idgen, apply, s.typ)
-    tupPtrType  = makePtrType(apply, tupType, c.idgen)
-    pointerType = c.graph.getSysType(s.info, tyPointer)
-    param = newSym(skParam, c.cache.getIdent(":env"), nextSymId(c.idgen),
+    tupType     = newParamTuple(g.config, idgen, apply, s.typ)
+    tupPtrType  = makePtrType(apply, tupType, idgen)
+    pointerType = g.getSysType(s.info, tyPointer)
+    param = newSym(skParam, g.cache.getIdent(":env"), nextSymId(idgen),
                    apply, s.info, pointerType)
-    res   = newSym(skResult, c.cache.getIdent("result"), nextSymId(c.idgen),
+    res   = newSym(skResult, g.cache.getIdent("result"), nextSymId(idgen),
                    apply, s.info, contType)
 
   # check the parameter tuple:
   block:
     let
-      size = getSize(c.config, tupType)
-      max = getSize(c.config,
-        c.graph.systemModuleType(c.cache.getIdent("ParamBlob")))
+      size = getSize(g.config, tupType)
+      max = getSize(g.config,
+        g.systemModuleType(g.cache.getIdent("ParamBlob")))
     if size < 0:
       # some incomplete type; disallowed. Report an error for every
       # problematic parameter
       for i in 0..<tupType.len:
-        if getSize(c.config, tupType[i]) < 0:
-          c.config.localReport(s.typ.n[i + 1].info,
+        if getSize(g.config, tupType[i]) < 0:
+          g.config.localReport(s.typ.n[i + 1].info,
             reportSym(rsemParameterCannotBeIncomplete, s.typ.n[i + 1].sym))
     elif size > max:
-      c.config.localReport(s.info, SemReport(kind: rsemParametersTooLarge))
+      g.config.localReport(s.info, SemReport(kind: rsemParametersTooLarge))
 
   # setup the procedure type:
-  apply.typ = newProcType(s.info, nextTypeId(c.idgen), s)
+  apply.typ = newProcType(s.info, nextTypeId(idgen), s)
   apply.typ.n[0] = s.typ.n[0] # inherit the effects
   apply.typ.n.add newSymNode(param)
   apply.typ[0] = contType
@@ -237,15 +237,15 @@ proc genApply*(c: PContext, s: PSym) =
         newTreeIT(nkCast, s.info, tupPtrType,
           newNodeIT(nkType, s.info, tupPtrType),
           newSymNode(param))),
-      newIntLit(c.graph, s.info, i-1))
+      newIntLit(g, s.info, i-1))
     if s.typ[i].kind == tySink:
       # owning arguments *must* be moved explicitly. The move analyser
       # wouldn't do so automatically, and even if it did, that would still not
       # guarantee a new location being created, which is necessary because the
       # environment's storage may be reused by the called procedure
       call.add newTreeIT(nkCall, s.info, tupType[i - 1],
-        newSymNode(createMagic(c.graph, c.idgen, "move", mMove)), acc)
-    elif isPassByRef(c.config, s.typ.n[i].sym, s.typ[0]):
+        newSymNode(createMagic(g, idgen, "move", mMove)), acc)
+    elif isPassByRef(g.config, s.typ.n[i].sym, s.typ[0]):
       call.add newTreeIT(nkDerefExpr, s.info, tupType[i-1].lastSon, acc)
     elif s.typ[i].skipTypes(abstractInst).kind == tyVar:
       # a deref/addr pair is required
@@ -260,12 +260,12 @@ proc genApply*(c: PContext, s: PSym) =
 
   apply.ast = newProcNode(nkProcDef, s.info,
     body = newTree(nkAsgn, newSymNode(res), call),
-    params = newTree(nkFormalParams, c.graph.emptyNode, newSymNode(param)),
+    params = newTree(nkFormalParams, g.emptyNode, newSymNode(param)),
     name = newSymNode(apply),
-    c.graph.emptyNode,
-    c.graph.emptyNode,
-    c.graph.emptyNode,
-    c.graph.emptyNode)
+    g.emptyNode,
+    g.emptyNode,
+    g.emptyNode,
+    g.emptyNode)
   apply.ast.sons.setLen(resultPos + 1)
   apply.ast[resultPos] = newSymNode(res)
 

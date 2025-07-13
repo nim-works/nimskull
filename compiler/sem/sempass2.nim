@@ -1890,7 +1890,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
   if s.typ.callConv == ccTailcall:
     verifyTailCalls(g, s, body)
-    genApply(c, s)
+    genApply(c.graph, c.idgen, s)
 
     # create the type-bound ops for the continuation type:
     let cont = s.typ.n[0][3].typ.skipTypes(skipForHooks)
