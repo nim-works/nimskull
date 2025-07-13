@@ -134,6 +134,8 @@ type
       ## report that some fully-processed MIR fragment became available
     wikReportConst
       ## report that a fully-processed constant became available
+    wikChckForward
+      ## poll forwarded routiens and queue all no-longer forwarded ones
 
   WorkItem = object
     ## For simpler processing and scheduling, much of the backend's pre
@@ -158,11 +160,15 @@ type
       evt: range[bekPartial..bekImported]
       fragId: ProcedureId
       frag: MirBody
+    of wikChckForward:
+      discard
 
   WorkQueue = object
     items: Deque[tuple[item: WorkItem, fr: FileIndex]]
       ## the queued steps to run. Each item is associated with a module:
       ## it indicate used for events reported to the caller
+    fwd: seq[tuple[id: ProcedureId, fr: FileIndex]]
+      ## routines already known to the MIR stage whose body is still missing
     config: BackendConfig
 
 func prepend(queue: var WorkQueue, m: FileIndex,
@@ -624,8 +630,13 @@ func queue(queue: var WorkQueue, id: ProcedureId, prc: PSym, m: FileIndex) =
   ## If eligible for processing and code generation, adds `prc` to
   ## `queue`'s queue.
   assert prc.kind in routineKinds
-  if sfForward notin prc.flags and
-     exfNoDecl notin prc.extFlags and
+  if sfForward in prc.flags:
+    queue.fwd.add (id, m)
+    if queue.fwd.len == 1:
+      # the fwd list just got its first item. Start the periodic check for
+      # whether any got completed
+      queue.append(m, WorkItem(kind: wikChckForward))
+  elif exfNoDecl notin prc.extFlags and
      (sfImportc notin prc.flags or
       exfDynamicLib in prc.extFlags or (queue.config.noImported and
                                         prc.ast[bodyPos].kind != nkEmpty)):
@@ -859,6 +870,33 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     of wikReportConst:
       yield BackendEvent(module: module, kind: bekConstant, cnst: item.cnst)
       postActions(queue, discovery, env, module)
+    of wikChckForward:
+      var i = 0
+      while i < queue.fwd.len:
+        let id = queue.fwd[i].id
+        if sfForward notin env[id].flags:
+          queue(queue, id, env[id], queue.fwd[i].fr)
+          queue.fwd.del(i)
+          continue
+        inc i
+
+      if queue.fwd.len > 0:
+        if queue.items.len == 0:
+          # force-complete everything overridden and discard the rest. This
+          # has to happen within the large loop still, as the bodies could
+          # contain yet undiscovered entities
+          # HACK: overridden is a brittle way to detect type-bound operators
+          # TODO: reimplement incremental procedure support such that they
+          #       don't end up in the forward list and replace the
+          #       "is overridden" check with "is body not trivial"
+          for (it, m) in queue.fwd.items:
+            if sfOverriden in env[it].flags:
+              env[it].flags.excl sfForward
+              queue(queue, it, env[it], m)
+          queue.fwd.shrink(0)
+        else:
+          # poll again once some more processing took place
+          queue.append(module, WorkItem(kind: wikChckForward))
 
     # report and queue all discovered dependencies:
     for evt in flush(queue, env, discovery, module):
