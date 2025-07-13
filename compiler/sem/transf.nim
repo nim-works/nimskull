@@ -1556,7 +1556,13 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   of nkElifBranch, nkElifExpr:
     recurse(n[0], false)
     recurse(n[1], active)
-  of nkExceptBranch, nkOfBranch, nkIdentDefs, nkElse, nkElseExpr,
+    if active and n.kind == nkElifExpr:
+      n.transitionSonsKind(nkElifBranch)
+  of nkElseExpr:
+    recurse(n[^1], active)
+    if active:
+      n.transitionSonsKind(nkElse)
+  of nkExceptBranch, nkOfBranch, nkIdentDefs, nkElse,
      nkPragmaBlock, nkBlockStmt, nkVarTuple:
     recurse(n[^1], active)
   of nkFinally:
