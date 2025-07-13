@@ -422,7 +422,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
 
   result = shallowCopy(n)
   result[0] = newSymNode(s, n[0].info)
-  result[1] = semExprWithType(c, n[1])
+  result[1] = semExprWithType(c, n[1]) # the type parameter
 
   var paramType = result[1].typ
   if paramType.kind != tyError:
@@ -438,7 +438,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   let objSym = newSym(skType, c.cache.getIdent("Ctx"), nextSymId(c.idgen),
                       getCurrOwner(c), n.info)
   # enable special name mangling:
-  objSym.flags.incl sfFromGeneric
+  objSym.flags.incl sfAnon
 
   let obj = newTypeS(tyObject, c)
   obj.rawAddSon(nil) # the base type
@@ -446,6 +446,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   obj.align = szUnknownSize
   obj.n = newTree(nkRecList)
   obj.flags.incl tfHasAsgn # the object has custom copy logic
+  obj.flags.incl tfFinal
   objSym.linkTo(obj)
 
   # create forwarded type-bound ops, which are completed once the object's
@@ -457,6 +458,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     let p = newSym(skParam, c.cache.getIdent(name), nextSymId(c.idgen),
                     getCurrOwner(c), info)
     p.typ = typ
+    p.position = prc.n.len - 1
     prc.rawAddSon(typ, propagateHasAsgn=false)
     prc.n.add newSymNode(p)
 
@@ -494,12 +496,16 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   else:
     result[2] = tmp[0][0]
 
-  var call = semExprWithType(c, n[3])
+  if c.p.owner.typ[0] == nil:
+    result[3] = semExprNoType(c, n[3])
+  else:
+    var call = semExprWithType(c, n[3])
+    call = fitNode(c, c.p.owner.typ[0], call, n[3].info)
+    result[3] = call
+
   # TODO: noreturn handling...
-  call = fitNode(c, c.p.owner.typ[0], call, n[3].info)
   c.closeScope()
 
-  result[3] = call
   if hasResult:
     result.typ = paramType
 
