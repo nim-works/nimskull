@@ -464,13 +464,15 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
 
   # create the type of the continuation procedure:
   let prc = newProcType(n.info, nextTypeId(c.idgen), getCurrOwner(c))
-  prc.callConv = ccNimCall # TODO: use tailcall
+  prc.callConv = ccTailcall
   # TODO: handle the "unresolved auto return type" case. The easiest solution
   #       is just reporting an error
   prc[0] = c.p.owner.typ[0] # use the enclosing routine's return type
   if hasResult:
     prc.addParam("arg", newTypeWithSons(c, tySink, @[paramType]), n.info, c)
   prc.addParam("c", newTypeWithSons(c, tySink, @[obj]), n.info, c)
+
+  prepareTailcallProc(c, n.info, prc)
 
   # set up the type to use for the local:
   let tup = newTypeS(tyTuple, c)
