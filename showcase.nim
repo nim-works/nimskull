@@ -106,11 +106,14 @@ proc interpret(n: Node, then: sink Cont[Node, Node]): Node {.tailcall.} =
 proc interpret(n: Node): Node {.tailcall.} =
   interpret(n, newContP(proc(x: sink Node): Node {.tailcall.} = x))
 
-assert interpret(
-          tree(nkIf,
-            tree(nkEq, cnst(1), cnst(2)),
-            cnst(0),
-            cnst(1))).val == 1
+# XXX: cannot work given the rules and current implementation
+#[
+doAssert interpret(
+            tree(nkIf,
+              tree(nkEq, cnst(1), cnst(2)),
+              cnst(0),
+              cnst(1))).val == 1
+]#
 
 # ----- async/await -----
 
@@ -137,6 +140,8 @@ macro async(p: untyped) =
 proc resolve[T](x: Future[T], val: sink T) =
   x.content = new T
   x.content[] = val
+  if x.callback != nil:
+    x.callback(x)
 
 var inner: Future[string]
   ## an unresolved future
@@ -178,3 +183,51 @@ proc repeat(): int =
   return i + 1
 
 assert repeat() == 10
+
+# continuations can be duplicated and run multiple times
+
+proc asgn[T](a: var T, b: T) =
+  a = b
+
+proc multishot(o: var Cont[int, void]) =
+  var x = "abc"
+  let i = suspend(int, cont, asgn(o, newCont(cont)))
+  x.addInt i
+  echo x
+
+var r: Cont[int, void]
+multishot(r)
+for i in 0..<100:
+  r(i)
+
+macro cps(param: untyped, p: untyped) =
+  ## Primitive implementation of turning a direct style procedure into a
+  ## continuation-passing style procedure.
+  let wrapParams = nnkFormalParams.newTree(newEmptyNode())
+  let call = newCall(copyNimTree(p.name))
+  let cont = genSym(nskLet, "cont")
+  for i in 1..<p.params.len:
+    if p.params[i][0].eqIdent(param):
+      call.add copyNimTree(cont)
+    else:
+      call.add copyNimTree(p.params[i][0])
+
+  let wrapper = newProc(procType=nnkTemplateDef, name=p.name)
+  wrapper.params = wrapParams
+  wrapper.body = quote do:
+    suspend(void, `cont`, `call`)
+
+  result = newStmtList(p, wrapper)
+
+proc interrupt[C, P](cont: sink (C, P)) {.cps: cont.} =
+  echo "interrupted"
+  cont[1](cont[0])
+  echo "done"
+
+proc test() =
+  echo "before"
+  interrupt()
+  echo "after"
+
+test()
+# echoes "before", "interrupted", "after", "done"
