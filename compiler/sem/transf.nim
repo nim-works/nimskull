@@ -1579,6 +1579,8 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     for i in 0..<n.len:
       recurse(n[i], false)
 
+import compiler/sem/transf_v2
+
 proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
   ## Applies the various transformations to `body` and returns the result.
   ## This step is not indempotent, and since no caching is performed, it
@@ -1614,6 +1616,10 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
     env.flags.incl sfFromGeneric
     env.typ = g.getSysType(prc.info, tyPointer)
     prc.ast[paramsPos].add newSymNode(env)
+
+  if prc.kind != skIterator and containsSuspend(result):
+    # TODO: remove the iterator guard once `suspend` is its own form
+    result = lowerSuspend(g, idgen, prc, result)
 
   incl(result.flags, nfTransf)
 
