@@ -1024,3 +1024,37 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
     # not isTrival(orig.sink):
     orig.flags.incl tfHasAsgn
     # ^ XXX Breaks IC!
+
+proc createForwardOps*(c: PContext, typ: PType, info: TLineInfo) =
+  ## Creates and attaches forwarded type-bound operators to nominal type
+  ## `typ`. `typ` is expected to be an incomplete type.
+  if tfCheckedForDestructor in typ.flags:
+    return
+  typ.flags.incl tfCheckedForDestructor
+
+  let lastAttached = if c.config.selectedGC == gcOrc: attachedTrace
+                     else: attachedSink
+
+  for k in attachedDestructor..lastAttached:
+    let s = symPrototype(c.graph, typ, typ.owner, k, info, c.idgen)
+    s.flags.incl sfForward
+    s.flags.incl sfNeverRaises
+    # mark as overridden so that calls to the operator are not eliminated
+    s.flags.incl sfOverriden
+    setAttachedOpPartial(c.graph, c.module.position, typ, k, s)
+
+proc resolveForwardOps*(g: ModuleGraph, idgen: IdGenerator, typ: PType,
+                        info: TLineInfo) =
+  ## Completes the forwarded type-bound ops of `typ`.
+  let lastAttached = if g.config.selectedGC == gcOrc: attachedTrace
+                     else: attachedSink
+
+  for k in attachedDestructor..lastAttached:
+    let op = getAttachedOp(g, typ, k)
+    assert sfForward in op.flags
+    # temporarily remove the "overridden" flags so that the body is
+    # generated properly
+    op.flags.excl sfOverriden
+    let s = produceSym(g, nil, typ, k, info, idgen)
+    s.flags.excl sfForward
+    s.flags.incl sfOverriden

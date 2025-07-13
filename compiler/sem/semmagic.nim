@@ -12,7 +12,8 @@
 
 import
   compiler/ast/typesrenderer,
-  compiler/front/optionsprocessor
+  compiler/front/optionsprocessor,
+  compiler/sem/liftdestructors
 
 proc semAddrArg(c: PContext; n: PNode): PNode =
   let n = semExprWithType(c, n)
@@ -446,6 +447,10 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   obj.n = newTree(nkRecList)
   obj.flags.incl tfHasAsgn # the object has custom copy logic
   objSym.linkTo(obj)
+
+  # create forwarded type-bound ops, which are completed once the object's
+  # body is available:
+  createForwardOps(c, obj, n.info)
 
   proc addParam(prc: PType, name: string, typ: PType, info: TLineInfo,
                 c: PContext) =
