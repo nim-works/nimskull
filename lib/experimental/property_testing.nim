@@ -10,7 +10,7 @@ from std/strutils import join, repeat
 from std/sugar import `=>` # XXX: maybe a bust because inference can't keep up
 from std/sequtils import toSeq, apply
 from std/times import toUnix, getTime
-from std/enumutils import items # TODO: swap to `len` after it's merged
+from std/typetraits import enumLen
 
 # XXX: Once this is mature enough (repeatability, shrinking, and API) move out
 #      of experimental.
@@ -417,11 +417,6 @@ proc stringAsciiArb*(min: uint32 = 0, max: uint32 = 1000): Arbitrary[string] {.i
   ## create strings using the ascii character range with len of `min` to `max`
   stringArb(min, max, charAsciiArb())
 
-func enumLen[T: enum](E: typedesc[T]): int =
-  # TODO: remove after `enumutils.len` is merged
-  for _ in E.items:
-    inc result
-
 proc enumArb*[T: enum](): Arbitrary[T] =
   # XXX: use a uint32 arb to get a value between the current pos and end of seq, then swap access over that
   var
@@ -775,6 +770,16 @@ when isMainModule:
                let (a, b) = ss
                a.len + b.len <= (a & b).len)
 
+    spec "sets":
+      type EnumA = enum ea, eb, ec
+      forAll("cannot contain more items than the enum itself",
+             constArb({ea, eb, ec}),
+             enumArb[EnumA](),
+             func(sc: (set[EnumA], EnumA)): PTStatus =
+                let
+                  (s, c) = sc
+                  e = s + c
+                enumLen(EnumA) == e.len)
   # block:
     # XXX: this tests the failure branch but isn't running right now
     # test failure at the end because the assert exits early
