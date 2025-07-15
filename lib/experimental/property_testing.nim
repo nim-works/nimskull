@@ -790,7 +790,7 @@ when isMainModule:
                   (s, c) = sc
                   e = s + c
                 enumLen(EnumA) == e.len)
-      
+
       forAll("union of two sets contain all elements of each",
              setArb[EnumA](),
              setArb[EnumA](),
