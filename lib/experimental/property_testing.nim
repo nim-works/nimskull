@@ -204,7 +204,7 @@ proc filter*[T](o: Arbitrary[T], predicate: proc(t: T): bool): Arbitrary[T] =
   var orig = o
   let
     mgenerate = proc(a: Arbitrary[T], mrng: var Random): Shrinkable[T] =
-                  var g = a.generate(mrng)
+                  var g = orig.generate(mrng)
                   while g.filter(predicate).isNone:
                     g = a.generate(mrng)
                   result = g
@@ -443,6 +443,16 @@ proc enumArb*[T: enum](): Arbitrary[T] =
       inc pos
       if pos == endPos:
         pos = 0
+
+proc setArb*[T: enum](exclude: set[T] = {}): Arbitrary[set[T]] =
+  result = Arbitrary[set[T]](
+    kind: akLarge,
+    mgenerate: proc(arb: Arbitrary[set[T]], rng: var Random): Shrinkable[set[T]] =
+                  let size = rng.nextUint32(0, enumLen(T))
+                  enumArb[T]().filter(i => i notin exclude)
+                              .take(size, rng)
+                              .map(es => (var s: set[T]; for e in es: incl(s, e); s))
+  )
 
 proc constArb*[T: not void](v: T): Arbitrary[T] =
   ## creates an arbitrary that produces the same value over and over again
@@ -780,6 +790,16 @@ when isMainModule:
                   (s, c) = sc
                   e = s + c
                 enumLen(EnumA) == e.len)
+      
+      forAll("union of two sets contain all elements of each",
+             setArb[EnumA](),
+             setArb[EnumA](),
+             func(ss: (set[EnumA], set[EnumA])): PTStatus =
+                let
+                  (a, b) = ss
+                  c = a + b
+                a <= c and b <= c)
+      
   # block:
     # XXX: this tests the failure branch but isn't running right now
     # test failure at the end because the assert exits early
