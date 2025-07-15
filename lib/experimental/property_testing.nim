@@ -791,15 +791,53 @@ when isMainModule:
                   e = s + c
                 enumLen(EnumA) == e.len)
 
-      forAll("union of two sets contain all elements of each",
-             setArb[EnumA](),
-             setArb[EnumA](),
-             func(ss: (set[EnumA], set[EnumA])): PTStatus =
-                let
-                  (a, b) = ss
-                  c = a + b
-                a <= c and b <= c)
-      
+      let binaryEnumArb = tupleArb(setArb[EnumA](), setArb[EnumA]())
+
+      spec "union":
+        forAll("a union of sets contain all elements of each",
+              binaryEnumArb,
+              func(ss: (set[EnumA], set[EnumA])): PTStatus =
+                  let
+                    (a, b) = ss
+                    c = a + b
+                  a <= c and b <= c)
+
+        forAll("union is commutative",
+               binaryEnumArb,
+               func(ss: (set[EnumA], set[EnumA])): PTStatus =
+                  let
+                    (a, b) = ss
+                    c = a + b
+                    d = b + a
+                  c == d)
+
+      spec "intersection":
+        forAll("an intersection is a subset of both operands",
+               binaryEnumArb,
+               func(ss: (set[EnumA], set[EnumA])): PTStatus =
+                  let
+                    (a, b) = ss
+                    c = a * b
+                  c <= a and c <= b)
+
+        forAll("intersection is commutative",
+               binaryEnumArb,
+               func(ss: (set[EnumA], set[EnumA])): PTStatus =
+                  let
+                    (a, b) = ss
+                    c = a * b
+                    d = b * a
+                  c == d)
+
+      spec "difference (or relative complement)":
+        forAll("a difference has no overlap with the second operand",
+               binaryEnumArb,
+               func(ss: (set[EnumA], set[EnumA])): PTStatus =
+                  let
+                    (a, b) = ss
+                    c = a - b
+                  c * b == {})
+
   # block:
     # XXX: this tests the failure branch but isn't running right now
     # test failure at the end because the assert exits early
