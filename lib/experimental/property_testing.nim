@@ -473,9 +473,13 @@ type
     #      * save necessary state for quick reproduction (path, etc)
     #      * support async and streaming (iterator? CPS? magical other thing?)
     runId: uint32
+    preRunRngCount: uint32
     failureOn: PossibleRunId
-    seed: uint32
-    counterExample: Option[T]
+    case status: PTStatus:
+      of ptFail:
+        counterExample: T
+      of ptPreCondFail, ptPass:
+        discard
 
   GlobalContext* = object
     hasFailure: bool
@@ -485,24 +489,28 @@ type
 
   AssertReport*[T] = object
     ## result of a property assertion, with all runs information
-    # XXX: don't need counter example and generic param here once
-    #      `RunExecution` is being used.
+    # XXX: don't need counter example here once `RunExecution` is being used.
     name: string
     runId: PossibleRunId
     failures: uint32
     firstFailure: PossibleRunId
     failureType: PTStatus
     seed: uint32
+    failStartRngCallCount: uint
     counterExample: Option[T]
 
-proc startRun[T](r: var AssertReport[T]) {.inline.} =
+proc startRun[T](r: var AssertReport[T], rng: Random) {.inline.} =
   r.runId.startRun()
+  if r.firstFailure == noRunId:
+    r.failStartRngCallCount = rng.calls
+
 
 proc recordFailure*[T](r: var AssertReport[T], example: T,
                       ft: PTStatus) =
   ## records the failure in the report, and notes first failure and associated
   ## counter-example as necessary
   assert ft in {ptFail, ptPreCondFail}, fmt"invalid failure status: {ft}"
+  r.failureType = ft
   if r.firstFailure.isUnspecified():
     r.firstFailure = r.runId
     r.counterExample = some(example)
@@ -521,7 +529,7 @@ proc `$`*[T](r: AssertReport[T]): string =
   # XXX: make this less ugly
   let status =
     if r.hasFailure:
-      fmt"failures: {r.failures}, firstFailure: {r.firstFailure}, firstFailureType: {r.failureType}, counter-example: {r.counterExample}, seed: {r.seed}"
+      fmt"failures: {r.failures}, firstFailure: {r.firstFailure}, firstFailureType: {r.failureType}, counter-example: {r.counterExample}, seed: {r.seed}, rng-skip: {r.failStartRngCallCount}"
     else:
       "status: success"
 
@@ -530,7 +538,8 @@ proc `$`*[T](r: AssertReport[T]): string =
 proc startReport[T](name: string, seed: uint32): AssertReport[T] =
   ## start a new report
   result = AssertReport[T](name: name, runId: noRunId, failures: 0, seed: seed,
-                        firstFailure: noRunId, counterExample: none[T]())
+                        failureType: ptPass, firstFailure: noRunId,
+                        counterExample: none[T]())
 
 #-- Assert Properties
 
@@ -584,7 +593,7 @@ proc execProperty*[A](
     p = newProperty(arb, propCheck)
 
   while(result.runId < params.runsBeforeSuccess):
-    result.startRun()
+    result.startRun(rng)
     let
       s: Shrinkable[A] = p.generate(rng, result.runId)
       r = p.run(s.value)
@@ -825,11 +834,11 @@ when isMainModule:
 
       # XXX: this tests the failure branch but isn't running right now
       # test failure at the end because the assert exits early
-      # let foo = func(a: uint32, b: uint32): PTStatus =
-      #             case a + b > a
-      #             of true: ptPass
-      #             of false: ptFail
-      # forAll("classic math assumption should fail",
-      #       uint32Arb(),
-      #       uint32Arb(),
-      #       foo)
+      let foo = func(a: uint32, b: uint32): PTStatus =
+                  case a + b > a
+                  of true: ptPass
+                  of false: ptFail
+      forAll("classic math assumption should fail",
+            uint32Arb(),
+            uint32Arb(),
+            foo)
