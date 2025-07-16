@@ -102,7 +102,7 @@ type
     ## sequential id of the run, starts from 1
   
   PossibleRunId* = int
-   ## separate from `RunId` to support 0 value, indicating non-specified
+    ## separate from `RunId` to support 0 value, indicating non-specified
   
   PropCheck*[T] = proc(s: T): PTStatus {.noSideEffect.}
     ## test function to see if a property holds
@@ -260,6 +260,11 @@ proc nextUint32(r: var Random; min, max: uint32): uint32 =
   let size = max - min
   result = min + (r.nextUint32() mod size)
 
+proc nextChar(r: var Random; min, max: char): char =
+  assert min < max, "max must be greater than min"
+  let size = uint8(max) - uint8(min)
+  result = char(uint8(min) + uint8(r.nextUint32() mod size))
+
 proc nextInt(r: var Random; min, max: int): int =
   assert min < max, "max must be greater than min"
   let size = abs(max - min)
@@ -380,15 +385,16 @@ proc charArb*(min, max: char): Arbitrary[char] =
     kind: akExhaustive,
     size: high(uint8),
     mgenerate: proc(arb: Arbitrary[char], rng: var Random): Shrinkable[char] =
-                  let
-                    endPos = vals.len - 1
-                    atEnd = pos == endPos
-                    swapPos = if atEnd: endPos
-                              else: rng.nextInt(pos, endPos)
-                  result = shrinkableOf(vals.swapAccess(pos, swapPos))
-                  inc pos
-                  if pos == endPos:
-                    pos = 0
+                  let endPos = vals.len - 1
+                  if pos < endPos:
+                    let
+                      atEnd = pos == endPos
+                      swapPos = if atEnd: endPos
+                                else: rng.nextInt(pos, endPos)
+                    result = shrinkableOf(vals.swapAccess(pos, swapPos))
+                    inc pos
+                  else:
+                    result = shrinkableOf(rng.nextChar(min, max))
   )
 
 proc charArb*(): Arbitrary[char] {.inline.} =
@@ -555,7 +561,6 @@ proc timeToUint32(): uint32 {.inline.} =
     0
   else:
     cast[uint32](clamp(toUnix(getTime()), 0'i64, uint32.high.int64))
-  
 
 proc defAssertPropParams(): AssertParams =
   ## default params used for an `execProperty`
@@ -606,60 +611,48 @@ proc execProperty*[A](
     ctx.reportSuccess($result)
 
 proc execProperty*[A, B](
-  ctx: var GlobalContext,
-  name: string,
-  arb1: Arbitrary[A], arb2: Arbitrary[B],
-  propCheck: PropCheck[(A, B)],
-  params: AssertParams = defAssertPropParams()): AssertReport[(A,B)] =
-
-  result = startReport[(A, B)](name, params.seed)
-  var
-    rng = params.random # XXX: need a var version
-    arb = tupleArb[A,B](arb1, arb2)
-    p = newProperty(arb, propCheck)
-
-  while(result.runId < params.runsBeforeSuccess):
-    result.startRun()
-    let
-      s: Shrinkable[(A,B)] = p.generate(rng, result.runId)
-      r = p.run(s.value)
-      didSucceed = r notin {ptFail, ptPreCondFail}
-    
-    if not didSucceed:
-      result.recordFailure(s.value, r)
-  
-  if result.hasFailure:
-    ctx.reportFailure($result)
-  else:
-    ctx.reportSuccess($result)
+    ctx: var GlobalContext,
+    name: string,
+    a: Arbitrary[A], b: Arbitrary[B],
+    propCheck: proc(a: A, b: B): PTStatus {.noSideEffect.},
+    params: AssertParams = defAssertPropParams()): AssertReport[(A, B)] =
+  execProperty(ctx, name, tupleArb[A, B](a, b),
+    proc(t: (A, B)): PTStatus =
+      propCheck(t[0], t[1])
+    , params)
 
 proc execProperty*[A, B, C](
-  ctx: var GlobalContext,
-  name: string,
-  arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
-  propCheck: PropCheck[(A, B, C)],
-  params: AssertParams = defAssertPropParams()): AssertReport[(A,B,C)] =
+    ctx: var GlobalContext,
+    name: string,
+    a: Arbitrary[A], b: Arbitrary[B], c: Arbitrary[C],
+    propCheck: proc(a: A, b: B, c: C): PTStatus {.noSideEffect.},
+    params: AssertParams = defAssertPropParams()): AssertReport[(A, B, C)] =
+  execProperty(ctx, name, tupleArb[A, B, C](a, b, c),
+    proc(t: (A, B, C)): PTStatus =
+      propCheck(t[0], t[1], t[2])
+    , params)
 
-  result = startReport[(A, B, C)](name, params.seed)
-  var
-    rng = params.random # XXX: need a var version
-    arb = tupleArb[A,B,C](arb1, arb2, arb3)
-    p = newProperty(arb, propCheck)
+proc execProperty*[A, B, C, D](
+    ctx: var GlobalContext,
+    name: string,
+    a: Arbitrary[A], b: Arbitrary[B], c: Arbitrary[C], d: Arbitrary[D],
+    propCheck: proc(a: A, b: B, c: C, d: D): PTStatus {.noSideEffect.},
+    params: AssertParams = defAssertPropParams()): AssertReport[(A, B, C, D)] =
+  execProperty(ctx, name, tupleArb[A, B, C, D](a, b, c, d),
+    proc(t: (A, B, C, D)): PTStatus =
+      propCheck(t[0], t[1], t[2], t[3])
+    , params)
 
-  while(result.runId < params.runsBeforeSuccess):
-    result.startRun()
-    let
-      s: Shrinkable[(A,B,C)] = p.generate(rng, result.runId)
-      r = p.run(s.value)
-      didSucceed = r notin {ptFail, ptPreCondFail}
-    
-    if not didSucceed:
-      result.recordFailure(s.value, r)
-  
-  if result.hasFailure:
-    ctx.reportFailure($result)
-  else:
-    ctx.reportSuccess($result)
+proc execProperty*[A, B, C, D, E](
+    ctx: var GlobalContext,
+    name: string,
+    a: Arbitrary[A], b: Arbitrary[B], c: Arbitrary[C], d: Arbitrary[D], e: Arbitrary[E],
+    propCheck: proc(a: A, b: B, c: C, d: D, e: E): PTStatus {.noSideEffect.},
+    params: AssertParams = defAssertPropParams()): AssertReport[(A, B, C, D, E)] =
+  execProperty(ctx, name, tupleArb[A, B, C, D, E](a, b, c, d, e),
+    proc(t: (A, B, C, D, E)): PTStatus =
+      propCheck(t[0], t[1], t[2], t[3], t[4])
+    , params)
 
 #-- API
 
@@ -681,14 +674,14 @@ template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
     template forAll[A](
         name: string = "",
         arb1: Arbitrary[A],
-        propCheck: PropCheck[A] # XXX: move the predicate decl inline
+        propCheck: proc(a: A): PTStatus {.noSideEffect.}
         ) =
       discard execProperty(globalCtx, name, arb1, propCheck, defAssertPropParams())
     
     template forAll[A,B](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B],
-        propCheck: PropCheck[(A, B)] # XXX: move the predicate decl inline
+        propCheck: proc(a: A, b: B): PTStatus {.noSideEffect.}
         ) =
       discard execProperty(globalCtx, name, arb1, arb2, propCheck,
                            defAssertPropParams())
@@ -696,9 +689,25 @@ template specAux(globalCtx: var GlobalContext, body: untyped): untyped =
     template forAll[A,B,C](
         name: string = "",
         arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C],
-        propCheck: PropCheck[(A, B, C)] # XXX: move the predicate decl inline
+        propCheck: proc(a: A, b: B, c: C): PTStatus {.noSideEffect.}
         ) =
       discard execProperty(globalCtx, name, arb1, arb2, arb3, propCheck,
+                           defAssertPropParams())
+    
+    template forAll[A,B,C,D](
+        name: string = "",
+        arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C], arb4: Arbitrary[D],
+        propCheck: proc(a: A, b: B, c: C, d: D): PTStatus {.noSideEffect.}
+        ) =
+      discard execProperty(globalCtx, name, arb1, arb2, arb3, arb4, propCheck,
+                           defAssertPropParams())
+    
+    template forAll[A,B,C,D,E](
+        name: string = "",
+        arb1: Arbitrary[A], arb2: Arbitrary[B], arb3: Arbitrary[C], arb4: Arbitrary[D], arb5: Arbitrary[E],
+        propCheck: proc(a: A, b: B, c: C, d: D, e: E): PTStatus {.noSideEffect.}
+        ) =
+      discard execProperty(globalCtx, name, arb1, arb2, arb3, arb4, arb5, propCheck,
                            defAssertPropParams())
 
     {.pop.}
@@ -776,8 +785,8 @@ when isMainModule:
     spec "strings":
       forAll("concatenation - len is >= the sum of the len of the parts",
              stringArb(), stringArb(),
-             func(ss: (string, string)): PTStatus =
-               let (a, b) = ss
+             func(a: string, b: string): PTStatus =
+              #  let (a, b) = ss
                a.len + b.len <= (a & b).len)
 
     spec "sets":
@@ -785,65 +794,54 @@ when isMainModule:
       forAll("cannot contain more items than the enum itself",
              constArb({ea, eb, ec}),
              enumArb[EnumA](),
-             func(sc: (set[EnumA], EnumA)): PTStatus =
-                let
-                  (s, c) = sc
-                  e = s + c
+             func(s: set[EnumA], c: EnumA): PTStatus =
+                let e = s + c
                 enumLen(EnumA) == e.len)
-
-      let binaryEnumArb = tupleArb(setArb[EnumA](), setArb[EnumA]())
 
       spec "union":
         forAll("a union of sets contain all elements of each",
-              binaryEnumArb,
-              func(ss: (set[EnumA], set[EnumA])): PTStatus =
-                  let
-                    (a, b) = ss
-                    c = a + b
+              setArb[EnumA](), setArb[EnumA](),
+              func(a: set[EnumA], b: set[EnumA]): PTStatus =
+                  let c = a + b
                   a <= c and b <= c)
 
         forAll("union is commutative",
-               binaryEnumArb,
-               func(ss: (set[EnumA], set[EnumA])): PTStatus =
+               setArb[EnumA](), setArb[EnumA](),
+               func(a: set[EnumA], b: set[EnumA]): PTStatus =
                   let
-                    (a, b) = ss
                     c = a + b
                     d = b + a
                   c == d)
 
       spec "intersection":
         forAll("an intersection is a subset of both operands",
-               binaryEnumArb,
-               func(ss: (set[EnumA], set[EnumA])): PTStatus =
-                  let
-                    (a, b) = ss
-                    c = a * b
+               setArb[EnumA](), setArb[EnumA](),
+               func(a: set[EnumA], b: set[EnumA]): PTStatus =
+                  let c = a * b
                   c <= a and c <= b)
 
         forAll("intersection is commutative",
-               binaryEnumArb,
-               func(ss: (set[EnumA], set[EnumA])): PTStatus =
+               setArb[EnumA](), setArb[EnumA](),
+               func(a: set[EnumA], b: set[EnumA]): PTStatus =
                   let
-                    (a, b) = ss
                     c = a * b
                     d = b * a
                   c == d)
 
       spec "difference (or relative complement)":
         forAll("a difference has no overlap with the second operand",
-               binaryEnumArb,
-               func(ss: (set[EnumA], set[EnumA])): PTStatus =
-                  let
-                    (a, b) = ss
-                    c = a - b
+               setArb[EnumA](), setArb[EnumA](),
+               func(a: set[EnumA], b: set[EnumA]): PTStatus =
+                  let c = a - b
                   c * b == {})
 
-  # block:
-    # XXX: this tests the failure branch but isn't running right now
-    # test failure at the end because the assert exits early
-    # let foo = func(t: ((uint32, uint32))): PTStatus =
-    #             let (a, b) = t
-    #             case a + b > a
-    #             of true: ptPass
-    #             of false: ptFail
-    # forAll("classic math assumption should fail", uint32Arb(), uint32Arb(), foo)
+      # XXX: this tests the failure branch but isn't running right now
+      # test failure at the end because the assert exits early
+      # let foo = func(a: uint32, b: uint32): PTStatus =
+      #             case a + b > a
+      #             of true: ptPass
+      #             of false: ptFail
+      # forAll("classic math assumption should fail",
+      #       uint32Arb(),
+      #       uint32Arb(),
+      #       foo)
