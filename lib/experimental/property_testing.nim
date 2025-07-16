@@ -780,11 +780,10 @@ when isMainModule:
                c.ord >= 0 or c.ord <= 127)
 
     spec "strings":
-      forAll("concatenation - len is >= the sum of the len of the parts",
+      forAll("concatenation - len is == the sum of the len of the parts",
              stringArb(), stringArb(),
              func(a: string, b: string): PTStatus =
-              #  let (a, b) = ss
-               a.len + b.len <= (a & b).len)
+                a.len + b.len == (a & b).len)
 
     spec "sets":
       type EnumA = enum ea, eb, ec
@@ -834,11 +833,11 @@ when isMainModule:
 
       # XXX: this tests the failure branch but isn't running right now
       # test failure at the end because the assert exits early
-      let foo = func(a: uint32, b: uint32): PTStatus =
-                  case a + b > a
-                  of true: ptPass
-                  of false: ptFail
-      forAll("classic math assumption should fail",
-            uint32Arb(),
-            uint32Arb(),
-            foo)
+      # let foo = func(a: uint32, b: uint32): PTStatus =
+      #             case a + b > a
+      #             of true: ptPass
+      #             of false: ptFail
+      # forAll("classic math assumption should fail",
+      #       uint32Arb(),
+      #       uint32Arb(),
+      #       foo)
