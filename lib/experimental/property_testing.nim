@@ -137,9 +137,6 @@ type
     ## a condition that must hold for an arbitrary as specified by a predicate
     arb: Arbitrary[T]
     predicate: PropCheck[T]
-  
-  Frequency* = int
-    ## future use to allow specification of biased generation
 
 #-- Run Id
 
@@ -280,11 +277,6 @@ converter toPTStatus(b: bool): PTStatus =
 proc newProperty*[T](arb: Arbitrary[T], p: PropCheck): Property[T] =
   result = Property[T](arb: arb, predicate: p)
 
-proc withBias[T](arb: var Arbitrary[T], f: Frequency): var Arbitrary[T] =
-  ## create an arbitrary with bias
-  ## XXX: implement biasing
-  return arb
-
 proc toss(mrng: var Random) {.inline.} =
   ## skips 42 numbers to introduce noise between generate calls, think toss as
   ## in tossing dice
@@ -295,11 +287,7 @@ proc generateAux[T](p: var Property[T], rng: Random,
                     r: PossibleRunId): Shrinkable[T] =
   var mrng = rng
   toss(mrng)
-  result =
-    if r.isUnspecified():
-      p.arb.generate(mrng)
-    else:
-      p.arb.withBias(runIdToFrequency(r)).generate(mrng)
+  result = p.arb.generate(mrng)
 
 proc generate*[T](p: var Property[T], mrng: Random, runId: RunId): Shrinkable[T] =
   return generateAux(p, mrng, runId)
