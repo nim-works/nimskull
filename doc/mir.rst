@@ -49,7 +49,7 @@ Semantics
         | LVALUE
 
   TARGET = <Label>
-  EX_TARGET = <Label> | Resume
+  EX_TARGET = <Label> | Unwind
 
   UNARY_OP = NegI VALUE
 
@@ -262,10 +262,10 @@ that:
 is not allowed. However, much like in the high-level language, structured
 constructs can be nested.
 
-Resume
+Unwind
 ------
 
-`Resume` is a special jump target that may only appear as the target of
+`Unwind` is a special jump target that may only appear as the target of
 `Raise`, `Continue`, `CheckedCall`, and `Except`. It specifies that
 unwinding/exception-handling *resumes* in the caller procedure.
 

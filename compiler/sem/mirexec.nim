@@ -144,7 +144,7 @@ type
       ## the ``JoinId`` -> instruction position mappings
     labelToJoin: Table[LabelId, JoinId]
       ## maps the label ID to the corresponding join ID
-    resumeLabel: Option[JoinId]
+    unwindLabel: Option[JoinId]
       ## only setup when used
 
 func incl[T](s: var seq[T], v: sink T) =
@@ -188,22 +188,22 @@ func dfaOp(env: var ClosureEnv, opc: Opcode, tree: MirTree, n: NodePosition,
   if tree[v].kind in LvalueExprKinds:
     dfaOp(env, opc, n, v)
 
-func getResumeLabel(env: var ClosureEnv): JoinId =
+func getUnwindLabel(env: var ClosureEnv): JoinId =
   # the join point is allocated when first used
-  if env.resumeLabel.isNone:
-    env.resumeLabel = some env.joins.len.JoinId
+  if env.unwindLabel.isNone:
+    env.unwindLabel = some env.joins.len.JoinId
     env.joins.add 0 # will be patched later
-  env.resumeLabel.unsafeGet
+  env.unwindLabel.unsafeGet
 
 func raiseExit(env: var ClosureEnv, opc: Opcode, tree: MirTree,
                at, target: NodePosition) =
-  # compute the join ID to use, accounting for the special 'resume' action:
+  # compute the join ID to use, accounting for the special 'unwind' action:
   let join =
     case tree[target].kind
     of mnkLabel:
       map(env, tree[target].label)
-    of mnkResume:
-      env.getResumeLabel()
+    of mnkUnwind:
+      env.getUnwindLabel()
     else:
       unreachable()
 
@@ -248,7 +248,7 @@ func emitForArgs(env: var ClosureEnv, tree: MirTree, at, source: NodePosition) =
     case tree[it].kind
     of mnkArg, mnkConsume, mnkName:
       emitForArg(env, tree, at, it)
-    of mnkMagic, mnkProc, mnkLabel, mnkImmediate, mnkResume:
+    of mnkMagic, mnkProc, mnkLabel, mnkImmediate, mnkUnwind:
       discard
     else:
       emitLvalueOp(env, opUse, tree, at, OpValue it)
@@ -463,9 +463,9 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
     else:
       discard "not relevant"
 
-  # patch the resume label, if used:
-  if env.resumeLabel.isSome:
-    let id = env.resumeLabel.unsafeGet
+  # patch the unwind label, if used:
+  if env.unwindLabel.isSome:
+    let id = env.unwindLabel.unsafeGet
     env.joins[id] = env.instrs.len.InstrPos
     env.instrs.add Instr(op: opJoin, node: tree.len.NodePosition, id: id)
 
