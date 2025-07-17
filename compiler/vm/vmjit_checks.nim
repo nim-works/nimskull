@@ -57,11 +57,9 @@ proc check(defs: var IntSet, env: MirEnv, n: PNode) =
     else:
       discard "nothing to do"
 
-  of nkYieldStmt:
+  of nkSuspend:
     # the transformation modifies types and procedures, and these modifications
     # would be visible to sem
-    # TODO: (fix before merge) this rejection currently happens too late;
-    #       transf already modified the type at this point
     fail n.info, VmGenDiag(kind: vmGenDiagCannotEvaluateAtComptime, ast: n)
   of nkIdentDefs, nkVarTuple:
     for it in names(n):
