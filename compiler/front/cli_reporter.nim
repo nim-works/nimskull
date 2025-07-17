@@ -567,6 +567,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "' and attempts to mutate it"
       )
 
+    of rsemCannotBorrowAcrossSuspend:
+      result.add(
+        "borrow '", r.ast, "' lives beyond a 'suspend', which is forbidden")
+
+    of rsemCannotBorrowParamAcrossSuspend:
+      result.add(
+        "non-'sink' parameter '", r.ast, "' cannot be used beyond a 'suspend'")
+
     of rsemPragmaRecursiveDependency:
       result.add "recursive dependency: "
       result.add r.sym.name.s

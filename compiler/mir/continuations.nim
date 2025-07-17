@@ -75,6 +75,10 @@ import
     magicsys
   ]
 
+from compiler/ast/reports import ReportKind
+from compiler/ast/reports_sem import SemReport
+from compiler/front/msgs import localReport
+
 const
   PathOps = {mnkPathPos, mnkPathNamed, mnkPathArray, mnkPathConv,
              mnkPathVariant}
@@ -192,8 +196,10 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
       var save: Cont.saved
       var empty: Cont.locs
       for it in locs.items:
-        var state = TraverseState()
-        var mode = 0
+        var
+          usedAt: NodePosition
+          state = TraverseState()
+          mode = 0
         # mode == 1 -> only the storage location is used afterward
         # mode == 2 -> the value is used afterwards
         for op, arg in traverse(dfg, all, dfg.find(pos), state):
@@ -204,11 +210,13 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
                tree[root].local == it.n.local:
               # the value stored in the location is used on some path
               mode = 2
+              usedAt = NodePosition arg
               break
           of opDef, opKill, opDestroy:
             if tree[root].kind in {mnkParam, mnkLocal, mnkTemp, mnkAlias} and
                tree[root].local == it.n.local:
               mode = 1
+              usedAt = NodePosition arg
               state.exit = true
           of opMutateGlobal:
             discard "not relevant"
@@ -217,8 +225,10 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
         if (mode == 2 and
             env.types.headerFor(canon, Canonical).kind in ViewTypes) or
            (mode != 0 and it.n.kind == mnkAlias):
-          # TODO: report a proper error
-          echo "error: view is live across fork/resume"
+          # TODO: report this error as part of borrow checking
+          g.config.localReport(body.source[tree[usedAt].info].info,
+            SemReport(kind: rsemCannotBorrowAcrossSuspend,
+                      ast: body.source[tree[usedAt].info]))
           continue
 
         case mode
@@ -236,8 +246,10 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
         of opUse, opInvalidate, opMutate, opConsume, opDef, opKill, opDestroy:
           let root = simpleRoot(tree, NodePosition arg)
           if tree[root].kind == mnkParam and env[tree[root].typ].kind != tySink:
-            # TODO: report a proper error
-            echo "error: parameter is live across fork/resume"
+            # TODO: report this error as part of borrow checking
+            g.config.localReport(body.source[tree[root].info].info,
+              SemReport(kind: rsemCannotBorrowParamAcrossSuspend,
+                        ast: body.source[tree[root].info]))
             break
         of opMutateGlobal:
           discard "not relevant"

@@ -633,6 +633,8 @@ type
     rsemCannotBorrow
     rsemBorrowOutlivesSource
     rsemImmutableBorrowMutation
+    rsemCannotBorrowAcrossSuspend
+    rsemCannotBorrowParamAcrossSuspend
 
     rsemCyclicTree
     rsemCyclicDependency
