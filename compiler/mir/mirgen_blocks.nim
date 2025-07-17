@@ -181,16 +181,19 @@ proc tailExit*(c; bu) =
   bu.subTree mnkGoto:
     bu.add labelNode(bu.requestLabel(c.blocks[0]))
 
-proc saveContext*(c; start: int): BlockCtx =
-  ## Saves the blocks up until and including `start` and removes them from `c`.
-  result = BlockCtx(blocks: c.blocks[start..^1])
-  c.blocks.shrink(start)
+proc saveContext*(c): BlockCtx =
+  ## Saves the current context and replaces it with one that only contains the
+  ## top-level block.
+  result = BlockCtx(blocks: @[c.blocks[0]])
+  swap(c, result)
 
 proc restoreContext*(c; with: sink BlockCtx) =
   ## Restores the block context `with`. If the top-level block had a label
   ## registered since the `saveContext` `with` was saved with, the label is
   ## kept.
-  c.blocks.add with.blocks
+  swap(c, with)
+  if c.blocks[0].id.isNone and with.blocks[0].id.isSome:
+    c.blocks[0].id = with.blocks[0].id
 
 template add*(c: var BlockCtx; b: Block) =
   c.blocks.add b

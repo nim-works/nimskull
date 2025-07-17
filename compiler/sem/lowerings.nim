@@ -224,7 +224,7 @@ proc addUniqueField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator)
     var field = newSym(skField, getIdent(cache, s.name.s & $obj.n.len), nextSymId(idgen),
                        s.owner, s.info, s.options)
     field.itemId = ItemId(module: s.itemId.module, item: -s.itemId.item)
-    let t = skipTypes(skipIntLit(s.typ, idgen), {tySink})
+    let t = skipIntLit(s.typ, idgen)
     field.typ = t
     assert t.kind != tyTyped
     propagateToOwner(obj, t)
