@@ -399,9 +399,13 @@ proc translate*(id: ProcedureId, body: PNode, graph: ModuleGraph,
     graph.config.timeTracer.traceStr("cursors")
     computeCursors(prc, body, graph)
 
-  echoInput(graph.config, prc, body)
-  result = generateCode(graph, env, prc, config.tconfig, body)
-  echoMir(graph.config, prc, result, env)
+  # if the procedure has a MIR body already, use that
+  if env.pbodies.pop(id, result):
+    echoMir(graph.config, prc, result, env)
+  else:
+    echoInput(graph.config, prc, body)
+    result = generateCode(graph, env, prc, config.tconfig, body)
+    echoMir(graph.config, prc, result, env)
 
   # now apply the passes:
   graph.config.timeTracer.traceSym(tikPasses, prc):

@@ -15,6 +15,7 @@ import
   ],
   compiler/mir/[
     datatables,
+    mirbodies,
     mirtrees,
     mirtypes
   ],
@@ -60,6 +61,9 @@ type
     bodies*: OrdinalSeq[ConstId, DataId]
       ## associates each user-defined constant with its content
       ## ## TODO: this needs to be merged into `constants`
+
+    pbodies*: Table[ProcedureId, MirBody]
+      ## a side-channel for providing the bodies for procedures
 
   EnvCheckpoint* = tuple
     ## A low-cost snapshot of a `MirEnv <#MirEnv>`_.
