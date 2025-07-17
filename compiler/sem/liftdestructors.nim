@@ -1049,12 +1049,18 @@ proc resolveForwardOps*(g: ModuleGraph, idgen: IdGenerator, typ: PType,
   let lastAttached = if g.config.selectedGC == gcOrc: attachedTrace
                      else: attachedSink
 
+  # temporarily remove the overridden flag from the symbols, so that
+  # their bodies are produced properly
   for k in attachedDestructor..lastAttached:
-    let op = getAttachedOp(g, typ, k)
-    assert sfForward in op.flags
-    # temporarily remove the "overridden" flags so that the body is
-    # generated properly
-    op.flags.excl sfOverriden
+    let s = getAttachedOp(g, typ, k)
+    assert sfForward in s.flags
+    s.flags.excl sfOverriden
+
+  for k in attachedDestructor..lastAttached:
     let s = produceSym(g, nil, typ, k, info, idgen)
     s.flags.excl sfForward
+
+  # add back the overridden flag
+  for k in attachedDestructor..lastAttached:
+    let s = getAttachedOp(g, typ, k)
     s.flags.incl sfOverriden
