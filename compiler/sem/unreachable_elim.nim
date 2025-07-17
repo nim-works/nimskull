@@ -322,6 +322,9 @@ proc process(c: var PassContext, n: PNode): PNode =
         discard
 
     result = n
+  of nkSuspend:
+    result = n
+    result[^1] = recurse(n[^1])
   of callableDefs, nkConstSection, nkTypeSection, nkBindStmt, nkMixinStmt,
      nkIncludeStmt, nkImportStmt, nkImportExceptStmt, nkFromStmt, nkExportStmt,
      nkExportExceptStmt, nkTypeOfExpr:

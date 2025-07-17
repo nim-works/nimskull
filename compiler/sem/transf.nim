@@ -1122,17 +1122,16 @@ proc transformCall(c: PTransf, n: PNode): PNode =
   elif magic in {mAnd, mOr}:
     result = transformAndOr(c, n)
   elif magic == mSuspend:
-    # turn into a dedicated syntax form ('yield' is currently used for this)
-    # TODO: maybe just add dedicated suspend form? It's special enough to
-    #       warrant one...
+    # turn into a dedicated syntax form
+    let def = transformSym(c, n[2])
     if n[3].typ.isEmptyType():
       let got = transform(c, n[3])
       if got.kind == nkReturnStmt:
         # the expression is a void-returning tailcall
-        result = newTreeIT(nkYieldStmt, n.info, n.typ, n[2], got)
+        result = newTreeIT(nkSuspend, n.info, n.typ, def, got)
       else:
         # append a 'return' for downstream processing
-        result = newTreeIT(nkYieldStmt, n.info, n.typ, n[2],
+        result = newTreeIT(nkSuspend, n.info, n.typ, def,
           newTree(nkStmtList,
             got,
             newTreeI(nkReturnStmt, n[3].info, c.graph.emptyNode)))
@@ -1141,7 +1140,7 @@ proc transformCall(c: PTransf, n: PNode): PNode =
       let got = transform(c, nkReturnStmt.newTreeI(n[3].info,
           newTree(nkAsgn,
             newSymNode(getCurrOwner(c).ast[resultPos].sym), n[3])))
-      result = newTreeIT(nkYieldStmt, n.info, n.typ, n[2], got)
+      result = newTreeIT(nkSuspend, n.info, n.typ, def, got)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
@@ -1486,7 +1485,7 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   case n.kind
   of nkSym, nkLiterals:
     wrap(n)
-  of nkCast, nkConv, nkHiddenSubConv, nkHiddenStdConv, nkYieldStmt:
+  of nkCast, nkConv, nkHiddenSubConv, nkHiddenStdConv, nkSuspend:
     recurse(n[1], false)
     wrap(n)
   of nkHiddenAddr, nkHiddenDeref, nkObjDownConv, nkObjUpConv, nkAddr,
