@@ -1509,27 +1509,6 @@ proc genReturn(c: var TCtx, n: PNode) =
     gen(c, n[0])
     blockExit(c.blocks, c.graph, c.env, c.builder, target)
 
-proc genSuspend(c: var TCtx, n: PNode) =
-  ## Translates and emits the MIR common for both 'suspend' expressions and
-  ## statements.
-  let lab = c.allocLabel()
-  let saved = c.blocks.saveContext()
-  # backup the block context, so that the code in the suspend context is
-  # translated as if it there were no active locals, enclosing try blocks, etc.
-  c.scope(false):
-    discard c.addLocal(n[0].sym)
-    c.register(c.genLocation(n[0]))
-    c.buildStmt mnkDef:
-      c.add c.nameNode(n[0].sym)
-      c.add MirNode(kind: mnkNone)
-    c.buildStmt mnkFork:
-      c.add c.nameNode(n[0].sym)
-      c.add labelNode(lab)
-    c.gen(n[1])
-  c.blocks.restoreContext(saved)
-  c.buildStmt mnkLand:
-    c.add labelNode(lab)
-
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
   ## `status` provides the information necessary to decide what assignment
@@ -1771,6 +1750,38 @@ proc genVarSection(c: var TCtx, n: PNode) =
     else:
       unreachable(a.kind)
 
+
+proc genSuspend(c: var TCtx, n: PNode) =
+  ## Translates and emits the MIR common for both 'suspend' expressions and
+  ## statements.
+  let lab = c.allocLabel()
+  let saved = c.blocks.saveContext()
+  # backup the block context, so that the code in the suspend context is
+  # translated as if it there were no active locals, enclosing try blocks, etc.
+  c.scope(false):
+    discard c.addLocal(n[0].sym)
+    c.register(c.genLocation(n[0]))
+    c.buildStmt mnkDef:
+      c.add c.nameNode(n[0].sym)
+      c.add MirNode(kind: mnkNone)
+    # capturing the suspend parameters logically happens before the fork
+    for i in 1..<n.len-1:
+      c.genLocDef(n[i][0], n[i][1])
+    c.buildStmt mnkFork:
+      c.add c.nameNode(n[0].sym)
+      c.add labelNode(lab)
+    # the 'suspend' body is effectively a subroutine, in which the result
+    # starts empty
+    if not c.owner.typ[0].isEmptyType():
+      c.buildStmt mnkVoid:
+        c.buildMagicCall mWasMoved, VoidType:
+          c.emitByName ekKill:
+            c.add c.nameNode(c.owner.ast[resultPos].sym)
+
+    c.gen(n[^1])
+  c.blocks.restoreContext(saved)
+  c.buildStmt mnkLand:
+    c.add labelNode(lab)
 
 proc genWhile(c: var TCtx, n: PNode) =
   ## Generates the code for a ``nkWhile`` node.
@@ -2356,9 +2367,11 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
   of pirCall:
     genCallOrMagic(c, n.orig)
   of pirSuspend:
-    let tmp = c.allocTemp(typ)
-    c.genSuspend(n.orig)
+    withFront c.builder:
+      c.genSuspend(n.orig)
+
     # the 'land' must be followed by a def, which receives the resumed-with value
+    let tmp = c.allocTemp(typ)
     c.buildStmt mnkDef:
       c.use tmp
       c.add MirNode(kind: mnkNone)

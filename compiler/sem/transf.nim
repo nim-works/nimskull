@@ -438,7 +438,13 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
     idNodeTablePut(c.transCon.mapping, n[0].sym, x)
     result = shallowCopy(n)
     result[0] = x
-    result[1] = introduceNewLocalVars(c, n[1])
+    for i in 1..<n.len-1:
+      let fv = freshVar(c, n[i][0].sym)
+      idNodeTablePut(c.transCon.mapping, n[i][0].sym, fv)
+      result[i] = copyTree(n[i])
+      result[i][0] = fv
+
+    result[^1] = introduceNewLocalVars(c, n[^1])
   of nkClosure:
     # it can happen that for-loop-inlining produced a fresh
     # set of variables, including some computed environment
@@ -551,6 +557,97 @@ proc transformYield(c: PTransf, n: PNode): PNode =
   # target rewriting
   result = newTreeI(nkBlockStmt, n.info):
     [newSymNode(newLabel(c, n)), result]
+
+proc transformSuspend(c: PTransf, n: PNode): PNode =
+  let def = transformSym(c, n[2])
+  var body =
+    if n[3].typ.isEmptyType():
+      transform(c, n[3])
+    else:
+      # turn the expression into a statement prior to transformation
+      transform(c,
+        newTreeI(nkReturnStmt, n[3].info,
+          newTree(nkAsgn,
+            newSymNode(getCurrOwner(c).ast[resultPos].sym), n[3])))
+
+  # the suspend body is very similiar to an inner routine; locals from the
+  # outside, except for immutable parameters, need to be captured
+  var map = newIdTable()
+  proc update(c: PTransf, n: PNode): PNode =
+    case n.kind
+    of nkTypeSection, nkMixinStmt, nkBindStmt, callableDefs,
+       nkWithoutSons - {nkSym}:
+      result = n
+    of nkSym:
+      let s = n.sym
+      if (s.kind in {skVar, skLet, skTemp, skForVar, skResult} and
+          sfGlobal notin s.flags) or
+         (s.kind == skParam and s.typ.kind == tySink):
+        var ns = PSym(idTableGet(map, s))
+        if ns.isNil:
+          ns = copySym(s, nextSymId(c.idgen))
+          # make sure the symbol kind is sane
+          case s.kind
+          of skParam, skResult:
+            ns.kind = skVar
+          else:
+            discard "nothing to change"
+          idTablePut(map, s, ns)
+        result = newSymNode(ns, n.info)
+      else:
+        result = n
+    of nkIdentDefs:
+      # locals defined within the suspend body don't need to be captured
+      idTablePut(map, n[0].sym, n[0].sym)
+      n[^1] = update(c, n[^1])
+      result = n
+    of nkVarTuple:
+      for i in 0..<n.len-2:
+        idTablePut(map, n[i].sym, n[i].sym)
+      n[^1] = update(c, n[^1])
+      result = n
+    of nkObjConstr:
+      for i in 1..<n.len:
+        n[i] = update(c, n[i])
+      result = n
+    of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv:
+      n[1] = update(c, n[1])
+      result = n
+    of nkReturnStmt:
+      # ignore the result variable in a return statement
+      if n[0].kind == nkAsgn:
+        n[0][1] = update(c, n[0][1])
+      else:
+        n[0] = update(c, n[0])
+      result = n
+    else:
+      for i in 0..<n.len:
+        n[i] = update(c, n[i])
+      result = n
+
+  # replace all free variables (from the perspective of the suspend) with
+  # fresh symbols
+  idTablePut(map, def.sym, def.sym)
+  body = update(c, body)
+
+  result = newNodeIT(nkSuspend, n.info, n.typ)
+  result.add def
+  # add the associations to the 'suspend':
+  for (orig, it) in idTablePairs(map):
+    if RootRef(orig) != it:
+      result.add newTree(nkExprEqExpr,
+        newSymNode(PSym(it)),
+        newSymNode(PSym(orig)))
+
+  if body.kind == nkReturnStmt:
+    # the body is tailcall; change nothing
+    result.add body
+  else:
+    # append a 'return' so that the body always ends in a no-return statement
+    result.add:
+      newTree(nkStmtList,
+        body,
+        newTreeI(nkReturnStmt, body.info, c.graph.emptyNode))
 
 proc transformAddr(c: PTransf, n: PNode): PNode =
   result = transformSons(c, n)
@@ -1128,25 +1225,7 @@ proc transformCall(c: PTransf, n: PNode): PNode =
   elif magic in {mAnd, mOr}:
     result = transformAndOr(c, n)
   elif magic == mSuspend:
-    # turn into a dedicated syntax form
-    let def = transformSym(c, n[2])
-    if n[3].typ.isEmptyType():
-      let got = transform(c, n[3])
-      if got.kind == nkReturnStmt:
-        # the expression is a void-returning tailcall
-        result = newTreeIT(nkSuspend, n.info, n.typ, def, got)
-      else:
-        # append a 'return' for downstream processing
-        result = newTreeIT(nkSuspend, n.info, n.typ, def,
-          newTree(nkStmtList,
-            got,
-            newTreeI(nkReturnStmt, n[3].info, c.graph.emptyNode)))
-    else:
-      # turn the expression into a statement prior to transformation
-      let got = transform(c, nkReturnStmt.newTreeI(n[3].info,
-          newTree(nkAsgn,
-            newSymNode(getCurrOwner(c).ast[resultPos].sym), n[3])))
-      result = newTreeIT(nkSuspend, n.info, n.typ, def, got)
+    result = transformSuspend(c, n)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
