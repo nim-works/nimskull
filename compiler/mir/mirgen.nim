@@ -1040,53 +1040,6 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
     c.buildMagicCall m, rtyp:
       # skip the surrounding typedesc
       c.emitByVal typeLit(c.typeToMir(n[1].typ.skipTypes({tyTypeDesc})))
-  of mSuspend:
-    let label = c.allocLabel()
-    # emit a definition of the local storing the continuation:
-    discard c.addLocal(n[2].sym)
-    let tmp = c.nameNode(n[2].sym)
-
-    # treat the code in the suspend context as if was at the top level of the
-    # procedure
-    let saved = c.blocks.saveContext()
-    withFront c.builder:
-      c.buildStmt mnkScope: discard
-      discard c.blocks.startScope()
-
-      c.buildStmt mnkDef:
-        c.add tmp
-        c.add MirNode(kind: mnkNone)
-      c.buildStmt mnkFork:
-        c.add tmp
-        c.add labelNode(label)
-
-      if c.owner.typ[0].isEmptyType() or n[3].typ == c.graph.noreturnType:
-        c.genCall(n[3])
-      else:
-        let v = c.wrapTemp c.typeToMir(n.typ):
-          c.genCall(n[3])
-        c.buildStmt mnkAsgn:
-          c.add nameNode(c, c.owner.ast[resultPos].sym)
-          c.use v
-
-      # emit a return, close the scope, and restore the original context
-      blockExit(c.blocks, c.graph, c.env, c.builder, 0)
-      c.blocks.closeScope(c.builder, 0, false)
-      c.buildStmt mnkEndScope: discard
-      c.blocks.restoreContext(saved)
-
-    if rtyp == VoidType:
-      # the land receives nothing
-      c.buildStmt mnkLand:
-        c.add labelNode(label)
-    else:
-      # the land receives an owning value
-      let res = c.allocTemp(rtyp)
-      c.buildStmt mnkLand:
-        c.add labelNode(label)
-        c.use res
-      c.buildTree mnkMove, rtyp:
-        c.use res
 
   # arithmetic operations:
   of mAddI, mSubI, mMulI, mDivI, mModI, mPred, mSucc:
@@ -1555,6 +1508,27 @@ proc genReturn(c: var TCtx, n: PNode) =
   else:
     gen(c, n[0])
     blockExit(c.blocks, c.graph, c.env, c.builder, target)
+
+proc genSuspend(c: var TCtx, n: PNode) =
+  ## Translates and emits the MIR common for both 'suspend' expressions and
+  ## statements.
+  let lab = c.allocLabel()
+  let saved = c.blocks.saveContext()
+  # backup the block context, so that the code in the suspend context is
+  # translated as if it there were no active locals, enclosing try blocks, etc.
+  c.scope(false):
+    discard c.addLocal(n[0].sym)
+    c.register(c.genLocation(n[0]))
+    c.buildStmt mnkDef:
+      c.add c.nameNode(n[0].sym)
+      c.add MirNode(kind: mnkNone)
+    c.buildStmt mnkFork:
+      c.add c.nameNode(n[0].sym)
+      c.add labelNode(lab)
+    c.gen(n[1])
+  c.blocks.restoreContext(saved)
+  c.buildStmt mnkLand:
+    c.add labelNode(lab)
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -2381,6 +2355,15 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
         genArgExpression(c, b, sink=false)
   of pirCall:
     genCallOrMagic(c, n.orig)
+  of pirSuspend:
+    let tmp = c.allocTemp(typ)
+    c.genSuspend(n.orig)
+    # the 'land' must be followed by a def, which receives the resumed-with value
+    c.buildStmt mnkDef:
+      c.use tmp
+      c.add MirNode(kind: mnkNone)
+    c.buildTree mnkMove, typ:
+      c.use(tmp)
   of pirChckRange:
     c.buildDefectMagicCall mChckRange, typ:
       c.emitOperandTree n.orig[0], false
@@ -2566,6 +2549,8 @@ proc gen(c: var TCtx, n: PNode) =
         # the expression has no side-effects nor does it constitute as use
         # of a location; drop it
         discard
+  of nkSuspend:
+    c.genSuspend(n)
 
   of nkNilLit:
     # a 'nil' literals can be used as a statement, in which case it is treated

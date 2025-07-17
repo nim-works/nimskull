@@ -59,6 +59,7 @@ type
     pirToSlice
     pirToSubSlice
     pirCall
+    pirSuspend
 
     pirChckRange
     pirStringToCString
@@ -193,8 +194,8 @@ func classify*(e: seq[ProtoItem], i: int): ExprKind =
     # constant expression are later turned into anonymous constants, so
     # they're lvalues too
     Lvalue
-  of pirCall, pirComplex, pirSetConstr, pirAddr, pirView, pirToSlice,
-     pirToSubSlice, pirStringToCString, pirCStringToString,
+  of pirCall, pirSuspend, pirComplex, pirSetConstr, pirAddr, pirView,
+     pirToSlice, pirToSubSlice, pirStringToCString, pirCStringToString,
      pirConv, pirStdConv, pirChckRange:
     OwnedRvalue
   of pirObjConstr, pirTupleConstr, pirClosureConstr, pirArrayConstr:
@@ -255,7 +256,7 @@ func isPure(e: seq[ProtoItem], n: int): bool =
     false
   of pirSetConstr, pirObjConstr, pirTupleConstr, pirArrayConstr, pirSeqConstr,
      pirClosureConstr, pirRefConstr, pirStringToCString, pirCStringToString,
-     pirToSubSlice, pirChckRange, pirCall, pirComplex:
+     pirToSubSlice, pirChckRange, pirCall, pirSuspend, pirComplex:
     # not analyzable
     false
 
@@ -766,6 +767,8 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
       node pirToSubSlice
     else:
       node pirCall
+  of nkSuspend:
+    node pirSuspend
 
   of nkBracket:
     # if the construction is of seq type, then it's a constant seq value,
