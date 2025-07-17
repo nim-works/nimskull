@@ -5,11 +5,13 @@ discard """
 
 # TODO: add proper tests
 
-proc pass[C, P](cont: sink (C, P)) =
-  cont[1](cont[0])
+proc pass[C, R](cont: sink (C, proc(c: sink C): R {.nimcall.})): R =
+  let (a, b) = cont
+  b(a)
 
-proc pass[C, R, A](x: A, cont: sink (C, proc(a: sink A, c: sink C): R {.tailcall.})): R =
-  cont[1](x, cont[0])
+proc pass[C, R, A](x: sink A, cont: sink (C, proc(a: sink A, c: sink C): R {.nimcall.})): R =
+  let (a, b) = cont
+  b(x, a)
 
 proc testInner(x: bool) =
   ## suspend within 'if' statement.
@@ -66,8 +68,8 @@ proc testOrPred(cond: bool): int =
     result = 2
 
 # XXX: also not a good test
-doAssert testOrPred(false) == 1
-doAssert testOrPred(true) == 2
+doAssert testOrPred(false) == 2
+doAssert testOrPred(true) == 1
 
 proc ifExprTest1(cond: bool): int =
   let got =
@@ -122,6 +124,7 @@ doAssert tryExprTest1(false) == 1
 proc tryTest1(doRaise: bool): int =
   ## Simple case; suspend in try/except statement, where the 'except' doesn't
   ## use anything from the outside except `result`.
+  let doRaise = doRaise
   try:
     result = suspend(int, cont, pass(1, cont))
     if doRaise:
@@ -136,6 +139,7 @@ proc tryTest2(doRaise: bool): int =
   ## The suspend is wrapped in a try/except where the 'except' uses some
   ## outer variables.
   var res = 2
+  let doRaise = doRaise
   try:
     result = suspend(int, cont, pass(1, cont))
     if doRaise:
@@ -145,3 +149,70 @@ proc tryTest2(doRaise: bool): int =
 
 doAssert tryTest2(true) == 2
 doAssert tryTest2(false) == 1
+
+iterator singleYield(): int =
+  yield 1
+
+proc testFor1(): int =
+  for it in singleYield():
+    suspend(void, cont, pass(cont))
+    inc result
+
+doAssert testFor1() == 1
+
+iterator multiYield(): int =
+  yield 1
+  yield 2
+
+proc testFor2(): int =
+  for it in multiYield():
+    suspend(void, cont, pass(cont))
+    inc result
+
+doAssert testFor2() == 2
+
+type Copyable = object
+
+var numCopies = 0
+
+proc `=copy`(a: var Copyable, b: Copyable) =
+  inc numCopies
+
+proc use[T](x: T) = discard
+
+proc copyIntoSuspend() =
+  var x = Copyable()
+  let got = suspend(Copyable, cont, pass(x, cont))
+  use(x) # use after resume
+
+copyIntoSuspend()
+doAssert numCopies == 1
+
+proc copyResultIntoSuspend(): Copyable =
+  let got = suspend(Copyable, cont, pass(result, cont))
+  use(result) # use after resume
+
+numCopies = 0
+discard copyResultIntoSuspend()
+doAssert numCopies == 1
+
+proc copySinkParamIntoSuspend(x: sink Copyable) =
+  let got = suspend(Copyable, cont, pass(x, cont))
+  use(x) # use after resume
+
+numCopies = 0
+copySinkParamIntoSuspend(Copyable())
+doAssert numCopies == 1
+
+proc get(x: Copyable, other: int): lent Copyable =
+  x
+
+proc implicitBorrow() =
+  ## The implicit borrow of the first argument to a 'lent'-returning procedure
+  ## is considered.
+  var x = @[Copyable()]
+  discard get(x[0]) do:
+    suspend(void, cont, pass(cont))
+    1
+
+implicitBorrow()

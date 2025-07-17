@@ -35,13 +35,13 @@ proc newCell[T](x: sink T): CellPtr =
 proc take[T](x: sink CellPtr): T =
   move Cell[T](x.cell).val
 
-proc newCont[R, T](env: sink T, prc: proc(x: sink T): R {.tailcall.}): Cont[void, R] =
+proc newCont[R, T](env: sink T, prc: proc(x: sink T): R): Cont[void, R] =
   (proc(env: sink CellPtr): R {.tailcall.} =
     let (prc, env) = take[(typeof(prc), T)](env)
     prc(env)
    , newCell((prc, env)))
 
-proc newCont[P, R, T](env: sink T, prc: proc(x: sink P, y: sink T): R {.tailcall.}): Cont[P, R] =
+proc newCont[P, R, T](env: sink T, prc: proc(x: sink P, y: sink T): R): Cont[P, R] =
   (proc(param: sink P, env: sink CellPtr): R {.tailcall.} =
     let (prc, env) = take[(typeof(prc), T)](env)
     prc(param, env)
@@ -53,7 +53,7 @@ proc newCont[T](x: sink T): auto {.inline.} =
 
 proc drop[T](x: sink T) = discard
 
-template newContP[P, R](body: proc(p: sink P): R {.tailcall.}): Cont[P, R] =
+template newContP[P, R](body: proc(p: sink P): R): Cont[P, R] =
   (proc (p: sink P, env: sink CellPtr): R {.tailcall.} = (drop(env); body(p)),
    CellPtr())
 
@@ -104,7 +104,7 @@ proc interpret(n: Node, then: sink Cont[Node, Node]): Node {.tailcall.} =
       eval(n[1]) # then branch
 
 proc interpret(n: Node): Node {.tailcall.} =
-  interpret(n, newContP(proc(x: sink Node): Node {.tailcall.} = x))
+  interpret(n, newContP(proc(x: sink Node): Node = x))
 
 # XXX: cannot work given the rules and current implementation
 #[
