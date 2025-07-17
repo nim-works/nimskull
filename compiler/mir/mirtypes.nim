@@ -1119,6 +1119,19 @@ proc handleImported(env: var TypeEnv, t: PType): TypeId =
   else:
     result = typeSymToMir(env, t)
 
+proc complete*(env: var TypeEnv, t: PType) =
+  ## Updates the MIR representation for the previously incomplete object
+  ## type `t`.
+  assert t.kind == tyObject
+  let id = env.map[t]
+
+  var hdr = typeToMir(env, t, canon=false)
+  env.symbols[id].desc[Original] = hdr
+
+  hdr = typeToMir(env, t, canon=true)
+  env.symbols[id].desc[Canonical] = hdr
+  env.symbols[id].desc[Lowered] = hdr
+
 proc add*(env: var TypeEnv, t: PType): TypeId =
   ## If not registered yet, adds `t` to `env` and returns the ID to later
   ## look it up with.

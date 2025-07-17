@@ -26,6 +26,7 @@ import
   ],
   compiler/mir/[
     datatables,
+    continuations,
     injecthooks,
     mirbodies,
     mirbridge,
@@ -376,6 +377,17 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
       graph.config.msgWrite("--expandArc: " & prc.name.s & "\n")
       graph.config.msgWrite(render(body.code, addr env, addr body))
       graph.config.msgWrite("\n-- end of expandArc ------------------------\n")
+
+  # the 'fork'/'land' lowering needs access to an ID generator and thus
+  # happens separately from the other passes
+  if containsFork(body.code):
+    var c = initChangeset(body)
+    continuations.firstPass(body, prc, graph, idgen, env, c)
+    body.apply(c)
+
+    c = initChangeset(body)
+    continuations.secondPass(body, env, c)
+    body.apply(c)
 
   let target =
     case graph.config.backend
