@@ -549,7 +549,8 @@ proc filter(body: MirBody, cont: ProcedureId, env: var MirEnv): MirBody =
         if active:
           copy(body, pos)
       of mnkJoin, mnkFinally:
-        if active or tree[pos, 0].label in labelMap:
+        # don't copy joins only reached by structured control-flow
+        if tree[pos, 0].label in labelMap:
           copy(body, pos)
           # now drop the label
           labelMap.del(tree[pos, 0].label)
@@ -683,9 +684,13 @@ proc removeUnreachableCode(tree: MirTree, changes: var Changeset) =
         live.incl(tree[tree.last(it)].label)
       pos = tree.sibling(pos)
       remove(tree, pos, changes)
-    of mnkJoin, mnkFinally, mnkExcept:
+    of mnkFinally, mnkExcept:
       # remove the label; keeps the set smaller
       live.excl(tree[pos, 0].label)
+    of mnkJoin:
+      # if the join is only reached by structured control-flow, remove it
+      if missingOrExcl(live, tree[pos, 0].label):
+        changes.remove(tree, pos)
     else:
       discard "keep"
 
