@@ -433,6 +433,12 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
     result = n
   of nkVarSection, nkLetSection:
     result = transformVarSection(c, n)
+  of nkSuspend:
+    let x = freshVar(c, n[0].sym)
+    idNodeTablePut(c.transCon.mapping, n[0].sym, x)
+    result = shallowCopy(n)
+    result[0] = x
+    result[1] = introduceNewLocalVars(c, n[1])
   of nkClosure:
     # it can happen that for-loop-inlining produced a fresh
     # set of variables, including some computed environment
