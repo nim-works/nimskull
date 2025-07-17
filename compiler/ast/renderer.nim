@@ -515,6 +515,8 @@ proc lsub(g: TSrcGen; n: PNode): int =
     result = lcomma(g, n, 0, -2) + lsub(g, lastSon(n)) + len("except_:_")
   of nkObjectTy:
     result = len("object_")
+  of nkSuspend:
+    result = len("suspend_") + lcomma(g, n)
   else: result = MaxLineLen + 1
 
 proc fits(g: TSrcGen, x: int): bool =
@@ -1127,6 +1129,12 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
           gsub(g, child)
     else:
       gcomma(g, n, 1)
+  of nkSuspend:
+    put(g, tkSymbol, "suspend")
+    put(g, tkSpaces, Space)
+    gcomma(g, n, 0, -2)
+    put(g, tkColon, ":")
+    gsub(g, n[^1])
   of nkExprEqExpr, nkAsgn, nkFastAsgn:
     gsub(g, n, 0)
     put(g, tkSpaces, Space)

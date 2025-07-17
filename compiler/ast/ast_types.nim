@@ -237,6 +237,7 @@ type
     nkTupleConstr         ## a tuple constructor
     nkNimNodeLit          ## a ``NimNode`` literal. Stores a single sub node
                           ## that represents the ``NimNode`` AST
+    nkSuspend             ## 'suspend' statement/expression
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair
     nkReplayAction        ## for .rod file support: A replay action
     nkNilRodNode          ## for .rod file support: a 'nil' PNode
