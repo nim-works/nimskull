@@ -21,7 +21,7 @@ scope:
   =destroy(name a)
   goto [L3]
   finally (L0):
-    continue [Resume]
+    continue [Unwind]
   L3:
 -- end of expandArc ------------------------
 --expandArc: tfor
@@ -77,7 +77,7 @@ scope:
     continue [L0]
   finally (L0):
     =destroy(name a)
-    continue [Resume]
+    continue [Unwind]
   L9:
 L5:
 -- end of expandArc ------------------------

@@ -15,7 +15,7 @@ scope:
   result := move _2
 goto [L2]
 finally (L1):
-  continue [Resume]
+  continue [Unwind]
 L2:
 
 -- end of expandArc ------------------------
