@@ -1759,16 +1759,16 @@ proc genSuspend(c: var TCtx, n: PNode) =
   # backup the block context, so that the code in the suspend context is
   # translated as if it there were no active locals, enclosing try blocks, etc.
   c.scope(false):
-    discard c.addLocal(n[0].sym)
-    c.register(c.genLocation(n[0]))
+    discard c.addLocal(n[1].sym)
+    c.register(c.genLocation(n[1]))
     c.buildStmt mnkDef:
-      c.add c.nameNode(n[0].sym)
+      c.add c.nameNode(n[1].sym)
       c.add MirNode(kind: mnkNone)
     # capturing the suspend parameters logically happens before the fork
-    for i in 1..<n.len-1:
+    for i in 2..<n.len-1:
       c.genLocDef(n[i][0], n[i][1])
     c.buildStmt mnkFork:
-      c.add c.nameNode(n[0].sym)
+      c.add c.nameNode(n[1].sym)
       c.add labelNode(lab)
     # the 'suspend' body is effectively a subroutine, in which the result
     # starts empty

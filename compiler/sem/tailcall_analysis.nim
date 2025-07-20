@@ -94,10 +94,6 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
       # the body was not typed properly, nor is it relevant for the
       # analysis; skip
       return
-    elif n[0].kind == nkSym and n[0].sym.magic == mSuspend:
-      # the suspended-to-expression appears in a tailing position
-      recurse(n[3], nil, nil)
-      return
 
     for it in n.items:
       recurse(it) # arguments are not tailing expressions
@@ -172,6 +168,9 @@ proc verifyTailCalls(g: ModuleGraph, owner: PSym, n, next, problem: PNode) =
   of nkForStmt:
     recurse(n[1])
     recurse(n[2])
+  of nkSuspend:
+    # the suspended-to-expression appears in a tail position
+    recurse(n[2], nil, nil)
   of nkWithoutSons, callableDefs, nkTypeSection, nkConstSection, nkNimNodeLit,
      nkSymChoices, nkBindStmt, nkMixinStmt:
     # don't enter nested routine declarations

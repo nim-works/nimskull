@@ -434,11 +434,12 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   of nkVarSection, nkLetSection:
     result = transformVarSection(c, n)
   of nkSuspend:
-    let x = freshVar(c, n[0].sym)
-    idNodeTablePut(c.transCon.mapping, n[0].sym, x)
+    let x = freshVar(c, n[1].sym)
+    idNodeTablePut(c.transCon.mapping, n[1].sym, x)
     result = shallowCopy(n)
-    result[0] = x
-    for i in 1..<n.len-1:
+    result[0] = n[0]
+    result[1] = x
+    for i in 2..<n.len-1:
       let fv = freshVar(c, n[i][0].sym)
       idNodeTablePut(c.transCon.mapping, n[i][0].sym, fv)
       result[i] = copyTree(n[i])
@@ -559,16 +560,16 @@ proc transformYield(c: PTransf, n: PNode): PNode =
     [newSymNode(newLabel(c, n)), result]
 
 proc transformSuspend(c: PTransf, n: PNode): PNode =
-  let def = transformSym(c, n[2])
+  let def = transformSym(c, n[1])
   var body =
-    if n[3].typ.isEmptyType():
-      transform(c, n[3])
+    if n[2].typ.isEmptyType():
+      transform(c, n[2])
     else:
       # turn the expression into a statement prior to transformation
       transform(c,
-        newTreeI(nkReturnStmt, n[3].info,
+        newTreeI(nkReturnStmt, n[2].info,
           newTree(nkAsgn,
-            newSymNode(getCurrOwner(c).ast[resultPos].sym), n[3])))
+            newSymNode(getCurrOwner(c).ast[resultPos].sym), n[2])))
 
   # the suspend body is very similiar to an inner routine; locals from the
   # outside, except for immutable parameters, need to be captured
@@ -631,6 +632,7 @@ proc transformSuspend(c: PTransf, n: PNode): PNode =
   body = update(c, body)
 
   result = newNodeIT(nkSuspend, n.info, n.typ)
+  result.add copyNode(n[0]) # type slot
   result.add def
   # add the associations to the 'suspend':
   for (orig, it) in idTablePairs(map):
@@ -1224,8 +1226,6 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     result = transformExpandToAst(c, n)
   elif magic in {mAnd, mOr}:
     result = transformAndOr(c, n)
-  elif magic == mSuspend:
-    result = transformSuspend(c, n)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
@@ -1475,6 +1475,8 @@ proc transform(c: PTransf, n: PNode): PNode =
     result = shallowCopy(n)
     for i, it in n.pairs:
       result[i] = transform(c, it.skipColon)
+  of nkSuspend:
+    result = transformSuspend(c, n)
   else:
     result = transformSons(c, n)
   when false:
@@ -1570,8 +1572,11 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   case n.kind
   of nkSym, nkLiterals:
     wrap(n)
-  of nkCast, nkConv, nkHiddenSubConv, nkHiddenStdConv, nkSuspend:
+  of nkCast, nkConv, nkHiddenSubConv, nkHiddenStdConv:
     recurse(n[1], false)
+    wrap(n)
+  of nkSuspend:
+    recurse(n[^1], false)
     wrap(n)
   of nkHiddenAddr, nkHiddenDeref, nkObjDownConv, nkObjUpConv, nkAddr,
      nkDerefExpr, nkDotExpr, nkCheckedFieldExpr:
