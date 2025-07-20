@@ -581,7 +581,7 @@ proc transformSuspend(c: PTransf, n: PNode): PNode =
       result = n
     of nkSym:
       let s = n.sym
-      if (s.kind in {skVar, skLet, skTemp, skForVar, skResult} and
+      if (s.kind in {skVar, skLet, skTemp, skForVar} and
           sfGlobal notin s.flags) or
          (s.kind == skParam and s.typ.kind == tySink):
         var ns = PSym(idTableGet(map, s))
@@ -589,12 +589,21 @@ proc transformSuspend(c: PTransf, n: PNode): PNode =
           ns = copySym(s, nextSymId(c.idgen))
           # make sure the symbol kind is sane
           case s.kind
-          of skParam, skResult:
+          of skParam:
             ns.kind = skVar
           else:
             discard "nothing to change"
           idTablePut(map, s, ns)
         result = newSymNode(ns, n.info)
+      elif s.kind == skResult:
+        # don't replace usages of the result symbol, only add the capture
+        # to the map
+        var ns = PSym(idTableGet(map, s))
+        if ns.isNil:
+          ns = copySym(s, nextSymId(c.idgen))
+          ns.kind = skVar
+          idTablePut(map, s, ns)
+        result = n
       else:
         result = n
     of nkIdentDefs:
