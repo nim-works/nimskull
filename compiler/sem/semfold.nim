@@ -960,6 +960,11 @@ proc foldInAstAux(m: PSym, n: PNode, idgen: IdGenerator, g: ModuleGraph): Folded
     # don't process the symbol slots
     result = fromAst(n, n.len - 1)
     result.add foldInAstAux(m, n[^1], idgen, g)
+  of nkSuspend:
+    result = fromAst(n, 0)
+    result.add foldInAstAux(m, n[0], idgen, g)
+    result.add n[1]
+    result.add foldInAstAux(m, n[2], idgen, g)
   of nkElifExpr, nkElseExpr:
     # must not exist in statement AST
     unreachable(n.kind)

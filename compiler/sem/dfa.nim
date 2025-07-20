@@ -828,6 +828,12 @@ proc gen(c: var Con; n: PNode) =
   of nkConv, nkExprColonExpr, nkExprEqExpr, nkCast, PathKinds1:
     gen(c, n[1])
   of nkVarSection, nkLetSection: genVarSection(c, n)
+  of nkSuspend:
+    let start = forkI(c, n)
+    genDef(c, n[1])
+    gen(c, n[2])
+    genNoReturn(c, n)
+    c.patch(start)
   of nkDefer: doAssert false, "dfa construction pass requires the elimination of 'defer'"
   else: discard
 
