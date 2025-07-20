@@ -81,21 +81,22 @@ jobs:
       - id: reprotest
         name: Run reproducibility build
         run: |
+          set -euxo pipefail
+
           # Add a guest user for reprotest
           sudo useradd -m guest-builder
 
           # The path to output diffoscope HTML to
           output_html=$RUNNER_TEMP/diffoscope.html
           run_reprotest() {
-            # Disabled kernel variation as it messes with csources architecture
-            # detection.
+            # XXX: user_group and domain_host variation are disabled due to
+            # https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1108550
             #
-            # Can be re-enabled once reprotest is >= 0.7.18, where a fix is added
-            # to prevent 32-bit architectures from being selected.
+            # Remove this once the bug is fixed.
             reprotest \
               --vary=domain_host.use_sudo=1 \
               --vary=user_group.available+=guest-builder:guest-builder \
-              --vary=-kernel \
+              --vary=-user_group,-domain_host \
               --diffoscope-arg="--html=$output_html" \
               'export XDG_CACHE_HOME=$PWD/build/nimcache \
                 && ${{ matrix.test.command }}' \
