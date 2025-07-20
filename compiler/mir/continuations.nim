@@ -221,6 +221,12 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
           of opMutateGlobal:
             discard "not relevant"
 
+        if mode != 2 and it.n.local == resultId and state.exit:
+          # the result variable is used implictly on returning
+          mode = 2
+          # TODO: make returns explicit in the MIR, so that the result doesn't
+          #       have to be special-cased like this
+
         let canon = env.types.canonical(it.n.typ)
         if (mode == 2 and
             env.types.headerFor(canon, Canonical).kind in ViewTypes) or
