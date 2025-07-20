@@ -1916,7 +1916,11 @@ proc prepareTailcallProc(c: PContext, info: TLineInfo, typ: PType) =
   else:
     invoc.rawAddSon(typ[0])
 
-  let inst = instGenericContainer(c, info, invoc)
+  # if the return type is generic, delay instantiation of the ``Continuation``
+  # until the proc type is instantiated
+  let inst =
+    if containsGenericType(typ[0]): invoc
+    else: instGenericContainer(c, info, invoc)
   # we cannot override the return type right away, since that'd leak the
   # Continuation implementation detail. Therefore the type is hidden away
   # in the effect list...

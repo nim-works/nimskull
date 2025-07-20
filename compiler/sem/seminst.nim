@@ -308,11 +308,16 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
     propagateToOwner(result, result[i])
     addDecl(c, param)
 
+  result.n[0] = originalParams[0].copyTree
+  if originalParams[0].len > effectListLen:
+    # instantiate the hidden ``Continuation`` type
+    result.n[0][effectListLen] =
+      replaceTypeVarsN(cl, originalParams[0][effectListLen])
+
   resetIdTable(cl.symMap)
   cl.isReturnType = true
   result[0] = replaceTypeVarsT(cl, result[0])
   cl.isReturnType = false
-  result.n[0] = originalParams[0].copyTree
   if result[0] != nil:
     propagateToOwner(result, result[0])
 
