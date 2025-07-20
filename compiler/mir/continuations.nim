@@ -131,6 +131,95 @@ proc canCopy(g: ModuleGraph, t: PType): bool =
   let op = getAttachedOp(g, t.skipTypes(skipForHooks), attachedAsgn)
   op.isNil or sfError notin op.flags
 
+proc prepareFork*(body: MirBody, changes: var Changeset) =
+  ## Captures the values of all owning locals used beyond a 'fork', to make
+  ## sure that unique ownership continues to hold.
+  template tree: MirTree = body.code
+
+  var
+    dfg = computeDfg(tree)
+    pos = NodePosition(0)
+    locs: seq[MirNode]
+    scopes: seq[int]
+
+  proc isLastUse(tree: MirTree, dfg: DataFlowGraph, pos: NodePosition,
+                 loc: LocalId): int =
+    let all = dfg.subgraphFor(NodePosition(0) .. NodePosition(tree.len))
+    var state = TraverseState()
+
+    template isLocal(p: NodePosition|OpValue): bool =
+      tree[p].kind in {mnkLocal, mnkParam, mnkTemp} and tree[p].local == loc
+
+    for op, arg in traverse(dfg, all, dfg.find(pos), state):
+      let root = simpleRoot(tree, NodePosition arg)
+      case op
+      of opUse, opMutate, opInvalidate, opConsume:
+        if isLocal(root):
+          result = 2
+          break
+      of opDef, opDestroy:
+        if isLocal(arg):
+          result = 1
+          state.exit = true
+        elif isLocal(root):
+          result = 1
+      of opKill:
+        if isLocal(arg):
+          state.exit = true
+      of opMutateGlobal:
+        discard "not relevant"
+
+    if result != 2 and loc == resultId and state.exit:
+      # the result variable is implicitly used when returning
+      result = 2
+
+  # also consider the result variable
+  if body[resultId].typ != VoidType:
+    locs.add MirNode(kind: mnkLocal, typ: body[resultId].typ, local: resultId)
+
+  while pos < NodePosition(tree.len):
+    case tree[pos].kind
+    of mnkDef:
+      # only owning locals are relevant
+      locs.add tree[pos, 0]
+    of mnkScope:
+      scopes.add locs.len
+    of mnkEndScope:
+      locs.shrink(scopes.pop())
+    of mnkFork:
+      locs.shrink(locs.len - 1)
+      for it in locs.items:
+        let mode = isLastUse(tree, dfg, tree.sibling(pos), it.local)
+        # if the local is used, its pre-fork value must be captured before the
+        # fork and restored afterwards
+        # if the local is only defined, it needs to be cleared after the fork
+        if mode == 2:
+          var tmp: Value
+          changes.insert(tree, pos, pos, bu):
+            tmp = bu.allocTemp(it.typ)
+            bu.subTree mnkDef:
+              bu.use tmp
+              # the move analyzer will figure out whether to move or copy
+              bu.subTree MirNode(kind: mnkSink, typ: it.typ):
+                bu.add it
+
+          changes.insert(tree, tree.sibling(pos), pos, bu):
+            bu.subTree mnkInit:
+              bu.add it
+              bu.subTree MirNode(kind: mnkMove, typ: tmp.typ):
+                bu.use tmp
+        elif mode == 1:
+          changes.insert(tree, tree.sibling(pos), pos, bu):
+            bu.subTree mnkVoid:
+              bu.buildMagicCall mWasMoved, VoidType:
+                bu.emitByName ekKill:
+                  bu.add it
+
+    else:
+      discard "nothing to do"
+
+    pos = tree.sibling(pos)
+
 proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
                 env: var MirEnv, changes: var Changeset) =
   ## * populates the continuation context objects, turning them into

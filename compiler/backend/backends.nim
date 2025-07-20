@@ -356,6 +356,13 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
              idgen: IdGenerator, env: var MirEnv) =
   ## Applies all applicable MIR passes to the `body`. `prc` is the enclosing
   ## procedure.
+  let containsFork = containsFork(body.code)
+
+  if containsFork:
+    var c = initChangeset(body)
+    continuations.prepareFork(body, c)
+    body.apply(c)
+
   if shouldInjectDestructorCalls(prc):
     block:
       var c = initChangeset(body)
@@ -380,7 +387,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
 
   # the 'fork'/'land' lowering needs access to an ID generator and thus
   # happens separately from the other passes
-  if containsFork(body.code):
+  if containsFork:
     var c = initChangeset(body)
     continuations.firstPass(body, prc, graph, idgen, env, c)
     body.apply(c)

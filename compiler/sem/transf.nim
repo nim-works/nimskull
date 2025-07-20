@@ -439,12 +439,6 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
     result = shallowCopy(n)
     result[0] = n[0]
     result[1] = x
-    for i in 2..<n.len-1:
-      let fv = freshVar(c, n[i][0].sym)
-      idNodeTablePut(c.transCon.mapping, n[i][0].sym, fv)
-      result[i] = copyTree(n[i])
-      result[i][0] = fv
-
     result[^1] = introduceNewLocalVars(c, n[^1])
   of nkClosure:
     # it can happen that for-loop-inlining produced a fresh
@@ -571,85 +565,9 @@ proc transformSuspend(c: PTransf, n: PNode): PNode =
           newTree(nkAsgn,
             newSymNode(getCurrOwner(c).ast[resultPos].sym), n[2])))
 
-  # the suspend body is very similiar to an inner routine; locals from the
-  # outside, except for immutable parameters, need to be captured
-  var map = newIdTable()
-  proc update(c: PTransf, n: PNode): PNode =
-    case n.kind
-    of nkTypeSection, nkMixinStmt, nkBindStmt, callableDefs,
-       nkWithoutSons - {nkSym}:
-      result = n
-    of nkSym:
-      let s = n.sym
-      if (s.kind in {skVar, skLet, skTemp, skForVar} and
-          sfGlobal notin s.flags) or
-         (s.kind == skParam and s.typ.kind == tySink):
-        var ns = PSym(idTableGet(map, s))
-        if ns.isNil:
-          ns = copySym(s, nextSymId(c.idgen))
-          # make sure the symbol kind is sane
-          case s.kind
-          of skParam:
-            ns.kind = skVar
-          else:
-            discard "nothing to change"
-          idTablePut(map, s, ns)
-        result = newSymNode(ns, n.info)
-      elif s.kind == skResult:
-        # don't replace usages of the result symbol, only add the capture
-        # to the map
-        var ns = PSym(idTableGet(map, s))
-        if ns.isNil:
-          ns = copySym(s, nextSymId(c.idgen))
-          ns.kind = skVar
-          idTablePut(map, s, ns)
-        result = n
-      else:
-        result = n
-    of nkIdentDefs:
-      # locals defined within the suspend body don't need to be captured
-      idTablePut(map, n[0].sym, n[0].sym)
-      n[^1] = update(c, n[^1])
-      result = n
-    of nkVarTuple:
-      for i in 0..<n.len-2:
-        idTablePut(map, n[i].sym, n[i].sym)
-      n[^1] = update(c, n[^1])
-      result = n
-    of nkObjConstr:
-      for i in 1..<n.len:
-        n[i] = update(c, n[i])
-      result = n
-    of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv:
-      n[1] = update(c, n[1])
-      result = n
-    of nkReturnStmt:
-      # ignore the result variable in a return statement
-      if n[0].kind == nkAsgn:
-        n[0][1] = update(c, n[0][1])
-      else:
-        n[0] = update(c, n[0])
-      result = n
-    else:
-      for i in 0..<n.len:
-        n[i] = update(c, n[i])
-      result = n
-
-  # replace all free variables (from the perspective of the suspend) with
-  # fresh symbols
-  idTablePut(map, def.sym, def.sym)
-  body = update(c, body)
-
   result = newNodeIT(nkSuspend, n.info, n.typ)
   result.add copyNode(n[0]) # type slot
   result.add def
-  # add the associations to the 'suspend':
-  for (orig, it) in idTablePairs(map):
-    if RootRef(orig) != it:
-      result.add newTree(nkExprEqExpr,
-        newSymNode(PSym(it)),
-        newSymNode(PSym(orig)))
-
   if body.kind == nkReturnStmt:
     # the body is tailcall; change nothing
     result.add body

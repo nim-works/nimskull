@@ -1764,26 +1764,9 @@ proc genSuspend(c: var TCtx, n: PNode) =
     c.buildStmt mnkDef:
       c.add c.nameNode(n[1].sym)
       c.add MirNode(kind: mnkNone)
-    # capturing the suspend parameters logically happens before the fork
-    for i in 2..<n.len-1:
-      c.genLocDef(n[i][0], n[i][1])
     c.buildStmt mnkFork:
       c.add c.nameNode(n[1].sym)
       c.add labelNode(lab)
-    # the 'suspend' body is effectively a subroutine, in which the result
-    # starts either empty, or using a copy of the result variable's value
-    # prior to the fork
-    if not c.owner.typ[0].isEmptyType():
-      c.buildStmt mnkVoid:
-        c.buildMagicCall mWasMoved, VoidType:
-          c.emitByName ekKill:
-            c.add c.nameNode(c.owner.ast[resultPos].sym)
-
-      for i in 2..<n.len-1:
-        if n[i][1].sym.kind == skResult:
-          c.genAsgn(true, true, n[i][1], n[i][0])
-          break
-
     c.gen(n[^1])
   c.blocks.restoreContext(saved)
   c.buildStmt mnkLand:
