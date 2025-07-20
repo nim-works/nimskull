@@ -285,6 +285,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
                       newIntTypeNode(obj.numUsed - 1, intType))
       rng.rawAddSon(intType)
       f.typ = rng
+      f.flags.incl sfDiscriminant
       ctx.n.add newTree(nkRecCase, newSymNode(f))
       inc obj.next
 
