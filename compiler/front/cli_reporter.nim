@@ -503,6 +503,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "argument doesn't borrow from parameter, global, or pointer " &
                "dereference"
 
+    of rsemCannotSuspendInExceptFinally:
+      result = "suspending within an 'except' or 'finally' clause is disallowed"
+
     of rsemCannotSaveLocal:
       result.add(
         "cannot save '",

@@ -120,6 +120,8 @@ type
   TEffects = object
     exc: PNode  ## stack of exceptions
     tags: PNode ## list of tags
+    sexc: PNode
+      ## cumulative raise effects of all 'suspend' blocks
     bottom, inTryStmt, inExceptOrFinallyStmt, leftPartOfAsgn: int
     isReraiseAllowed: int
       ## > 0 if a re-raise statement is allowed
@@ -1058,6 +1060,34 @@ proc trackCall(tracked: PEffects; n: PNode) =
       # initVar(tracked, n[i].skipAddr, false)
       else: discard
 
+proc trackSuspend(tracked: PEffects, n: PNode) =
+  # the suspend's body is run as if none of the enclosing trys apply to it;
+  # the exception effects are applied directly to the routine. The body
+  # also never returns
+  let
+    oldFacts = tracked.guards.s.len
+    oldState = tracked.init.len
+    oldBottom = tracked.bottom
+  tracked.bottom = tracked.exc.len
+
+  if tracked.inExceptOrFinallyStmt > 0:
+    localReport(tracked.config, n.info,
+      reportSem(rsemCannotSuspendInExceptFinally))
+
+  createTypeBoundOps(tracked, n[1].typ, n.info)
+  initVar(tracked, n[1])
+  track(tracked, n[2])
+
+  # add the exceptions raised by the suspend block to the dedicated suspend
+  # exception spec:
+  for i in tracked.bottom..<tracked.exc.len:
+    throws(tracked.sexc, tracked.exc[i], nil)
+
+  setLen(tracked.exc.sons, tracked.bottom)
+  tracked.bottom = oldBottom
+  setLen(tracked.init, oldState)
+  setLen(tracked.guards.s, oldFacts)
+
 type
   PragmaBlockContext = object
     oldLocked: int
@@ -1448,6 +1478,12 @@ proc track(tracked: PEffects, n: PNode) =
     localReport(tracked.config, n)
   of nkNimNodeLit:
     discard "don't analyse literal AST"
+  of nkDefer:
+    inc tracked.inExceptOrFinallyStmt
+    track(tracked, n[0])
+    dec tracked.inExceptOrFinallyStmt
+  of nkSuspend:
+    trackSuspend(tracked, n)
   else:
     for i in 0 ..< n.safeLen:
       track(tracked, n[i])
@@ -1572,6 +1608,7 @@ proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PC
 
   t.exc = effects[exceptionEffects]
   t.tags = effects[tagEffects]
+  t.sexc = newNode(nkEffectList)
   t.owner = s
   t.ownerModule = s.getModule
   t.init = @[]
@@ -1732,6 +1769,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   initEffects(g, inferredEffects, s, t, c)
   rawInitEffects g, effects
   track(t, body)
+  mergeRaises(t, t.sexc, nil)
 
   if s.kind != skMacro:
     let params = s.typ.n
