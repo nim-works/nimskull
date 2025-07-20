@@ -420,17 +420,16 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     # could be some other call
     return semDirectOp(c, n, flags)
 
-  result = shallowCopy(n)
-  result[0] = newSymNode(s, n[0].info)
-  result[1] = semExprWithType(c, n[1]) # the type parameter
+  result = newNodeI(nkSuspend, n.info, 3)
+  result[0] = semExprWithType(c, n[1]) # the type parameter
 
-  var paramType = result[1].typ
+  var paramType = result[0].typ
   if paramType.kind != tyError:
     if paramType.kind == tyTypeDesc:
       paramType = paramType.lastSon
     else:
-      result[1] = c.config.newError(result[1], PAstDiag(kind: adSemTypeExpected))
-      paramType = result[1].typ
+      result[0] = c.config.newError(result[1], PAstDiag(kind: adSemTypeExpected))
+      paramType = result[0].typ
 
   let hasResult = paramType.skipTypes({tyAlias}).kind != tyVoid
 
@@ -492,16 +491,16 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     tmp = semNormalizedLetOrVar(c, ls, skLet)
   if tmp.kind == nkError:
     # place the erroneous identifier node back into the call
-    result[2] = tmp.diag.wrongNode[0][0]
+    result[1] = tmp.diag.wrongNode[0][0]
   else:
-    result[2] = tmp[0][0]
+    result[1] = tmp[0][0]
 
   if c.p.owner.typ[0] == nil:
-    result[3] = semExprNoType(c, n[3])
+    result[2] = semExprNoType(c, n[3])
   else:
     var call = semExprWithType(c, n[3])
     call = fitNode(c, c.p.owner.typ[0], call, n[3].info)
-    result[3] = call
+    result[2] = call
 
   # TODO: noreturn handling...
   c.closeScope()
@@ -509,7 +508,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   if hasResult:
     result.typ = paramType
 
-  if nkError in {result[1].kind, result[2].kind, result[3].kind}:
+  if nkError in {result[0].kind, result[1].kind, result[2].kind}:
     result = c.config.wrapError(result)
   elif ecfStatic in c.executionCons[^1].flags:
     # TODO: report an error
