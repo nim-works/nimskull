@@ -503,6 +503,15 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "argument doesn't borrow from parameter, global, or pointer " &
                "dereference"
 
+    of rsemCannotSaveLocal:
+      result.add(
+        "cannot save '",
+        r.ast.render,
+        "' [used here: ",
+        conf $ r.ast.info,
+        "] because it is not allowed to be copied"
+      )
+
     of rsemIllegalCallconvCapture:
       let s = r.symbols[0]
       let owner = r.symbols[1]

@@ -127,6 +127,10 @@ proc newNode(kind: range[mnkParam..mnkLocal], typ: TypeId,
              id: LocalId): MirNode =
   MirNode(kind: kind, typ: typ, local: id)
 
+proc canCopy(g: ModuleGraph, t: PType): bool =
+  let op = getAttachedOp(g, t.skipTypes(skipForHooks), attachedAsgn)
+  op.isNil or sfError notin op.flags
+
 proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
                 env: var MirEnv, changes: var Changeset) =
   ## * populates the continuation context objects, turning them into
@@ -197,7 +201,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
       var empty: Cont.locs
       for it in locs.items:
         var
-          usedAt: NodePosition
+          usedAt = SourceId(0)
           state = TraverseState()
           mode = 0
         # mode == 1 -> only the storage location is used afterward
@@ -210,13 +214,13 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
                tree[root].local == it.n.local:
               # the value stored in the location is used on some path
               mode = 2
-              usedAt = NodePosition arg
+              usedAt = tree[arg].info
               break
           of opDef, opKill, opDestroy:
             if tree[root].kind in {mnkParam, mnkLocal, mnkTemp, mnkAlias} and
                tree[root].local == it.n.local:
               mode = 1
-              usedAt = NodePosition arg
+              usedAt = tree[arg].info
               state.exit = true
           of opMutateGlobal:
             discard "not relevant"
@@ -232,9 +236,15 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
             env.types.headerFor(canon, Canonical).kind in ViewTypes) or
            (mode != 0 and it.n.kind == mnkAlias):
           # TODO: report this error as part of borrow checking
-          g.config.localReport(body.source[tree[usedAt].info].info,
+          g.config.localReport(body.source[usedAt].info,
             SemReport(kind: rsemCannotBorrowAcrossSuspend,
-                      ast: body.source[tree[usedAt].info]))
+                      ast: body.source[usedAt]))
+          continue
+
+        if mode == 2 and not canCopy(g, env[it.n.typ]):
+          g.config.localReport(body.source[it.n.info].info,
+            SemReport(kind: rsemCannotSaveLocal,
+                      ast: body.source[usedAt]))
           continue
 
         case mode

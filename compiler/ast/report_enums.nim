@@ -586,6 +586,7 @@ type
     rsemUnavailableLocation
     rsemNoTailingExpression
     rsemArgumentMustBorrowFromParameter
+    rsemCannotSaveLocal
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
