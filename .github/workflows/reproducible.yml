@@ -56,6 +56,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # XXX: Workaround for https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1108550
+      - name: Configure sudo for reprotest
+        run: |
+          umask 0200
+          echo 'Defaults !fqdn' | sudo tee /etc/sudoers.d/10-no-fqdn
+
       - name: Install reprotest
         run: |
           sudo apt-get update -qq
