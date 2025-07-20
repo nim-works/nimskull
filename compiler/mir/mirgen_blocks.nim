@@ -68,6 +68,8 @@ type
       ## label
     currScope: int
       ## block index of the current scope
+    savepoint: int
+      ## block list length to truncate to when backing up the context
 
 # shorten some common parameter declarations:
 using
@@ -180,20 +182,6 @@ proc tailExit*(c; bu) =
 
   bu.subTree mnkGoto:
     bu.add labelNode(bu.requestLabel(c.blocks[0]))
-
-proc saveContext*(c): BlockCtx =
-  ## Saves the current context and replaces it with one that only contains the
-  ## top-level block.
-  result = BlockCtx(blocks: @[c.blocks[0]])
-  swap(c, result)
-
-proc restoreContext*(c; with: sink BlockCtx) =
-  ## Restores the block context `with`. If the top-level block had a label
-  ## registered since the `saveContext` `with` was saved with, the label is
-  ## kept.
-  swap(c, with)
-  if c.blocks[0].id.isNone and with.blocks[0].id.isSome:
-    c.blocks[0].id = with.blocks[0].id
 
 template add*(c: var BlockCtx; b: Block) =
   c.blocks.add b
@@ -334,3 +322,41 @@ proc closeScope*(c; bu; nextScope: int, hasStructuredExit: bool) =
     c.toDestroy.setLen(start)
 
   c.currScope = nextScope
+
+proc mark*(c) =
+  ## Marks the current block stack as having to be kept when backing
+  ## up the context.
+  c.savepoint = c.blocks.len
+
+proc saveContext*(c): BlockCtx =
+  ## Backs up everything past the previously registered marker point and
+  ## returns it as a `BlockCtx`. A new scope is always pushed and is made
+  ## the parent of all now-dangling registered destructors.
+  result = BlockCtx(
+    blocks: c.blocks[c.savepoint..^1],
+    currScope: c.currScope,
+    toDestroy: c.toDestroy,
+    savepoint: c.savepoint)
+  c.blocks.shrink(c.savepoint)
+  # the labels of all destructor entries pointing to now-removed blocks must
+  # be cleared
+  var last = 0
+  for i, it in c.blocks.pairs:
+    if it.kind == bkScope:
+      last += it.numRegistered
+      c.currScope = i
+
+  for i in last..<c.toDestroy.len:
+    c.toDestroy[i].label = none(LabelId)
+
+  c.blocks.add Block(kind: bkScope, numRegistered: c.toDestroy.len - last)
+  c.currScope = c.blocks.high
+
+proc restoreContext*(c; bu; with: sink BlockCtx) =
+  ## Restores the blocks and destructor state from `with`, but keeping the
+  ## blocks prior to the savepoint as is. A unstructured scope exit is emitted.
+  assert c.blocks.len == with.savepoint + 1
+  c.closeScope(bu, with.currScope, false)
+  c.blocks.add(with.blocks)
+  c.savepoint = with.savepoint
+  c.toDestroy = with.toDestroy

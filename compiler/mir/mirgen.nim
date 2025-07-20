@@ -1758,17 +1758,18 @@ proc genSuspend(c: var TCtx, n: PNode) =
   let saved = c.blocks.saveContext()
   # backup the block context, so that the code in the suspend context is
   # translated as if it there were no active locals, enclosing try blocks, etc.
-  c.scope(false):
-    discard c.addLocal(n[1].sym)
-    c.register(c.genLocation(n[1]))
-    c.buildStmt mnkDef:
-      c.add c.nameNode(n[1].sym)
-      c.add MirNode(kind: mnkNone)
-    c.buildStmt mnkFork:
-      c.add c.nameNode(n[1].sym)
-      c.add labelNode(lab)
-    c.gen(n[^1])
-  c.blocks.restoreContext(saved)
+  c.buildStmt mnkScope: discard
+  discard c.addLocal(n[1].sym)
+  c.register(c.genLocation(n[1]))
+  c.buildStmt mnkDef:
+    c.add c.nameNode(n[1].sym)
+    c.add MirNode(kind: mnkNone)
+  c.buildStmt mnkFork:
+    c.add c.nameNode(n[1].sym)
+    c.add labelNode(lab)
+  c.gen(n[^1])
+  c.blocks.restoreContext(c.builder, saved)
+  c.buildStmt mnkEndScope: discard
   c.buildStmt mnkLand:
     c.add labelNode(lab)
 
@@ -2626,6 +2627,7 @@ proc generateAssignment*(graph: ModuleGraph, env: var MirEnv,
     swap(c.builder, builder)
 
   swapState()
+  c.blocks.mark()
   # treat the code as top-level code so that no 'def' is generated for
   # assignments to globals
   c.scope(true):
@@ -2724,6 +2726,7 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
       # exits via an exception
       c.blocks.add Block(kind: bkTryExcept)
 
+    c.blocks.mark()
     c.scope(doesReturn):
       if owner.kind in routineKinds:
         # the procedure backing a macro has its own internal signature; use that
@@ -2821,6 +2824,7 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
     rtyp = c.typeToMir(e.typ)
     res = c.addLocal(Local(typ: rtyp)) # the result variable
   c.withBlock bkBlock:
+    c.blocks.mark()
     c.scope(true):
       c.buildStmt mnkDef:
         c.use toValue(mnkLocal, res, rtyp)
