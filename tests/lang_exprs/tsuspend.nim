@@ -1,9 +1,9 @@
 discard """
-  description: "Preliminary tests for `suspend`"
-  knownIssue.vm: ".tailcall doesn't work properly"
+  description: "Tests for ensuring the 'suspend' transformation works"
 """
 
-# TODO: add proper tests
+# note: these tests specifically test the MIR and transf parts of the
+# implementation. They're not general tests for `suspend`!
 
 proc pass[C, R](cont: sink (C, proc(c: sink C): R {.nimcall.})): R =
   let (a, b) = cont
@@ -13,17 +13,15 @@ proc pass[C, R, A](x: sink A, cont: sink (C, proc(a: sink A, c: sink C): R {.nim
   let (a, b) = cont
   b(x, a)
 
-proc testInner(x: bool) =
+proc testIf(x: bool): int =
   ## suspend within 'if' statement.
+  result = 1
   if x:
-    var a = "first " & $x
-    if x:
-      var b = "second " & $x
-      suspend(void, cont, pass(cont))
-      echo b
-    echo a
+    suspend(void, cont, pass(cont))
+    result = 2
 
-testInner(true)
+doAssert testIf(false) == 1
+doAssert testIf(true) == 2
 
 proc testLoop1() =
   ## suspend used before loop.
@@ -52,24 +50,18 @@ proc testLoop3() =
 
 testLoop3()
 
-proc orTest(cond: bool): bool =
-  ## suspend in second 'or' operand.
-  let val = cond or suspend(bool, cont, pass(true, cont))
-  result = val
+proc testLoop4(): int =
+  ## suspend in nested loop.
+  var i = 0
+  while i < 100:
+    let next = i + 5
+    while i < next:
+      suspend(void, cont, pass(cont))
+      inc i
+    inc i, 5
+  return i
 
-# XXX: not a good test
-doAssert orTest(false)
-doAssert orTest(true)
-
-proc testOrPred(cond: bool): int =
-  if cond or suspend(bool, cont, pass(false, cont)):
-    result = 1
-  else:
-    result = 2
-
-# XXX: also not a good test
-doAssert testOrPred(false) == 2
-doAssert testOrPred(true) == 1
+doAssert testLoop4() == 100
 
 proc ifExprTest1(cond: bool): int =
   let got =
