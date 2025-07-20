@@ -655,11 +655,15 @@ proc removeUnreachableCode(tree: MirTree, changes: var Changeset) =
 
       pos = tree.sibling(pos)
 
-  # if in live mode:
+    if pos < NodePosition(tree.len):
+      # skip past the re-entry point
+      pos = tree.sibling(pos)
+
+  # when in live mode:
   # * keep the statements
   # * mark all used in the statement labels as live
   # * switch to non-live mode after every goto-like statement
-  # if not in live mode: remove statements until reaching a join point
+  # when not in live mode: remove statements until reaching a join point
   # using a live label
   var pos = NodePosition(0)
   while pos < NodePosition(tree.len):
@@ -676,15 +680,18 @@ proc removeUnreachableCode(tree: MirTree, changes: var Changeset) =
         live.incl(tree[tree.last(pos)].label)
       pos = tree.sibling(pos)
       remove(tree, pos, changes)
+      continue
     of mnkGoto:
       live.incl(tree[pos, 0].label)
       pos = tree.sibling(pos)
       remove(tree, pos, changes)
+      continue
     of mnkCase:
       for it in tree.subNodes(pos, 1):
         live.incl(tree[tree.last(it)].label)
       pos = tree.sibling(pos)
       remove(tree, pos, changes)
+      continue
     of mnkFinally, mnkExcept:
       # remove the label; keeps the set smaller
       live.excl(tree[pos, 0].label)
