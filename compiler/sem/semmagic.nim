@@ -428,10 +428,31 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     if paramType.kind == tyTypeDesc:
       paramType = paramType.lastSon
     else:
-      result[0] = c.config.newError(result[1], PAstDiag(kind: adSemTypeExpected))
+      result[0] = c.config.newError(result[0],
+        PAstDiag(kind: adSemTypeExpected))
       paramType = result[0].typ
 
-  let hasResult = paramType.skipTypes({tyAlias}).kind != tyVoid
+    if containsGenericType(paramType):
+      result[0] = c.config.newError(result[0],
+        PAstDiag(kind: adSemTIsNotAConcreteType, wrongType: paramType))
+      paramType = result[0].typ
+
+  let hasParam = paramType.skipTypes({tyAlias}).kind != tyVoid
+  if hasParam:
+    result.typ = paramType
+
+  var resultType: PType
+  if c.p.owner.kind == skModule:
+    # an error is reported later
+    resultType = nil
+  elif c.p.owner.typ[0] != nil and resultTypeIsInferrable(c.p.owner.typ[0]):
+    # don't try to analyze the body; bail out
+    result[1] = n[2]
+    result[2] = n[3]
+    # TODO: create a proper diagnostic
+    return c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+  else:
+    resultType = c.p.owner.typ[0]
 
   # create an new object for the context. It's populated at a (much) later stage
   let objSym = newSym(skType, c.cache.getIdent("Ctx"), nextSymId(c.idgen),
@@ -464,10 +485,8 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   # create the type of the continuation procedure:
   let prc = newProcType(n.info, nextTypeId(c.idgen), getCurrOwner(c))
   prc.callConv = ccNimCall
-  # TODO: handle the "unresolved auto return type" case. The easiest solution
-  #       is just reporting an error
-  prc[0] = c.p.owner.typ[0] # use the enclosing routine's return type
-  if hasResult:
+  prc[0] = resultType # use the enclosing routine's return type
+  if hasParam:
     prc.addParam("arg", newTypeWithSons(c, tySink, @[paramType]), n.info, c)
   prc.addParam("c", newTypeWithSons(c, tySink, @[obj]), n.info, c)
 
@@ -478,7 +497,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
 
   c.openScope()
   # create a let section and type that. This makes sure the symbol is properly
-  # registered everywhere, and retyping is also taken care. The initializer
+  # registered everywhere, and retyping is also taken care of. The initializer
   # needs to be some well-formed, non empty expression for the analysis to
   # succeed -- we use a correctly typed but gramatically incorrect node as
   # the expression
@@ -495,24 +514,35 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   else:
     result[1] = tmp[0][0]
 
-  if c.p.owner.typ[0] == nil:
+  # the suspension body happens within its own execution context
+  c.pushExecCon({})
+
+  if resultType == nil:
     result[2] = semExprNoType(c, n[3])
   else:
-    var call = semExprWithType(c, n[3])
-    call = fitNode(c, c.p.owner.typ[0], call, n[3].info)
-    result[2] = call
+    # may either be an expression or statement
+    var body = semExpr(c, n[3])
+    if body.kind != nkError:
+      body.flags.incl nfSem
+      if not isEmptyType(body.typ):
+        # the body is an expression; treat it as a return operand
+        body = semStmt(c, newTreeI(nkReturnStmt, n.info, body), {})
 
-  # TODO: noreturn handling...
+    result[2] = body
+
+  c.popExecCon()
   c.closeScope()
 
-  if hasResult:
-    result.typ = paramType
-
-  if nkError in {result[0].kind, result[1].kind, result[2].kind}:
+  # TODO: create proper diagnostics
+  # TODO: detect "suspend in suspend" (or maybe leave that to sempass2?)
+  if ecfStatic in c.executionCons[^1].flags:
+    result = c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+  elif c.p.owner.kind == skIterator:
+    result = c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+  elif c.p.owner.kind == skModule:
+    result = c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+  elif nkError in {result[0].kind, result[1].kind, result[2].kind}:
     result = c.config.wrapError(result)
-  elif ecfStatic in c.executionCons[^1].flags:
-    # TODO: report an error
-    discard
 
 proc magicsAfterOverloadResolution(c: PContext, n: PNode,
                                    flags: TExprFlags): PNode =
