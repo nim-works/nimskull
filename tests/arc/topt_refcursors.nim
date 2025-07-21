@@ -19,7 +19,7 @@ scope:
               goto [L2]
         def_cursor _8: Node = it
         def_cursor _9: string = _8[].s
-        echo(arg type(array[0..0, string]), arg _9) -> [Resume]
+        echo(arg type(array[0..0, string]), arg _9) -> [Unwind]
         def_cursor _10: Node = it
         it = _10[].ri
   L2:
@@ -54,7 +54,7 @@ scope:
   goto [L9]
   finally (L8):
     =destroy(name jt)
-    continue [Resume]
+    continue [Unwind]
   L9:
 
 -- end of expandArc ------------------------'''

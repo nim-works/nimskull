@@ -3,7 +3,7 @@ discard """
   nimout: '''--expandArc: test
 
 scope:
-  def x: (Obj, Obj) = init() -> [Resume]
+  def x: (Obj, Obj) = init() -> [Unwind]
   def _2: (Obj, Obj) = move x
   def a: Obj
   a := move _2.0

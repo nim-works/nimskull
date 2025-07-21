@@ -19,7 +19,7 @@ scope:
   goto [L1]
   finally (L0):
     =destroy(name _2)
-    continue [Resume]
+    continue [Unwind]
   L1:
 -- end of expandArc ------------------------
 --expandArc: main1
@@ -40,12 +40,12 @@ scope:
   goto [L1]
   finally (L0):
     =destroy(name s)
-    continue [Resume]
+    continue [Unwind]
   L1:
 -- end of expandArc ------------------------
 --expandArc: main2
 scope:
-  def s: seq[byte] = newSeq(arg 100) -> [Resume]
+  def s: seq[byte] = newSeq(arg 100) -> [Unwind]
   def _3: openArray[byte] = toOpenArray s
   def _4: seq[byte] = encode(arg _3) -> [L0]
   def_cursor _5: string = cast _4
@@ -57,12 +57,12 @@ scope:
   goto [L1]
   finally (L0):
     =destroy(name s)
-    continue [Resume]
+    continue [Unwind]
   L1:
 -- end of expandArc ------------------------
 --expandArc: main3
 scope:
-  def _2: seq[byte] = newSeq(arg 100) -> [Resume]
+  def _2: seq[byte] = newSeq(arg 100) -> [Unwind]
   def _3: openArray[byte] = toOpenArray _2
   def _4: seq[byte] = encode(arg _3) -> [L0]
   def_cursor _5: string = cast _4
@@ -74,7 +74,7 @@ scope:
   goto [L1]
   finally (L0):
     =destroy(name _2)
-    continue [Resume]
+    continue [Unwind]
   L1:
 -- end of expandArc ------------------------'''
 """
