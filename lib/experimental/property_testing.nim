@@ -466,21 +466,6 @@ proc nimNodeArb*(): Arbitrary[NimNode] =
 #-- Assert Property Reporting
 
 type
-  RunExecution[T] = object
-    ## result of run execution
-    # XXX: move to using this rather than open state in `execProperty` procs
-    # XXX: lots to do to finish this:
-    #      * save necessary state for quick reproduction (path, etc)
-    #      * support async and streaming (iterator? CPS? magical other thing?)
-    runId: uint32
-    preRunRngCount: uint32
-    failureOn: PossibleRunId
-    case status: PTStatus:
-      of ptFail:
-        counterExample: T
-      of ptPreCondFail, ptPass:
-        discard
-
   GlobalContext* = object
     hasFailure: bool
     specNames: seq[string]
@@ -489,7 +474,6 @@ type
 
   AssertReport*[T] = object
     ## result of a property assertion, with all runs information
-    # XXX: don't need counter example here once `RunExecution` is being used.
     name: string
     runId: PossibleRunId
     failures: uint32
