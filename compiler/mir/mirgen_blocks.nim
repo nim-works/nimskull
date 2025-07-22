@@ -229,7 +229,7 @@ proc raiseExit*(c; bu) =
       return
 
   # no local exception handler exists
-  bu.add MirNode(kind: mnkResume)
+  bu.add MirNode(kind: mnkUnwind)
 
 proc closeBlock*(c; bu): bool =
   ## Finishes the current block. If required for the block (because it is a

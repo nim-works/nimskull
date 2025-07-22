@@ -806,7 +806,7 @@ proc splitAssignments(tree: MirTree, changes: var Changeset) =
       # * if the destination is a local, does the exceptional path enter a
       #   local exception handler?
       if tree[tree.getRoot(tree.operand(p, 0))].kind notin Locals or
-         tree[target].kind != mnkResume:
+         tree[target].kind != mnkUnwind:
         # future direction: this can be optimized. The assignment only needs to
         # be split if the assignment destination's value is observed on the
         # exceptional control-flow path

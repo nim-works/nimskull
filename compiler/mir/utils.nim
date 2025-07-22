@@ -59,7 +59,7 @@ func `$`(n: MirNode): string =
   of mnkImmediate:
     result.add " imm: "
     result.addInt n.imm
-  of mnkNone, mnkNilLit, mnkType, mnkResume:
+  of mnkNone, mnkNilLit, mnkType, mnkUnwind:
     discard
   of SubTreeNodes:
     result.add " len: "
@@ -241,7 +241,7 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.add "type("
     typeToStr(result, n.typ, c.env)
     result.add ")"
-  of AllNodeKinds - Atoms - mnkProc + {mnkResume}:
+  of AllNodeKinds - Atoms - mnkProc + {mnkUnwind}:
     result.error(n)
 
 proc singleToStr(tree: MirTree, i: var int, result: var string, c: RenderCtx) =
@@ -351,8 +351,8 @@ proc targetToStr(nodes: MirTree, i: var int, result: var string) =
     result.add "["
     result.add n.label
     result.add "]"
-  of mnkResume:
-    result.add "[Resume]"
+  of mnkUnwind:
+    result.add "[Unwind]"
   else:
     result.error(n)
 

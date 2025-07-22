@@ -348,7 +348,7 @@ proc targetToIr(tree: MirBody, cr: var TreeCursor): CgNode =
   case n.kind
   of mnkLabel:
     result = newLabelNode(n.label)
-  of mnkResume:
+  of mnkUnwind:
     result = CgNode(kind: cnkResume, info: cr.info)
   else:
     unreachable(n.kind)
