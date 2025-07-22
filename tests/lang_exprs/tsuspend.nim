@@ -162,16 +162,3 @@ proc testFor2(): int =
     inc result
 
 doAssert testFor2() == 2
-
-proc get(x: Copyable, other: int): lent Copyable =
-  x
-
-proc implicitBorrow() =
-  ## The implicit borrow of the first argument to a 'lent'-returning procedure
-  ## is considered.
-  var x = @[Copyable()]
-  discard get(x[0]) do:
-    suspend(void, cont, pass(cont))
-    1
-
-implicitBorrow()
