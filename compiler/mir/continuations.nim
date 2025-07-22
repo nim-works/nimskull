@@ -778,10 +778,10 @@ proc removeUnreachableCode(tree: MirTree, changes: var Changeset) =
     of mnkDef, mnkDefCursor, mnkVoid, mnkAsgn, mnkInit, mnkSwitch:
       let e = tree.last(pos)
       if tree[e].kind == mnkCheckedCall and
-         tree[tree.last(e)].kind != mnkResume:
+         tree[tree.last(e)].kind != mnkUnwind:
         live.incl(tree[tree.last(e)].label)
     of mnkRaise, mnkContinue:
-      if tree[tree.last(pos)].kind != mnkResume:
+      if tree[tree.last(pos)].kind != mnkUnwind:
         live.incl(tree[tree.last(pos)].label)
       pos = tree.sibling(pos)
       remove(tree, pos, changes)
