@@ -1770,7 +1770,7 @@ proc genSuspend(c: var TCtx, n: PNode) =
   c.gen(n[^1])
   c.blocks.restoreContext(c.builder, saved)
   c.buildStmt mnkEndScope: discard
-  c.buildStmt mnkLand:
+  c.buildStmt mnkResume:
     c.add labelNode(lab)
 
 proc genWhile(c: var TCtx, n: PNode) =
@@ -2360,7 +2360,7 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
     withFront c.builder:
       c.genSuspend(n.orig)
 
-    # the 'land' must be followed by a def, which receives the resumed-with value
+    # the 'resume' must be followed by a def, which receives the resumed-with value
     let tmp = c.allocTemp(typ)
     c.buildStmt mnkDef:
       c.use tmp

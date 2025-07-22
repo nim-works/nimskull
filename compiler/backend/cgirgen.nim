@@ -621,7 +621,7 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     scopeToIr(tree, env, cl, cr, stmts)
   of mnkDestroy:
     unreachable("a 'destroy' that wasn't lowered")
-  of AllNodeKinds - StmtNodes + {mnkEndScope, mnkFork, mnkLand}:
+  of AllNodeKinds - StmtNodes + {mnkEndScope, mnkFork, mnkResume}:
     unreachable(n.kind)
 
 proc setElementToIr(tree: MirBody, cl: var TranslateCl,

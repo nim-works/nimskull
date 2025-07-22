@@ -385,7 +385,7 @@ proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
       graph.config.msgWrite(render(body.code, addr env, addr body))
       graph.config.msgWrite("\n-- end of expandArc ------------------------\n")
 
-  # the 'fork'/'land' lowering needs access to an ID generator and thus
+  # the 'fork'/'resume' lowering needs access to an ID generator and thus
   # happens separately from the other passes
   if containsFork:
     var c = initChangeset(body)

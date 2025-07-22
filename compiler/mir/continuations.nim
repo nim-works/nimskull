@@ -226,7 +226,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
   ##   complete objects
   ## * creates the symbols for the reified continuation procedures
   ## * lowers 'fork' into a tuple/object construction
-  ## * turns all 'land's into their decorated form
+  ## * turns all 'resume's into their decorated form
   type Cont = object
     ## Information gathered about a continuation.
     id: ProcedureId
@@ -284,7 +284,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
         # setup the procedure
         let pt = env.types[tree[pos, 0].typ][1]
         conts[lab] = Cont(id: env.procedures.add(makeProc(g, idgen, owner, pt)))
-    of mnkLand:
+    of mnkResume:
       # gather the state that needs to be saved
       var save: Cont.saved
       var empty: Cont.locs
@@ -464,11 +464,11 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
           bu.pathPos ptyp, 1:
             bu.emitFrom(tree, dest)
           bu.add MirNode(kind: mnkProcVal, prc: conts[lab].id, typ: ptyp)
-    of mnkLand:
+    of mnkResume:
       # add the procedure ID and the list of saved/reused locals
       let lab = tree[pos, 0].label
       changes.replaceMulti(tree, pos, bu):
-        bu.subTree mnkLand:
+        bu.subTree mnkResume:
           bu.emitFrom(tree, tree.child(pos, 0))
           bu.add MirNode(kind: mnkProc, prc: conts[lab].id)
           # the saved locals come first
@@ -532,7 +532,7 @@ proc filter(body: MirBody, cont: ProcedureId, env: var MirEnv): MirBody =
       loops.add (false, pos)
     of mnkLoop:
       loops.shrink(loops.len - 1)
-    of mnkLand:
+    of mnkResume:
       if tree[pos, 1].prc == cont:
         # found it!
         break
@@ -593,12 +593,12 @@ proc filter(body: MirBody, cont: ProcedureId, env: var MirEnv): MirBody =
           bu.subTree MirNode(kind: mnkMove, typ: tree[pos, 0].typ):
             bu.pathNamed tree[pos, 0].typ, saved[name.local].pos:
               bu.add ctxParam
-    of mnkLand:
+    of mnkResume:
       if tree[pos, 1].prc == cont:
         # found the entry point
         pos = tree.sibling(pos)
         break
-      # else: some other 'land', ignore
+      # else: some other 'resume', ignore
     else:
       discard "nothing from the"
 
@@ -814,7 +814,7 @@ proc secondPass*(body: MirBody, env: var MirEnv, changes: var Changeset) =
   var conts: seq[ProcedureId]
   # gather all continuation procedures:
   for pos, n in body.code.pairs:
-    if n.kind == mnkLand:
+    if n.kind == mnkResume:
       conts.add body.code[pos, 1].prc
 
   for it in conts.items:

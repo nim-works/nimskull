@@ -639,8 +639,8 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
       result.add " "
       targetToStr()
       result.add "\n"
-  of mnkLand:
-    tree "land ":
+  of mnkResume:
+    tree "resume ":
       labelToStr(nodes, i, result)
       if n.len == 2:
         result.add " "
