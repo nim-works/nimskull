@@ -512,6 +512,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotSuspendInIterator:
       result = "suspending within an iterator is disallowed"
 
+    of rsemCannotSuspendInTailcallProc:
+      result = "suspending within a .tailcall routine is disallowed"
+
     of rsemCannotSuspendAtTopLevel:
       result = "suspending outside of a routine is disallowed"
 
@@ -3369,6 +3372,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemForExpectedIterator,
       adSemCannotSuspendInStatic,
       adSemCannotSuspendInIterator,
+      adSemCannotSuspendInTailcallProc,
       adSemCannotSuspendAtTopLevel:
     semRep = SemReport(
         location: some diag.location,

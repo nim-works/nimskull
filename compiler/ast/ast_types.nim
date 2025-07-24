@@ -1260,6 +1260,7 @@ type
     adSemReturnTypeIsNotConcrete
     adSemCannotSuspendInStatic
     adSemCannotSuspendInIterator
+    adSemCannotSuspendInTailcallProc
     adSemCannotSuspendAtTopLevel
     # semobjconstr
     adSemFieldAssignmentInvalid
@@ -1408,6 +1409,7 @@ type
         adSemExternalLocalNotAllowed,
         adSemCannotSuspendInStatic,
         adSemCannotSuspendInIterator,
+        adSemCannotSuspendInTailcallProc,
         adSemCannotSuspendAtTopLevel:
       discard
     of adSemExpectedIdentifierInExpr:

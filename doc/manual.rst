@@ -4215,6 +4215,7 @@ The `suspend` form must not statically appear:
 * as or within the third argument of a `suspend`
 * outside of a routine
 * as part of an `iterator` body
+* as part of a `.tailcall` routine body
 
 Saving the context refers to saving the value of locals (which includes owning
 parameters and the `result` variable, if any) in a context object. Views (both

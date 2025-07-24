@@ -589,6 +589,7 @@ type
     rsemReturnTypeIsNotConcrete
     rsemCannotSuspendInStatic
     rsemCannotSuspendInIterator
+    rsemCannotSuspendInTailcallProc
     rsemCannotSuspendAtTopLevel
     rsemCannotSuspendInSuspendBlock
     rsemCannotSuspendInTryFinally
