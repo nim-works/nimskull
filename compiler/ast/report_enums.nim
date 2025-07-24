@@ -586,6 +586,10 @@ type
     rsemUnavailableLocation
     rsemNoTailingExpression
     rsemArgumentMustBorrowFromParameter
+    rsemReturnTypeIsNotConcrete
+    rsemCannotSuspendInStatic
+    rsemCannotSuspendInIterator
+    rsemCannotSuspendAtTopLevel
     rsemCannotSuspendInExceptFinally
     rsemCannotSaveLocal
 

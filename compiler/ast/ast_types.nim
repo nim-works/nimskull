@@ -1257,6 +1257,10 @@ type
     adSemExpectedRangeType
     adSemExpectedObjectForOf
     adSemCannotBeOfSubtype
+    adSemReturnTypeIsNotConcrete
+    adSemCannotSuspendInStatic
+    adSemCannotSuspendInIterator
+    adSemCannotSuspendAtTopLevel
     # semobjconstr
     adSemFieldAssignmentInvalid
     adSemFieldNotAccessible
@@ -1401,7 +1405,10 @@ type
         adSemContinueCannotHaveLabel,
         adSemUnavailableLocation,
         adSemForExpectedIterator,
-        adSemExternalLocalNotAllowed:
+        adSemExternalLocalNotAllowed,
+        adSemCannotSuspendInStatic,
+        adSemCannotSuspendInIterator,
+        adSemCannotSuspendAtTopLevel:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1575,6 +1582,8 @@ type
       defNameSymData*: AdSemDefNameSym
     of adSemInvalidControlFlow:
       label*: PSym
+    of adSemReturnTypeIsNotConcrete:
+      caller*: PSym
 
   AdSemDefNameSymKind* = enum
     adSemDefNameSymExpectedKindMismatch

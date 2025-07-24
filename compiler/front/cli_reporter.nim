@@ -503,6 +503,18 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "argument doesn't borrow from parameter, global, or pointer " &
                "dereference"
 
+    of rsemReturnTypeIsNotConcrete:
+      result = "return type of '$1' must be concrete, but it isn't" % [r.symstr]
+
+    of rsemCannotSuspendInStatic:
+      result = "suspending within a static or const context is disallowed"
+
+    of rsemCannotSuspendInIterator:
+      result = "suspending within an iterator is disallowed"
+
+    of rsemCannotSuspendAtTopLevel:
+      result = "suspending outside of a routine is disallowed"
+
     of rsemCannotSuspendInExceptFinally:
       result = "suspending within an 'except' or 'finally' clause is disallowed"
 
@@ -3348,7 +3360,10 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemContinueCannotHaveLabel,
       adSemUnavailableLocation,
       adSemExternalLocalNotAllowed,
-      adSemForExpectedIterator:
+      adSemForExpectedIterator,
+      adSemCannotSuspendInStatic,
+      adSemCannotSuspendInIterator,
+      adSemCannotSuspendAtTopLevel:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
@@ -3922,6 +3937,13 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: kind,
       ast: diag.wrongNode,
       typ: diag.wrongNode[0].typ)
+  of adSemReturnTypeIsNotConcrete:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.caller)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()

@@ -561,6 +561,10 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedRangeType: rsemExpectedRange
   of adSemExpectedObjectForOf: rsemExpectedObjectForOf
   of adSemCannotBeOfSubtype: rsemCannotBeOfSubtype
+  of adSemReturnTypeIsNotConcrete: rsemReturnTypeIsNotConcrete
+  of adSemCannotSuspendInStatic: rsemCannotSuspendInStatic
+  of adSemCannotSuspendInIterator: rsemCannotSuspendInIterator
+  of adSemCannotSuspendAtTopLevel: rsemCannotSuspendAtTopLevel
   of adSemRecursiveDependencyIterator: rsemRecursiveDependencyIterator
   of adSemCallIndirectTypeMismatch: rsemCallIndirectTypeMismatch
   of adSemSystemNeeds: rsemSystemNeeds

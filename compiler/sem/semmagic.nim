@@ -449,8 +449,8 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     # don't try to analyze the body; bail out
     result[1] = n[2]
     result[2] = n[3]
-    # TODO: create a proper diagnostic
-    return c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+    return c.config.newError(result,
+      PAstDiag(kind: adSemReturnTypeIsNotConcrete, caller: c.p.owner))
   else:
     resultType = c.p.owner.typ[0]
 
@@ -533,14 +533,15 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   c.popExecCon()
   c.closeScope()
 
-  # TODO: create proper diagnostics
-  # TODO: detect "suspend in suspend" (or maybe leave that to sempass2?)
   if ecfStatic in c.executionCons[^1].flags:
-    result = c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+    result = c.config.newError(result,
+      PAstDiag(kind: adSemCannotSuspendInStatic))
   elif c.p.owner.kind == skIterator:
-    result = c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+    result = c.config.newError(result,
+      PAstDiag(kind: adSemCannotSuspendInIterator))
   elif c.p.owner.kind == skModule:
-    result = c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
+    result = c.config.newError(result,
+      PAstDiag(kind: adSemCannotSuspendAtTopLevel))
   elif nkError in {result[0].kind, result[1].kind, result[2].kind}:
     result = c.config.wrapError(result)
 
