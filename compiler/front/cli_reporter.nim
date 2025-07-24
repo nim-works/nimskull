@@ -515,6 +515,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotSuspendAtTopLevel:
       result = "suspending outside of a routine is disallowed"
 
+    of rsemCannotSuspendInTryFinally:
+      result = "suspending within a 'try' with a 'finally' clause is disallowed"
+
+    of rsemCannotSuspendInSuspendBlock:
+      result = "suspending within suspend block is disallowed"
+
     of rsemCannotSuspendInExceptFinally:
       result = "suspending within an 'except' or 'finally' clause is disallowed"
 

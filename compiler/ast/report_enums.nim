@@ -590,6 +590,8 @@ type
     rsemCannotSuspendInStatic
     rsemCannotSuspendInIterator
     rsemCannotSuspendAtTopLevel
+    rsemCannotSuspendInSuspendBlock
+    rsemCannotSuspendInTryFinally
     rsemCannotSuspendInExceptFinally
     rsemCannotSaveLocal
 

@@ -125,6 +125,10 @@ type
     bottom, inTryStmt, inExceptOrFinallyStmt, leftPartOfAsgn: int
     isReraiseAllowed: int
       ## > 0 if a re-raise statement is allowed
+    inTryFinally: int
+      ## > 0 when inside a 'try' with an attached 'finally' clause
+    inSuspendBlock: int
+      ## > 0 when inside a 'suspend' block
     owner: PSym
     ownerModule: PSym
     init: seq[int] ## list of initialized variables
@@ -550,7 +554,11 @@ proc trackTryStmt(tracked: PEffects, n: PNode) =
   var inter: TIntersection = @[]
 
   inc tracked.inTryStmt
+  if n[^1].kind == nkFinally:
+    inc tracked.inTryFinally
   track(tracked, n[0])
+  if n[^1].kind == nkFinally:
+    dec tracked.inTryFinally
   dec tracked.inTryStmt
   for i in oldState..<tracked.init.len:
     addToIntersection(inter, tracked.init[i])
@@ -1074,9 +1082,19 @@ proc trackSuspend(tracked: PEffects, n: PNode) =
     localReport(tracked.config, n.info,
       reportSem(rsemCannotSuspendInExceptFinally))
 
+  if tracked.inTryFinally > 0:
+    localReport(tracked.config, n.info,
+      reportSem(rsemCannotSuspendInTryFinally))
+
+  if tracked.inSuspendBlock > 0:
+    localReport(tracked.config, n.info,
+      reportSem(rsemCannotSuspendInSuspendBlock))
+
   createTypeBoundOps(tracked, n[1].typ, n.info)
   initVar(tracked, n[1])
+  inc tracked.inSuspendBlock
   track(tracked, n[2])
+  dec tracked.inSuspendBlock
 
   # add the exceptions raised by the suspend block to the dedicated suspend
   # exception spec:
