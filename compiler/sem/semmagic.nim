@@ -515,7 +515,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     result[1] = tmp[0][0]
 
   # the suspension body happens within its own execution context
-  c.pushExecCon({})
+  c.pushExecCon({ecfExplicit})
 
   if resultType == nil:
     result[2] = semExprNoType(c, n[3])
