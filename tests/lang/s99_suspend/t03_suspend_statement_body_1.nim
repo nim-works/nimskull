@@ -9,4 +9,4 @@ proc test(): int =
   suspend void, cont:
     result = 1
 
-echo test()
+doAssert test() == 1
