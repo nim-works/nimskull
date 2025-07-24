@@ -2899,7 +2899,10 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     markUsed(c, n.info, s)
     result = semSizeOf(c, setMs(n, s))
   of mSuspend:
-    result = semSuspend(c, n, s, flags)
+    if n.len == 4:
+      result = semSuspend(c, newTreeI(nkSuspend, n.info, n[1], n[2], n[3]), flags)
+    else:
+      result = semDirectOp(c, n, flags)
   else:
     result = semDirectOp(c, n, flags)
 
@@ -3934,6 +3937,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         c.p.localBindStmts.add n
     else:
       localReport(c.config, n, reportSem rsemInvalidBindContext)
+  of nkSuspend:
+    result = semSuspend(c, n, flags)
   of nkError:
     discard "ignore errors for now"
   else:

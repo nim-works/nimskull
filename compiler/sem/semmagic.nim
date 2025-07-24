@@ -411,17 +411,12 @@ proc semPrivateAccess(c: PContext, n: PNode): PNode =
   c.currentScope.allowPrivateAccess.add t.sym
   result = newNodeIT(nkEmpty, n.info, getSysType(c.graph, n.info, tyVoid))
 
-proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
-  ## Analyzes a 'suspend' magic call, producing a typed AST or an error. If
-  ## the call doesn't have the right shape, analysis fall back to overload
-  ## resolution.
+proc semSuspend(c: PContext, n: PNode, flags: TExprFlags): PNode =
+  ## Analyzes the 'suspend' form, producing a typed AST or an error.
   addInNimDebugUtils(c.config, "semSuspend", n, result)
-  if n.len != 4:
-    # could be some other call
-    return semDirectOp(c, n, flags)
 
-  result = newNodeI(nkSuspend, n.info, 3)
-  result[0] = semExprWithType(c, n[1]) # the type parameter
+  result = shallowCopy(n)
+  result[0] = semExprWithType(c, n[0]) # the type parameter
 
   var paramType = result[0].typ
   if paramType.kind != tyError:
@@ -447,31 +442,44 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     resultType = nil
   elif c.p.owner.typ[0] != nil and resultTypeIsInferrable(c.p.owner.typ[0]):
     # don't try to analyze the body; bail out
-    result[1] = n[2]
-    result[2] = n[3]
+    result[1] = n[1]
+    result[2] = n[2]
     return c.config.newError(result,
       PAstDiag(kind: adSemReturnTypeIsNotConcrete, caller: c.p.owner))
   else:
     resultType = c.p.owner.typ[0]
 
-  # create an new object for the context. It's populated at a (much) later stage
-  let objSym = newSym(skType, c.cache.getIdent("Ctx"), nextSymId(c.idgen),
-                      getCurrOwner(c), n.info)
-  # enable special name mangling:
-  objSym.flags.incl sfAnon
+  var obj: PType
+  if n[1].typ.isNil:
+    # create an new type for the context. It's populated at a (much)
+    # later stage
+    let objSym = newSym(skType, c.cache.getIdent("Ctx"), nextSymId(c.idgen),
+                        getCurrOwner(c), n.info)
+    # enable special name mangling:
+    objSym.flags.incl sfAnon
 
-  let obj = newTypeS(tyObject, c)
-  obj.rawAddSon(nil) # the base type
-  obj.size = szUnknownSize
-  obj.align = szUnknownSize
-  obj.n = newTree(nkRecList)
-  obj.flags.incl tfHasAsgn # the object has custom copy logic
-  obj.flags.incl tfFinal
-  objSym.linkTo(obj)
+    obj = newTypeS(tyObject, c)
+    obj.rawAddSon(nil) # the base type
+    obj.size = szUnknownSize
+    obj.align = szUnknownSize
+    obj.n = newTree(nkRecList)
+    obj.flags.incl tfHasAsgn # the object has custom copy logic
+    obj.flags.incl tfFinal
+    objSym.linkTo(obj)
 
-  # create forwarded type-bound ops, which are completed once the object's
-  # body is available:
-  createForwardOps(c, obj, n.info)
+    # create forwarded type-bound ops, which are completed once the object's
+    # body is available:
+    createForwardOps(c, obj, n.info)
+  else:
+    # when retyping, take the object type from the already-typed local, to
+    # prevent "inconsistent typing" errors
+    # HACK: this is fundamentally a hack; when retyping symbols should be
+    #       turned back into identifiers and types be removed
+    # this is a hack anyway, so only use assertion to make sure the type's
+    # shape is correct enough use proper error reports
+    c.config.internalAssert(n[1].sym.typ.kind == tyTuple, n.info)
+    c.config.internalAssert(n[1].sym.typ.len == 2, n.info)
+    obj = n[1].sym.typ[0]
 
   proc addParam(prc: PType, name: string, typ: PType, info: TLineInfo,
                 c: PContext) =
@@ -506,7 +514,7 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
 
   let
     ls = nkLetSection.newTree(
-      nkIdentDefs.newTree(n[2], newNodeIT(nkType, n.info, tup), cons))
+      nkIdentDefs.newTree(n[1], newNodeIT(nkType, n.info, tup), cons))
     tmp = semNormalizedLetOrVar(c, ls, skLet)
   if tmp.kind == nkError:
     # place the erroneous identifier node back into the call
@@ -518,10 +526,10 @@ proc semSuspend(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   c.pushExecCon({ecfExplicit})
 
   if resultType == nil:
-    result[2] = semExprNoType(c, n[3])
+    result[2] = semExprNoType(c, n[2])
   else:
     # may either be an expression or statement
-    var body = semExpr(c, n[3])
+    var body = semExpr(c, n[2])
     if body.kind != nkError:
       body.flags.incl nfSem
       if not isEmptyType(body.typ):
