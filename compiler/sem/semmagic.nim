@@ -440,14 +440,16 @@ proc semSuspend(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if c.p.owner.kind == skModule:
     # an error is reported later
     resultType = nil
-  elif c.p.owner.typ[0] != nil and resultTypeIsInferrable(c.p.owner.typ[0]):
+  elif c.p.resultSym.isNil:
+    resultType = nil
+  elif resultTypeIsInferrable(c.p.resultSym.typ):
     # don't try to analyze the body; bail out
     result[1] = n[1]
     result[2] = n[2]
     return c.config.newError(result,
       PAstDiag(kind: adSemReturnTypeIsNotConcrete, caller: c.p.owner))
   else:
-    resultType = c.p.owner.typ[0]
+    resultType = c.p.resultSym.typ
 
   var obj: PType
   if n[1].typ.isNil:
