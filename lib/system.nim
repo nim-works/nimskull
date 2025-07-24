@@ -3071,10 +3071,10 @@ proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "T
   ## Constructs a `not nil` type.
 
 when defined(nimskullHasSuspend):
-  proc suspend*[T](with: typedesc[T], name, call: untyped): T {.magic: "Suspend", noSideEffect.} =
-    ## Saves the current local context, stores context + continuation in a
-    ## local named `name`, and invokes `call` as if it were the last remaining
-    ## expression in the caller's body.
+  proc suspend*[T](with: typedesc[T], name, blk: untyped): T {.magic: "Suspend", noSideEffect.} =
+    ## Saves the current local context, stores the context + continuation in a
+    ## local named `name`, and evaluates `blk` as if it were the last remaining
+    ## expression/statement in the caller's body.
 
 type
   ParamBlob = object
