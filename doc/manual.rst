@@ -4169,59 +4169,78 @@ argument expression, no indirection through locals is allowed.
 Delimited Continuations
 -----------------------
 
-A delimited continuation is a continuation extending only up to a certain
-point. In the context of NimSkull, a delimited continuation extends to the
-end of the enclosing routine in which the continuation is created.
+For reifying a continuation, that is, turning a conceptual continuation into a
+concrete first-class value (a *continuation instance*), the `suspend`:idx: form
+is used.
 
-A continuation is created via the `system.suspend` procedure, which
-accepts three arguments.
+A continuation instance is the reified continuation (a procedure) plus the
+saved state needed to run it.
 
-Syntactically, the second argument must be an identifier.
+Every available call syntax may be used for `suspend`, including the command
+and dot-call syntax. `suspend` is not a real procedure and does not participate
+in overload resolution, but the name in the callee position may be qualified
+as `system.suspend`.
 
-1. let `T` be the type of the first argument
-2. let `R` be the return type of the caller
+1. let `T` be the type such that the first argument is of type `typedesc[T]`
+2. let `R` be the return type of the routine where `suspend` is used
 3. let `Ctx` be a unique type such that:
   * `Ctx is object` evaluates to true
-  * `supportsCopyMem(Ctx)` evaluates to true
+  * `supportsCopyMem(Ctx)` evaluates to false
   * the size and alignment of `Ctx` are not queriable in a compile-time context
   * an instance of `Ctx` is always copyable
-4. let `P` be a type:
-  * if `T is void`, then let `P` be `proc(e: sink Ctx): R`
-  * if `T isnot void`, then let `P` be `proc(p: sink T, e: sink Ctx): R`
+4. let `P` be a type such that:
+  * if `T is void`, then `P` is `proc(e: sink Ctx): R`
+  * if `T isnot void`, then `P` is `proc(p: sink T, e: sink Ctx): R`
 5. let `cont` refer to the *continuation* (a procedure of type `P`)
-6. let `local` refer to the identifier appearing as the second argument
-7. let `ctx` refer to the saved context (a value of type `Ctx`)
-8. let `call` refer to the third argument expression
+6. let `ctx` refer to the saved context (a value of type `Ctx`)
+7. let `L` refer to the location which is named by the
+   second argument
+8. let `blk` refer to the third argument
 
-`call` is typed as if would the expression were the following:
+Both `T` and `R` must be concrete types.
 
-.. code-block:: nim
+If `R` is `void`, `blk` must be a statement. If `R` is not `void`, `blk` may
+either be an expression fitting type `R` or a statement.
 
-   block:
-     let local: (Ctx, P) # has the
-     call
+`blk` is typed within a new scope. The scope starts with containing a single
+symbol with type `(Ctx, P)`, with the name provided by the second argument,
+which must be an identifier.
 
+The `suspend` form must not statically appear:
+* inside a `try` block that has a `finally` clauses
+* in a statement list or expression after a `defer` statement
+* inside a `finally` or `except` clause
+* inside a `defer` block
+* inside a `static` or `const` context
+* as or within the third argument of a `suspend`
+* outside of a routine
+* as part of an `iterator` body
 
-The following requirements must be met for the `suspend` call:
-* `R2` must be equal to `R`
-* `call` must be (after template/macro expansion) a call expression such that:
-  * the callee is a static procedure not using the `.closure` calling
-    convention
-  * each run-time argument expression is a value identifier, or a built-in
-    projection thereof. The same goes for index operands in projections
-* no local with a disabled copy operator must *potentially* store a value
-* no `var`:idx: or `openArray`:idx: parameter (or a borrow thereof) must be live
-* the `suspend` call is not statically located within an `except`:idx: or
-  `finally`:idx: clause
-* the `suspend` call does not appear in top-level code
+Saving the context refers to saving the value of locals (which includes owning
+parameters and the `result` variable, if any) in a context object. Views (both
+implicit and explicit) and non-owning parameters cannot be saved: if the
+continuation would needs them, a static error is reported. When a local that
+needs to be saved has a type that is non-copyable, a static error is reported.
+
+The value of the following locals need to be saved:
+* locals requiring cleanup and that store a value at the time the
+  `suspend` happens
+* locals whose value is read by the continuation
 
 Evaluation of `suspend`:idx: works as follows:
-1. the current local context is saved
-2. `local` is intialized with the tuple `(ctx, prc)`
-3. all local variables (except `local`) or sink parameters of the caller used
-   in `call` are copied -- the usages within `call` refer to the copies form
-   here on
-4. `call` is evaluated as if it were the only expression within the caller
+1. owning locals whose value stored at the time of suspending is potentially
+   read by the suspend block (`blk`) have their value copied/moved as if
+   by assignment
+2. the local context needed to run the continuation is saved
+3. the saved context and the reified continuation are stored in `L`
+4. owning locals that are written by the suspend block without being read from
+   first are set to their default value (as if done by `wasMoved`)
+5. `blk` is evaluated as if it were the last statment or expression the
+   enclosing routine, ignoring exception handlers within the routine
+
+Taking the address of a local prior to suspending and then using the address
+for reading/writing in the suspend block (`blk`) or after resuming results
+in undefined behaviour.
 
 Resume
 ~~~~~~
@@ -4234,15 +4253,22 @@ Upon evaluating a call `x(v, y)` where `x` dynamically evaluates to `cont` and
 `y` dynamically evaluates to `ctx` (or a copy thereof), execution resumes in
 the suspended caller as if `suspend` returned with value `v`.
 
-The value returned by a resumed caller is returned by the continuation
+The value returned by a resumed callee is returned by the continuation
 invocation -- the same goes for raised exceptions.
+
+Copying
+~~~~~~~
+
+When copying a continuation instance, all saved values in the context object
+are copied, via a full copy, in the reverse order the locals they come from
+were declared.
 
 Cleanup
 ~~~~~~~
 
 If `ctx` (or a copy thereof) goes out scope without having been consumed by a
 call to the continuation, cleanup happens as if unwinding would take place
-right the `suspend` call, but without `finally`:idx: clauses being visited.
+right at the `suspend`, but without `finally`:idx: clauses being visited.
 
 
 Methods
