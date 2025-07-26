@@ -622,6 +622,12 @@ proc stmtToStr(nodes: MirTree, i: var int, indent: var int, result: var string,
     tree "goto ":
       targetToStr()
       result.add "\n"
+  of mnkReturn:
+    tree "return":
+      if n.len == 1:
+        result.add " "
+        valueToStr()
+      result.add "\n"
   of mnkLoopJoin:
     tree "while true:\n":
       inc i # skip the label node
