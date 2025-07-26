@@ -65,6 +65,9 @@ type
       ## the list of all locals in the body, taken from the ``MirBody``.
       ## Only needed for updating the type for alias locals
 
+    returns: seq[CgNode]
+      ## goto statements to which the return label needs to be added
+
     inUnscoped: int
       ## whether the currently proceesed statement/expression is part of an
       ## unscoped control-flow context. Used to move definitions to the start
@@ -569,6 +572,12 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     to cnkGotoStmt, targetToIr(tree, cr)
   of mnkLoop:
     to cnkLoopStmt, targetToIr(tree, cr)
+  of mnkReturn:
+    if n.len == 1:
+      skip(tree, cr) # skip the operand
+    let goto = newStmt(cnkGotoStmt, info)
+    cl.returns.add goto
+    stmts.add goto
   of mnkLoopJoin:
     to cnkLoopJoinStmt, targetToIr(tree, cr)
   of mnkJoin:
@@ -777,6 +786,24 @@ proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   var cr = TreeCursor(pos: start.uint32)
   var stmts: seq[CgNode]
   scopeToIr(tree, env, cl, cr, stmts)
+
+  # remove all trailing return gotos:
+  while stmts.len > 0 and stmts[^1].kind == cnkGotoStmt:
+    assert stmts[^1].len == 0
+    cl.returns.del(cl.returns.find(stmts[^1]))
+    stmts.shrink(stmts.len - 1)
+
+  # complete all return goto's such that they jump to the end of the body
+  if cl.returns.len > 0:
+    if stmts[^1].kind == cnkJoinStmt:
+      # re-use the trailing join's label
+      for it in cl.returns.items:
+        it.add newLabelNode(LabelId(stmts[^1][0].label))
+    else:
+      for it in cl.returns.items:
+        it.add newLabelNode(tree.nextLabel)
+      stmts.add newTree(cnkJoinStmt, unknownLineInfo,
+                        newLabelNode(tree.nextLabel))
 
   # XXX: the list of statements is still wrapped in a node for now, but
   #      this needs to change once all code generators use the new CGIR
