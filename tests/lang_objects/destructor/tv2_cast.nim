@@ -21,6 +21,7 @@ scope:
     =destroy(name _2)
     continue [Unwind]
   L1:
+return
 -- end of expandArc ------------------------
 --expandArc: main1
 scope:
@@ -42,6 +43,7 @@ scope:
     =destroy(name s)
     continue [Unwind]
   L1:
+return
 -- end of expandArc ------------------------
 --expandArc: main2
 scope:
@@ -59,6 +61,7 @@ scope:
     =destroy(name s)
     continue [Unwind]
   L1:
+return
 -- end of expandArc ------------------------
 --expandArc: main3
 scope:
@@ -76,6 +79,7 @@ scope:
     =destroy(name _2)
     continue [Unwind]
   L1:
+return
 -- end of expandArc ------------------------'''
 """
 

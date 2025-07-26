@@ -10,6 +10,7 @@ scope:
   def x: sink Tuple[system.int]
   def v: Tuple[system.int]
   v = sink x
+return
 
 -- end
 '''

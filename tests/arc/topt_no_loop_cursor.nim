@@ -34,6 +34,7 @@ scope:
     destroy x
     continue [Unwind]
   L6:
+return
 
 -- end
 '''

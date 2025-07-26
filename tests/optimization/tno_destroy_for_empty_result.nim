@@ -17,6 +17,7 @@ goto [L2]
 finally (L1):
   continue [Unwind]
 L2:
+return result
 
 -- end of expandArc ------------------------
 '''
