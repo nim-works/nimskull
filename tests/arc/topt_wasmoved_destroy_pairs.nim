@@ -23,6 +23,7 @@ scope:
   finally (L0):
     continue [Unwind]
   L3:
+return
 -- end of expandArc ------------------------
 --expandArc: tfor
 
@@ -80,6 +81,7 @@ scope:
     continue [Unwind]
   L9:
 L5:
+return
 -- end of expandArc ------------------------
 --expandArc: texit
 scope:
@@ -102,6 +104,7 @@ scope:
   =destroy(name x)
   =destroy(name str)
 L1:
+return result
 -- end of expandArc ------------------------'''
 """
 

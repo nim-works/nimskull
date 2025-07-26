@@ -177,6 +177,12 @@ Semantics
             | Goto TARGET
             | Loop <Label>              # unconditional jump back to the start
                                         # of a loop
+            | Return                    # return from procedure; only allowed in
+                                        # procedure with a void return type
+            | Return LVALUE             # return from procedure; only allowed in
+                                        # procedure with a non-void return type.
+                                        # The operand must be the
+                                        # result variable 
             | Destroy LVALUE
             | Raise EX_TARGET
             | Join <Label>              # join point for non-exceptional
@@ -236,13 +242,15 @@ Terminology:
 * *terminator*: marks the end of a basic block
 
 A basic block is started by `Finally` and `Except`. Terminators are: `Case`,
-`Goto`, `Raise`, `Continue`, and `Loop`. `If`, `Join`, and `LoopJoin` act as
-both the start and end of a basic block. The nature of `End` depends on the
-associated construct:
+`Goto`, `Return`, `Raise`, `Continue`, and `Loop`. `If`, `Join`, and `LoopJoin`
+act as both the start and end of a basic block. The nature of `End` depends
+on the associated construct:
 * for `If`, it acts as both a terminator and start of a basic block
 * for `Except`, it only marks the end of the section
 
 Except for `Loop`, all terminators only allow forward control-flow.
+
+Ignoring end-of-scope markers, a MIR body must end with a terminator.
 
 Structured Constructs
 ---------------------

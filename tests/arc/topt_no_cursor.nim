@@ -30,6 +30,7 @@ scope:
 finally (L0):
   continue [Unwind]
 L1:
+return result
 -- end of expandArc ------------------------
 --expandArc: delete
 
@@ -48,6 +49,7 @@ scope:
   def_cursor _9: Node = sibling
   =sink(name _9[].parent, arg saved)
   =destroy(name sibling)
+return
 -- end of expandArc ------------------------
 --expandArc: p1
 
@@ -68,6 +70,7 @@ scope:
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)
+return result
 -- end of expandArc ------------------------
 --expandArc: tt
 
@@ -91,6 +94,7 @@ scope:
     =destroy(name a)
     continue [Unwind]
   L2:
+return
 -- end of expandArc ------------------------
 --expandArc: extractConfig
 
@@ -142,6 +146,7 @@ scope:
     =destroy(name lan_ip)
     continue [Unwind]
   L7:
+return
 --expandArc: mergeShadowScope
 
 scope:
@@ -183,6 +188,7 @@ scope:
     =destroy(name shadowScope)
     continue [Unwind]
   L6:
+return
 -- end of expandArc ------------------------
 --expandArc: treturn
 
@@ -214,6 +220,7 @@ goto [L1]
 finally (L5):
   continue [Unwind]
 L1:
+return result
 
 -- end of expandArc ------------------------
 --expandArc: check
@@ -269,6 +276,7 @@ scope:
     =destroy(name par)
     continue [Unwind]
   L7:
+return
 
 -- end of expandArc ------------------------'''
 """

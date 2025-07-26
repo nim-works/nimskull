@@ -56,6 +56,7 @@ scope:
     =destroy(name jt)
     continue [Unwind]
   L9:
+return
 
 -- end of expandArc ------------------------'''
 """

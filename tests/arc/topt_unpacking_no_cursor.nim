@@ -11,6 +11,7 @@ scope:
   b := move _2.1
   =destroy(name b)
   =destroy(name a)
+return
 
 -- end of expandArc ------------------------'''
 """

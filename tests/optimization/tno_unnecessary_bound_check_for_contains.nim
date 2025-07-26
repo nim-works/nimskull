@@ -10,6 +10,7 @@ scope:
   result = _2
   goto [L1]
 L1:
+return result
 
 -- end'''
 """
