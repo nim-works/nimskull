@@ -258,7 +258,15 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph, env: MirEnv): EntityDict 
         result.mgetOrPut(toName(entity), @[]).add:
           # don't include the data-flow operations preceding the def
           EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
-
+    of mnkLocal:
+      # there's no def for the result variable
+      if n.local == resultId and hasDestructor(env[n.typ]):
+        let name = toName(n)
+        if name notin result:
+          # the result variable's location exists for the full duration
+          # of the procedure
+          let scope = subgraphFor(dfg, NodePosition(0)..NodePosition(tree.high))
+          result[name] = @[EntityInfo(scope: scope)]
     else:
       discard
 
@@ -272,12 +280,6 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     # `entities`. Those that don't also can't be consumed (because we either
     # can't reason about them or they're non-owning locations), so values
     # derived from them are treated as non-owning
-    # TODO: this currently also includes the ``result`` variable. It's possible
-    #       to analyse it too -- we just need to make sure to treat an
-    #       otherwise last-read as not a last-read if it is connected to a
-    #       procedure exit. A slightly different approach would be to add a
-    #       pseudo-use at the end of the body and make all procedure exits
-    #       visit it first
     var exists = false
     let info = entities.findScope(toName(tree[lval.root]), start, exists)
     exists and isLastRead(tree, cfg, info.scope, lval, start)
@@ -324,16 +326,11 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph,
 
   case tree[root].kind
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
-    let scope =
-      # XXX: the way the ``result`` variable is detected here is a hack. It
-      #      should be treated as any other local in the context of the MIR
-      if tree[root].kind == mnkLocal and tree[root].local == resultId:
-        cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
-      else:
-        var exists: bool
-        let info = entities.findScope(toName(tree[root]), at, exists)
-        if exists: info.scope
-        else:      return true # not something we can analyse -> assume alive
+    let scope = block:
+      var exists: bool
+      let info = entities.findScope(toName(tree[root]), at, exists)
+      if exists: info.scope
+      else:      return true # not something we can analyse -> assume alive
 
     # if the location is not assigned an initial value on definition, `start`
     # may come before the alive subgraph
@@ -360,18 +357,8 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   ## If it can't be proven that the unowned value is observed (which could
   ## cause problems like, for example, double-frees), the location is
   ## explicitly reset (i.e. the value removed from it).
-  let root = src.root
-  # XXX: the way the ``result`` variable is detected here is a hack. It
-  #      should be treated as any other local in the context of MIR. The
-  #      fact that the result variable is potentially used outside the
-  #      procedure's body should be encoded by inserting a special 'use'
-  #      operation that has a control-flow dependency on *all* other
-  #      operations
-  if tree[root].kind == mnkLocal and tree[root].local == resultId:
-    return true
-
   var exists: bool
-  let info = findScope(ar.entities[], toName(tree[root]), at, exists)
+  let info = findScope(ar.entities[], toName(tree[src.root]), at, exists)
 
   if not exists:
     # the location is not local to the current context -> assume that it needs
