@@ -430,11 +430,9 @@ proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) 
       of opMutateGlobal:
         discard "not relevant"
 
-    # the exit flag indicates that traversal reached the end of the body
-    # (without ``result`` being an initialized). The a > b check makes sure
-    # an empty procedure body also requires initialization of the result
-    # var
-    result = s.exit or all.a > all.b
+    # the result variable is not used before its value is set -> no default
+    # initialization is required
+    result = false
 
   if requiresInit(tree):
     assert tree[0].kind == mnkScope
