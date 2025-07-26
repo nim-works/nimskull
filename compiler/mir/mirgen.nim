@@ -2681,7 +2681,8 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         c.add MirNode(kind: mnkNone)
       c.register(genLocation(c, r))
 
-  c.withBlock bkBlock: # the target for return statements
+  block:
+    c.blocks.add Block(kind: bkBlock) # the target for return statements
     if needsTerminate:
       # it needs to be ensured that no exceptions leave the body
       c.blocks.add Block(kind: bkTryExcept)
@@ -2746,29 +2747,46 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
       c.subTree mnkEndStruct:
         c.add labelNode(b.id.unsafeGet)
 
-  if needsContConstr:
-    # TODO: only emit the construction when there are normal exits
-    let typ = c.typeToMir(owner.ast[miscPos][1].typ)
-    c.buildStmt mnkInit:
-      c.add MirNode(kind: mnkLocal, local: resultId, typ: typ)
-      c.buildTree mnkObjConstr, typ:
-        c.subTree mnkBinding:
-          c.add MirNode(kind: mnkField, field: 0)
-          c.subTree mnkConsume:
-            c.use intLiteral(c.env, 1, BoolType)
-        if not owner.typ[0].isEmptyType():
-          c.subTree mnkBinding:
-            c.add MirNode(kind: mnkField, field: 2)
-            # the result variable can be moved out of unconditionally, since
-            # we know there'll be no further use
-            c.subTree mnkConsume:
-              c.add nameNode(c, owner.ast[resultPos].sym)
+    let b = c.blocks.pop()
+    if b.id.isSome:
+      c.subTree mnkJoin:
+        c.add labelNode(b.id.unsafeGet)
 
+    # a procedure must end in a terminator
+    if b.id.isSome or doesReturn:
+      if needsContConstr:
+        let typ = c.typeToMir(owner.ast[miscPos][1].typ)
+        c.buildStmt mnkInit:
+          c.add MirNode(kind: mnkLocal, local: resultId, typ: typ)
+          c.buildTree mnkObjConstr, typ:
+            c.subTree mnkBinding:
+              c.add MirNode(kind: mnkField, field: 0)
+              c.subTree mnkConsume:
+                c.use intLiteral(c.env, 1, BoolType)
+            if not owner.typ[0].isEmptyType():
+              c.subTree mnkBinding:
+                c.add MirNode(kind: mnkField, field: 2)
+                # the result variable can be moved out of unconditionally,
+                # since we know there'll be no further use
+                c.subTree mnkConsume:
+                  c.add nameNode(c, owner.ast[resultPos].sym)
+        leaveBlock(c)
+      else:
+        c.subTree mnkReturn:
+          if c.owner.kind in routineKinds and
+            not isEmptyType(signature(c.owner)[0]):
+            c.use genLocation(c, c.owner.ast[resultPos])
+
+  if needsContConstr:
     c.blocks.closeScope(c.builder, 0, true)
     if owner.typ.callConv == ccTailcall and not owner.typ[0].isEmptyType():
-      # close the physical the result scope
       c.subTree mnkEndScope: discard
-    c.closeBlock()
+    if (let b = c.blocks.pop(); b.id.isSome):
+      c.subTree mnkJoin:
+        c.add labelNode(b.id.unsafeGet)
+      let typ = c.typeToMir(owner.ast[miscPos][1].typ)
+      c.subTree mnkReturn:
+        c.add MirNode(kind: mnkLocal, local: resultId, typ: typ)
 
   env = c.env
 
@@ -2801,6 +2819,9 @@ proc exprToMir*(graph: ModuleGraph, env: var MirEnv,
           c.use genTypeExpr(c, e)
         else:
           c.genAsgnSource(e, {dfOwns, dfEmpty})
+
+  c.buildStmt mnkReturn:
+    c.use toValue(mnkLocal, res, rtyp)
 
   env = move c.env
 
