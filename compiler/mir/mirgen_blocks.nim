@@ -172,8 +172,8 @@ proc tailExit*(c; bu) =
     of bkTryFinally, bkExcept, bkFinally:
       unreachable()
 
-  bu.subTree mnkGoto:
-    bu.add labelNode(bu.requestLabel(c.blocks[0]))
+  bu.subTree mnkReturn:
+    discard
 
 template add*(c: var BlockCtx; b: Block) =
   c.blocks.add b
