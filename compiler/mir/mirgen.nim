@@ -387,6 +387,7 @@ proc nameNode(c: var TCtx, s: PSym): MirNode =
     unreachable(s.kind)
 
 proc genLocation(c: var TCtx, n: PNode): Value =
+  c.builder.useSource(c.sp, n)
   let f = c.builder.push: c.builder.add(nameNode(c, n.sym))
   c.builder.popSingle(f)
 
