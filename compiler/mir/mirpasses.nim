@@ -24,7 +24,8 @@ import
     mirtrees,
     mirtypes,
     rtchecks,
-    sourcemaps
+    sourcemaps,
+    tailcall_elim
   ],
   compiler/modules/[
     modulegraphs,
@@ -826,6 +827,17 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       var c {.inject.} = initChangeset(body)
       b
       apply(body, c)
+
+  if target in {targetC, targetJs} and sfGeneratedOp notin prc.flags:
+    # portable tail-call elimination
+    batch:
+      lowerProcvals(body.code, env, c)
+    batch:
+      insertTrampolines(body.code, graph, prc, env, c)
+    if prc.typ.callConv == ccTailcall:
+      insertNewResult(body, graph, prc, env)
+      batch:
+        lowerTailcallBody(body, graph, prc, env, c)
 
   if target == targetC:
     batch:

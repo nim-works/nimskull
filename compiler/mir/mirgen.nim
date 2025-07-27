@@ -733,7 +733,7 @@ proc genArg(c: var TCtx, formal: PType, n: PNode) =
   else:
     c.emitOperandTree n, false
 
-proc genArgs(c: var TCtx, n: PNode) =
+proc genArgs(c: var TCtx, n: PNode, isTailcall=false) =
   ## Emits the MIR code for the argument expressions (including the
   ## argument node), but without a wrapping ``mnkArgBlock``.
   let fntyp = skipTypes(n[0].typ, abstractInst)
@@ -780,6 +780,11 @@ proc genArgs(c: var TCtx, n: PNode) =
         var e = exprToPmir(c, n[i], false, false)
         wantStable(e)
         genx(c, e, e.high)
+    elif isTailcall and
+         t.kind notin {tySink, tyVar} and
+         isPassByRef(c.graph.config, fntyp.n[i].sym, fntyp):
+      # use explicit pass-by-name for all by-ref parameters
+      c.emitByName ekNone, genLvalueOperand(c, n[i], false)
     elif fntyp.callConv == ccTailcall and
          t.kind notin {tySink, tyVar} and
          i < fntyp.len and # ignore the env argument
@@ -1356,7 +1361,7 @@ proc genReturn(c: var TCtx, n: PNode) =
     c.buildStmt mnkVoid:
       c.builder.rawBuildCall mnkTailCall, VoidType, false:
         genCallee(c, n[0][0])
-        genArgs(c, n[0])
+        genArgs(c, n[0], isTailcall=true)
     tailExit(c.blocks, c.builder)
   else:
     gen(c, n[0])
@@ -2470,8 +2475,10 @@ proc addParams(c: var TCtx, prc: PSym, signature: PType) =
   for i in 1..<params.len:
     add c.paramToMir(params[i].sym)
 
-  if signature.callConv == ccClosure:
+  if signature.callConv in {ccClosure, ccTailcall}:
     # environment parameter
+    # note: for .tailcall routines, the local for the environment parameter is
+    # always added, even when portable tail-call elimination is not used
     add c.paramToMir(prc.ast[paramsPos][^1].sym)
 
 proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
