@@ -1354,7 +1354,7 @@ proc genReturn(c: var TCtx, n: PNode) =
   # when eliminating tail calls, normal returns jump to the pre-exit
   # continuation setup label
   if n[0].kind == nkEmpty:
-    blockExit(c.blocks, c.graph, c.env, c.builder, 0)
+    blockExit(c.blocks, c.graph, c.env, c.builder, 1)
   elif n[0].kind in nkCallKinds:
     # it's a tail call
     c.builder.useSource(c.sp, n[0])
@@ -1365,7 +1365,7 @@ proc genReturn(c: var TCtx, n: PNode) =
     tailExit(c.blocks, c.builder)
   else:
     gen(c, n[0])
-    blockExit(c.blocks, c.graph, c.env, c.builder, 0)
+    blockExit(c.blocks, c.graph, c.env, c.builder, 1)
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -2505,10 +2505,6 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   let
     needsTerminate = sfNeverRaises in owner.flags
-    needsCleanup = (c.injectDestructors and
-                    owner.kind in routineKinds and
-                    owner.typ[0] != nil and
-                    hasDestructor(owner.typ[0]))
     doesReturn = doesReturn(body)
       ## whether the body "falls through"
 
@@ -2517,13 +2513,15 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
     addParams(c, owner, signature(owner))
 
   block:
+    c.blocks.add Block(kind: bkScope)
+    # ^^ the hidden scope for the 'result' variable. It's always added, so
+    # that the "return" block always has the same index
+    if owner.kind in routineKinds and not isEmptyType(signature(owner)[0]):
+      c.register(c.genLocation(owner.ast[resultPos]))
+
     c.blocks.add Block(kind: bkBlock) # the target for return statements
     if needsTerminate:
       # it needs to be ensured that no exceptions leave the body
-      c.blocks.add Block(kind: bkTryExcept)
-    if needsCleanup:
-      # the result variable only needs to be cleaned up when the procedure
-      # exits via an exception
       c.blocks.add Block(kind: bkTryExcept)
 
     c.scope(doesReturn):
@@ -2550,26 +2548,8 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
       gen(c, body)
 
-    var isFirst = true
-
-    if needsCleanup and (let b = c.blocks.pop(); b.id.isSome):
-      if doesReturn:
-        leaveBlock(c) # jump over the handler
-        isFirst = false
-
-      # emit the finally section for cleaning up the result variable:
-      c.subTree mnkFinally:
-        c.add labelNode(b.id.unsafeGet)
-      c.subTree mnkDestroy:
-        c.use genLocation(c, owner.ast[resultPos])
-      # note: we don't need to reset the location. Per the MIR semantics, it's
-      # guaranteed that no one can observe the result location when the
-      # procedure raises
-      c.subTree mnkContinue:
-        raiseExit(c)
-
     if needsTerminate and (let b = c.blocks.pop(); b.id.isSome):
-      if doesReturn and isFirst:
+      if doesReturn:
         leaveBlock(c)
 
       # emit the handler for panicking on escaping exceptions:
@@ -2593,6 +2573,9 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
         if c.owner.kind in routineKinds and
            not isEmptyType(signature(c.owner)[0]):
           c.use genLocation(c, c.owner.ast[resultPos])
+
+    # close the hidden 'result' variable scope:
+    c.blocks.closeScope(c.builder, 0, false)
 
   env = c.env
 
