@@ -189,12 +189,23 @@ proc lowerProcvals*(tree: MirTree, env: var MirEnv, changes: var Changeset) =
       let canon = env.types.canonical(it.typ)
       if env.types.headerFor(canon, Canonical).callConv(env.types) ==
           ccTailcall:
-        # taking the address of a .tailcall procedure yields the address of
-        # the application procedure
+        # the type of the expression must stay the same; the application
+        # procedure procval is bitcast to the correct type
+        var stmt = pos
+        while tree[stmt].kind notin StmtNodes:
+          stmt = tree.parent(stmt)
+
         let np = env[it.prc].ast[miscPos][0].sym
-        changes.replace(tree, pos):
-          MirNode(kind: mnkProcVal, prc: env.procedures.add(np),
-                  typ: env.types.add(np.typ))
+        var tmp: Value
+        changes.insert(tree, stmt, pos, bu):
+          tmp = bu.allocTemp(it.typ)
+          bu.subTree mnkDef:
+            bu.use tmp
+            bu.subTree mnkCast, it.typ:
+              bu.use toValue(env.procedures.add(np), env.types.add(np.typ))
+
+        changes.replaceMulti(tree, pos, bu):
+          bu.use tmp
 
 proc insertTrampolines*(tree: MirTree, g: ModuleGraph, owner: PSym,
                         env: var MirEnv, changes: var Changeset) =
