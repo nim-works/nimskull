@@ -156,12 +156,6 @@ proc tailExit*(c; bu) =
   ## Emits the tentative cleanup logic after a tail call. The caller has to
   ## guarantee that there are no enclosing except, finally, or try clauses.
   var last = c.toDestroy.high
-  if last >= 0:
-    # add a marker for the later "no trailing cleanup" pass
-    bu.subTree mnkVoid:
-      bu.buildMagicCall mEnsureNoCleanup, VoidType:
-        discard
-
   for i in countdown(c.blocks.high, 0):
     let b {.cursor.} = c.blocks[i]
     case b.kind
