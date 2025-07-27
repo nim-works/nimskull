@@ -26,11 +26,9 @@ scope:
   def _6: Target = (consume _3, consume _4, consume _5)
   result := move _6
   =destroy(name splat)
-  goto [L1]
+return result
 finally (L0):
   continue [Unwind]
-L1:
-return result
 -- end of expandArc ------------------------
 --expandArc: delete
 
@@ -216,11 +214,10 @@ scope:
     =destroy(name x)
     continue [L5]
   L4:
-goto [L1]
-finally (L5):
-  continue [Unwind]
 L1:
 return result
+finally (L5):
+  continue [Unwind]
 
 -- end of expandArc ------------------------
 --expandArc: check

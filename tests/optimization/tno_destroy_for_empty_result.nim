@@ -13,11 +13,9 @@ scope:
         doRaise() -> [L1]
   def _2: Object = ()
   result := move _2
-goto [L2]
+return result
 finally (L1):
   continue [Unwind]
-L2:
-return result
 
 -- end of expandArc ------------------------
 '''
