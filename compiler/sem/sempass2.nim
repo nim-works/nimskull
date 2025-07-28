@@ -1753,7 +1753,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   if cap != nil:
     # the procedure captures something and thus requires a hidden environment
     # parameter
-    if not canCaptureFrom(s, cap.sym.owner):
+    if not canCaptureFrom(s, cap.sym.skipGenericOwner):
       # attempting to capture an entity that only exists at run-time in a
       # compile-time context
       localReport(g.config, cap.info, reportSym(
