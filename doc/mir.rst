@@ -177,12 +177,8 @@ Semantics
             | Goto TARGET
             | Loop <Label>              # unconditional jump back to the start
                                         # of a loop
-            | Return                    # return from procedure; only allowed in
-                                        # procedure with a void return type
-            | Return LVALUE             # return from procedure; only allowed in
-                                        # procedure with a non-void return type.
-                                        # The operand must be the
-                                        # result variable 
+            | Return                    # return from procedure
+            | Return LVALUE             # return from procedure
             | Destroy LVALUE
             | Raise EX_TARGET
             | Join <Label>              # join point for non-exceptional
@@ -301,6 +297,16 @@ target for exceptional control-flow.
 
 At the end of `Finally` section must be a `Continue` statement, which specifies
 where raising the exception continues.
+
+Returns
+-------
+
+For procedures with a non-void return type, all `Return`s must have the result
+variable as the singular operand, except when it follows after a tailcall, in
+which case the `Return` must use the zero-operand form.
+
+For procedures with a void return type, all `Return` statements must use the
+zero-operand form.
 
 Storage
 =======

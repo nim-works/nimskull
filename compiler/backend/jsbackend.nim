@@ -126,8 +126,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
     globals = newGlobals(graph)
     bconf = BackendConfig(
       tconfig: TranslationConfig(
-        magicsToKeep: NonMagics,
-        options: {goTailCallElim}
+        magicsToKeep: NonMagics
       )
     )
 
