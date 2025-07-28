@@ -165,6 +165,8 @@ type
       ## > 0 if the current statement/expression is part of a loop
     injectDestructors: bool
       ## whether injection of destroy operations is enabled
+    returnBlock: int
+      ## index of the block to target with return statements
 
     # input:
     userOptions: set[TOption]
@@ -1355,7 +1357,7 @@ proc genReturn(c: var TCtx, n: PNode) =
   # when eliminating tail calls, normal returns jump to the pre-exit
   # continuation setup label
   if n[0].kind == nkEmpty:
-    blockExit(c.blocks, c.graph, c.env, c.builder, 1)
+    blockExit(c.blocks, c.graph, c.env, c.builder, c.returnBlock)
   elif n[0].kind in nkCallKinds:
     # it's a tail call
     c.builder.useSource(c.sp, n[0])
@@ -1366,7 +1368,7 @@ proc genReturn(c: var TCtx, n: PNode) =
     tailExit(c.blocks, c.builder)
   else:
     gen(c, n[0])
-    blockExit(c.blocks, c.graph, c.env, c.builder, 1)
+    blockExit(c.blocks, c.graph, c.env, c.builder, c.returnBlock)
 
 proc genAsgnSource(c: var TCtx, e: PNode, status: set[DestFlag]) =
   ## Generates the MIR code for the right-hand side of an assignment.
@@ -2515,11 +2517,11 @@ proc generateCode*(graph: ModuleGraph, env: var MirEnv, owner: PSym,
 
   block:
     c.blocks.add Block(kind: bkScope)
-    # ^^ the hidden scope for the 'result' variable. It's always added, so
-    # that the "return" block always has the same index
+    # ^^ the hidden scope for the 'result' variable
     if owner.kind in routineKinds and not isEmptyType(signature(owner)[0]):
       c.register(c.genLocation(owner.ast[resultPos]))
 
+    c.returnBlock = 1
     c.blocks.add Block(kind: bkBlock) # the target for return statements
     if needsTerminate:
       # it needs to be ensured that no exceptions leave the body
