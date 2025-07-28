@@ -100,3 +100,15 @@ proc test6() =
   inner()
 
 test6()
+
+# generic inner routine that's used inside a sibling inner routine
+proc test7() =
+  var x = 0
+  proc inner[T]() =
+    x = 1 # `inner` is a closure
+
+  proc other() =
+    inner[int]()
+  other()
+
+test7()
