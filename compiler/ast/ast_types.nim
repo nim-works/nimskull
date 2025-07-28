@@ -855,9 +855,6 @@ type
     mStoreParams
       ## storeParams(p, tup): savely stores the tuple in the storage pointed
       ## to by `p`
-    mEnsureNoCleanup
-      ## destructor calls following an ensureNoCleanup call result in a
-      ## compiler error
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const

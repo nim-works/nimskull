@@ -439,6 +439,11 @@ func computeDfg*(tree: MirTree): DataFlowGraph =
       # emit a join at the end of an 'if'
       if ifs.len > 0 and tree[i, 0].label == ifs[^1]:
         join i, ifs.pop()
+    of mnkReturn:
+      if tree[i].len == 1:
+        emitLvalueOp(env, opUse, tree, i, OpValue tree.child(i, 0))
+
+      env.instrs.add Instr(op: opGoto, node: i, dest: getUnwindLabel(env))
     of mnkFork:
       fork i, tree[i, 1].label
       emitLvalueOp(env, opDef, tree, i, OpValue tree.child(i, 0))

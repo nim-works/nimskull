@@ -288,19 +288,15 @@ proc injectHooks*(body: MirBody, graph: ModuleGraph, env: var MirEnv,
           bu.emitByName ekMutate:
             bu.emitFrom(tree, tree.child(i, 0))
 
-    of mnkMagic:
-      if n.magic == mEnsureNoCleanup:
-        # make sure there's no destroy operation following the marker
-        let
-          stmt = tree.parent(tree.parent(i))
-          next = tree.sibling(stmt)
-        if tree[next].kind == mnkDestroy:
-          diags.add LocalDiag(pos: stmt,
-                              entity: tree.child(next, 0),
-                              kind: ldkCleanupPreventsTailCall)
-
-        # remove the marker:
-        changes.remove(tree, stmt)
+    of mnkTailCall:
+      # make sure there's no destroy operation following the tailcall
+      let
+        stmt = tree.parent(i)
+        next = tree.sibling(stmt)
+      if tree[next].kind == mnkDestroy:
+        diags.add LocalDiag(pos: stmt,
+                            entity: tree.child(next, 0),
+                            kind: ldkCleanupPreventsTailCall)
     else:
       discard "nothing to do"
 

@@ -231,6 +231,8 @@ type
               ## value of the operand
     mnkBranch ## a branch in a ``mnkCase`` dispatcher
     mnkLoop   ## unconditional jump to the associated-with loop start
+    mnkReturn ## exits the procedure, returning the value stored in the
+              ## result local
 
     mnkJoin   ## join point for gotos and branches
     mnkLoopJoin## join point for loops. Represents the start of a loop
@@ -347,7 +349,8 @@ const
   StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
                 mnkLoopJoin, mnkExcept, mnkFinally, mnkContinue, mnkEndStruct,
                 mnkInit, mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy,
-                mnkEmit, mnkAsm, mnkEndScope, mnkFork, mnkResume} + DefNodes
+                mnkEmit, mnkAsm, mnkEndScope, mnkReturn, mnkFork,
+                mnkResume} + DefNodes
     ## Nodes that are treated like statements, in terms of syntax.
 
   # --- semantics-focused sets:

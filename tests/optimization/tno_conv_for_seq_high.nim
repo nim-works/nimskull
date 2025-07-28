@@ -8,6 +8,7 @@ discard """
   nimout: '''--expandArc: test
 scope:
   result = high(arg x)
+return result
 
 -- end of expandArc ------------------------'''
 """

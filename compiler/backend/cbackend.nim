@@ -435,8 +435,7 @@ proc generateCode*(graph: ModuleGraph, g: BModuleList, mlist: sink ModuleList) =
   let
     config = BackendConfig(
       tconfig: TranslationConfig(
-        magicsToKeep: NonMagics,
-        options: {goTailCallElim}
+        magicsToKeep: NonMagics
       )
     )
 

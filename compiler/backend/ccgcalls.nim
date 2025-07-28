@@ -238,16 +238,6 @@ proc genClosureCall(p: BProc, le, ri: CgNode, d: var TLoc) =
 proc genAsgnCall(p: BProc, le, ri: CgNode, d: var TLoc) =
   if ri[0].typ.skipTypes({tyGenericInst, tyAlias, tySink}).callConv == ccClosure:
     genClosureCall(p, le, ri, d)
-  elif ri[0].typ.skipTypes(abstractInst).callConv == ccTailcall and
-       ri[0].kind != cnkProc:
-    # an indirect tailcall call. The real signature doesn't match the `tyProc`,
-    # so we manually emit the call
-    # XXX: this is fundamentally a hack see https://github.com/nim-works/nimskull/pull/1504
-    assert numArgs(ri) == 1
-    var callee, arg: TLoc
-    initLocExpr(p, ri[0], callee)
-    initLocExpr(p, ri[1], arg)
-    fixupCall(p, le, ri, d, rdLoc(callee), rdLoc(arg))
   else:
     genPrefixCall(p, le, ri, d)
 

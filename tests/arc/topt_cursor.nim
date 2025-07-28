@@ -22,6 +22,7 @@ scope:
     =destroy(name _4)
     continue [Unwind]
   L3:
+return
 -- end of expandArc ------------------------
 --expandArc: sio
 
@@ -76,6 +77,7 @@ scope:
     L10:
     raise -> [Unwind]
     L11:
+return
 
 -- end of expandArc ------------------------'''
 """

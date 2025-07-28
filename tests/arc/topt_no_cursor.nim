@@ -26,10 +26,9 @@ scope:
   def _6: Target = (consume _3, consume _4, consume _5)
   result := move _6
   =destroy(name splat)
-  goto [L1]
+return result
 finally (L0):
   continue [Unwind]
-L1:
 -- end of expandArc ------------------------
 --expandArc: delete
 
@@ -48,6 +47,7 @@ scope:
   def_cursor _9: Node = sibling
   =sink(name _9[].parent, arg saved)
   =destroy(name sibling)
+return
 -- end of expandArc ------------------------
 --expandArc: p1
 
@@ -68,6 +68,7 @@ scope:
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)
+return result
 -- end of expandArc ------------------------
 --expandArc: tt
 
@@ -91,6 +92,7 @@ scope:
     =destroy(name a)
     continue [Unwind]
   L2:
+return
 -- end of expandArc ------------------------
 --expandArc: extractConfig
 
@@ -142,6 +144,7 @@ scope:
     =destroy(name lan_ip)
     continue [Unwind]
   L7:
+return
 --expandArc: mergeShadowScope
 
 scope:
@@ -183,6 +186,7 @@ scope:
     =destroy(name shadowScope)
     continue [Unwind]
   L6:
+return
 -- end of expandArc ------------------------
 --expandArc: treturn
 
@@ -210,10 +214,10 @@ scope:
     =destroy(name x)
     continue [L5]
   L4:
-goto [L1]
+L1:
+return result
 finally (L5):
   continue [Unwind]
-L1:
 
 -- end of expandArc ------------------------
 --expandArc: check
@@ -269,6 +273,7 @@ scope:
     =destroy(name par)
     continue [Unwind]
   L7:
+return
 
 -- end of expandArc ------------------------'''
 """

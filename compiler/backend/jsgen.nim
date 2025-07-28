@@ -1318,16 +1318,7 @@ proc genInfixCall(p: PProc, n: CgNode, r: var TCompRes) =
 
 proc genCall(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n[0], r)
-  if n[0].kind != cnkProc and
-     n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
-    # an indirect tailcall call. The signature doesn't match reality, so we
-    # manually handle the argument
-    # XXX: this is fundamentally a hack see https://github.com/nim-works/nimskull/pull/1504
-    r.res.add "("
-    genArg(p, n[1], p.module.graph.getSysType(n[1].info, tyPointer), r, nil)
-    r.res.add ")"
-  else:
-    genArgs(p, n, r)
+  genArgs(p, n, r)
   if n.typ != nil:
     let t = mapType(n.typ)
     if t == etyBaseIndex:

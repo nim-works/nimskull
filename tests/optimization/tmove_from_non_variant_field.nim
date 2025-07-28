@@ -20,6 +20,7 @@ scope:
     =destroy(name x)
   _5 = _6
   =destroy(name x)
+return result
 
 -- end of expandArc ------------------------'''
 """

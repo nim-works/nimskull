@@ -12,6 +12,7 @@ scope:
   def p: proc (x: float){.nimcall.} = copy _2
   def_cursor _3: proc (x: int){.nimcall.} = cast p
   _3(arg 1) -> [Unwind]
+return
 -- end of expandArc ------------------------
   '''
   output: "1"

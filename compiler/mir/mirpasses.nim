@@ -24,7 +24,8 @@ import
     mirtrees,
     mirtypes,
     rtchecks,
-    sourcemaps
+    sourcemaps,
+    tailcall_elim
   ],
   compiler/modules/[
     modulegraphs,
@@ -430,11 +431,9 @@ proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) 
       of opMutateGlobal:
         discard "not relevant"
 
-    # the exit flag indicates that traversal reached the end of the body
-    # (without ``result`` being an initialized). The a > b check makes sure
-    # an empty procedure body also requires initialization of the result
-    # var
-    result = s.exit or all.a > all.b
+    # the result variable is not used before its value is set -> no default
+    # initialization is required
+    result = false
 
   if requiresInit(tree):
     assert tree[0].kind == mnkScope
@@ -828,6 +827,17 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       var c {.inject.} = initChangeset(body)
       b
       apply(body, c)
+
+  if target in {targetC, targetJs} and sfGeneratedOp notin prc.flags:
+    # portable tail-call elimination
+    batch:
+      lowerProcvals(body.code, env, c)
+    batch:
+      insertTrampolines(body.code, graph, prc, env, c)
+    if prc.typ.callConv == ccTailcall:
+      insertNewResult(body, graph, prc, env)
+      batch:
+        lowerTailcallBody(body, graph, prc, env, c)
 
   if target == targetC:
     batch:

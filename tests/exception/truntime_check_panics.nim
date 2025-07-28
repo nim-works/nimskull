@@ -27,6 +27,7 @@ scope:
   discard r.(Sub)
   def _12: float = mulF64(arg f, arg f)
   chckNaN(arg _12)
+return
 
 -- end of expandArc ------------------------'''
 """
