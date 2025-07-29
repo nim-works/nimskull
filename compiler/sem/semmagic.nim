@@ -551,9 +551,6 @@ proc semSuspend(c: PContext, n: PNode, flags: TExprFlags): PNode =
   elif c.p.owner.kind == skIterator:
     result = c.config.newError(result,
       PAstDiag(kind: adSemCannotSuspendInIterator))
-  elif c.p.owner.kind in skProcKinds and c.p.owner.typ.callConv == ccTailcall:
-    result = c.config.newError(result,
-      PAstDiag(kind: adSemCannotSuspendInTailcallProc))
   elif c.p.owner.kind == skModule:
     result = c.config.newError(result,
       PAstDiag(kind: adSemCannotSuspendAtTopLevel))
