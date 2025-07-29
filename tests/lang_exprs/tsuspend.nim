@@ -152,7 +152,6 @@ proc testFor1(): int =
 
 doAssert testFor1() == 1
 
-]#
 iterator multiYield(): int =
   yield 1
   yield 2
