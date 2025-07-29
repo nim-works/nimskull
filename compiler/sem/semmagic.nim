@@ -494,11 +494,13 @@ proc semSuspend(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   # create the type of the continuation procedure:
   let prc = newProcType(n.info, nextTypeId(c.idgen), getCurrOwner(c))
-  prc.callConv = ccNimCall
+  prc.callConv = ccTailcall
   prc[0] = resultType # use the enclosing routine's return type
   if hasParam:
     prc.addParam("arg", newTypeWithSons(c, tySink, @[paramType]), n.info, c)
   prc.addParam("c", newTypeWithSons(c, tySink, @[obj]), n.info, c)
+
+  prepareTailcallProc(c, n.info, prc)
 
   # set up the type to use for the local:
   let tup = newTypeS(tyTuple, c)

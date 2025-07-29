@@ -55,7 +55,8 @@ import
     ast_query,
     ast_idgen,
     ast,
-    idents
+    idents,
+    types
   ],
   compiler/mir/[
     mirbodies,
@@ -67,8 +68,9 @@ import
     sourcemaps
   ],
   compiler/sem/[
+    liftdestructors,
     mirexec,
-    liftdestructors
+    tailcall_analysis
   ],
   compiler/modules/[
     modulegraphs,
@@ -92,7 +94,8 @@ proc simpleRoot(tree: MirTree, pos: NodePosition): NodePosition =
 
 proc makeProc(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
               pt: PType): PSym =
-  ## Creates the continuation procedure symbol for.
+  ## Creates a continuation procedure symbol, using the given proc
+  ## type (`pt`).
   result = newSym(skProc, owner.name, nextSymId(idgen), owner, owner.info,
                   owner.options)
   result.typ = pt
@@ -105,6 +108,14 @@ proc makeProc(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
       g.emptyNode,
       g.emptyNode)
 
+  # add the hidden env parameter:
+  let env = newSym(skParam, getIdent(g.cache, ":env"), nextSymId(idgen),
+                   result, result.info)
+  env.position = pt.len - 1
+  env.flags.incl sfFromGeneric
+  env.typ = g.getSysType(owner.info, tyPointer)
+  params.add newSymNode(env)
+
   result.ast = newProcNode(nkProcDef,
     owner.info,
     name = newSymNode(result),
@@ -115,7 +126,9 @@ proc makeProc(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
     pragmas = g.emptyNode,
     exceptions = g.emptyNode)
 
-  # prevent transf running on the procedure:
+  genApply(g, idgen, result)
+
+  # prevent transf from running on the procedure:
   g.setTransformed(result, result.ast[bodyPos])
 
 proc newField(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
@@ -225,6 +238,8 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
   ## * turns all 'resume's into their decorated form
   type Cont = object
     ## Information gathered about a continuation.
+    procType: PType
+      ## type of the continuation procedure
     id: ProcedureId
     discr: int64
       ## the discriminator value of the context variant, if context type
@@ -279,7 +294,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
       if lab notin conts:
         # setup the procedure
         let pt = env.types[tree[pos, 0].typ][1]
-        conts[lab] = Cont(id: env.procedures.add(makeProc(g, idgen, owner, pt)))
+        conts[lab] = Cont(procType: pt)
     of mnkResume:
       # gather the state that needs to be saved
       var save: Cont.saved
@@ -361,7 +376,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
 
   # set up the object info table:
   for cont in conts.values:
-    let ctx = env[cont.id].typ[^1].lastSon
+    let ctx = cont.procType[^1].lastSon
     objects.withValue ctx.id, val:
       inc val.numUsed
     do:
@@ -386,7 +401,7 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
 
   # fill the context types:
   for cont in conts.mvalues:
-    let ctx = env[cont.id].typ[^1].lastSon
+    let ctx = cont.procType[^1].lastSon
     var n: PNode
     if objects[ctx.id].numUsed > 1:
       # append to a new variant
@@ -415,6 +430,22 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
   for obj in objects.values:
     resolveForwardOps(g, idgen, env.types[obj.typ], owner.info)
     env.types.complete(env.types[obj.typ])
+
+  # create the continuation procedure symbols now that the types are complete:
+  for cont in conts.mvalues:
+    let ctx = cont.procType[^1].lastSon
+    # the application procedure generation needs access to the computed size,
+    # otherwise it'll report an error
+    ctx.size = szUncomputedSize
+    ctx.align = szUncomputedSize
+    let s = makeProc(g, idgen, owner, cont.procType)
+    # keeping the computed size of the context type would break assumptions
+    # of the MIR type environment, as the type might have been registered
+    # already. Therefore the size and alignment values have to be reset back
+    # to "unknown"
+    ctx.size = szUnknownSize
+    ctx.align = szUnknownSize
+    cont.id = env.procedures.add(s)
 
   # second pass: perform the actual lowering (replace 'fork's and
   # decorate 'resume's)
@@ -508,6 +539,9 @@ proc filter(body: MirBody, cont: ProcedureId, env: var MirEnv): MirBody =
   else:
     inputParam = MirNode(kind: mnkNone)
     ctxParam = newParam(env, ptyp.n[1].sym)
+
+  # add the hidden .tailcall env parameter:
+  discard newParam(env, env[cont].ast[paramsPos][^1].sym)
 
   # first step: look for the continuation's entry point and collect all scope
   # and loop starts leading up to it
