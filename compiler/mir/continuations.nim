@@ -169,10 +169,6 @@ proc prepareFork*(body: MirBody, changes: var Changeset) =
       of opMutateGlobal:
         discard "not relevant"
 
-    if result != 2 and loc == resultId and state.exit:
-      # the result variable is implicitly used when returning
-      result = 2
-
   # also consider the result variable
   if body[resultId].typ != VoidType:
     locs.add MirNode(kind: mnkLocal, typ: body[resultId].typ, local: resultId)
@@ -313,12 +309,6 @@ proc firstPass*(body: MirBody, owner: PSym, g: ModuleGraph, idgen: IdGenerator,
               state.exit = true
           of opMutateGlobal:
             discard "not relevant"
-
-        if mode != 2 and it.n.local == resultId and state.exit:
-          # the result variable is used implictly on returning
-          mode = 2
-          # TODO: make returns explicit in the MIR, so that the result doesn't
-          #       have to be special-cased like this
 
         let canon = env.types.canonical(it.n.typ)
         if (mode == 2 and
@@ -677,7 +667,7 @@ proc filter(body: MirBody, cont: ProcedureId, env: var MirEnv): MirBody =
           if tree[pos, 0].kind in {mnkTemp, mnkLocal, mnkParam, mnkAlias}:
             def(body, tree[pos, 0])
           copy(body, pos)
-      of mnkRaise, mnkContinue, mnkGoto, mnkCase:
+      of mnkRaise, mnkContinue, mnkGoto, mnkReturn, mnkCase:
         if active:
           copy(body, pos)
         active = false
@@ -788,6 +778,10 @@ proc removeUnreachableCode(tree: MirTree, changes: var Changeset) =
       continue
     of mnkGoto:
       live.incl(tree[pos, 0].label)
+      pos = tree.sibling(pos)
+      remove(tree, pos, changes)
+      continue
+    of mnkReturn:
       pos = tree.sibling(pos)
       remove(tree, pos, changes)
       continue
