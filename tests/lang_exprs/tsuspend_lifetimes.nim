@@ -23,7 +23,7 @@ proc `=copy`(a: var Object, b: Object) =
 proc use[T](x: T) = discard
 
 proc pass[C, V, R](
-    x: sink V, c: sink (C, proc(p: sink V, c: sink C): R {.nimcall.})): R =
+    x: sink V, c: sink (C, proc(p: sink V, c: sink C): R {.tailcall.})): R =
   c[1](x, c[0])
 
 # ---- tests for copying locals into suspend blocks

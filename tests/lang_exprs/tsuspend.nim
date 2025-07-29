@@ -5,11 +5,11 @@ discard """
 # note: these tests specifically test the MIR and transf parts of the
 # implementation. They're not general tests for `suspend`!
 
-proc pass[C, R](cont: sink (C, proc(c: sink C): R {.nimcall.})): R =
+proc pass[C, R](cont: sink (C, proc(c: sink C): R {.tailcall.})): R =
   let (a, b) = cont
   b(a)
 
-proc pass[C, R, A](x: sink A, cont: sink (C, proc(a: sink A, c: sink C): R {.nimcall.})): R =
+proc pass[C, R, A](x: sink A, cont: sink (C, proc(a: sink A, c: sink C): R {.tailcall.})): R =
   let (a, b) = cont
   b(x, a)
 
@@ -152,6 +152,7 @@ proc testFor1(): int =
 
 doAssert testFor1() == 1
 
+]#
 iterator multiYield(): int =
   yield 1
   yield 2
