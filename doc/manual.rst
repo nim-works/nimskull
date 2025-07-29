@@ -4189,8 +4189,8 @@ as `system.suspend`.
   * the size and alignment of `Ctx` are not queriable in a compile-time context
   * an instance of `Ctx` is always copyable
 4. let `P` be a type such that:
-  * if `T is void`, then `P` is `proc(e: sink Ctx): R {.nimcall.}`
-  * if `T isnot void`, then `P` is `proc(p: sink T, e: sink Ctx): R {.nimcall.}`
+  * if `T is void`, then `P` is `proc(e: sink Ctx): R {.tailcall.}`
+  * if `T isnot void`, then `P` is `proc(p: sink T, e: sink Ctx): R {.tailcall.}`
 5. let `cont` refer to the *continuation* (a procedure of type `P`)
 6. let `ctx` refer to the saved context (a value of type `Ctx`)
 7. let `L` refer to the location which is named by the
@@ -4215,7 +4215,6 @@ The `suspend` form must not statically appear:
 * as or within the third argument of a `suspend`
 * outside of a routine
 * as part of an `iterator` body
-* as part of a `.tailcall` routine body
 
 Saving the context refers to saving the value of locals (which includes owning
 parameters and the `result` variable, if any) in a context object. Views (both
