@@ -42,7 +42,7 @@ proc copyResultIntoSuspend(): Object =
 
 numCopies = 0
 discard copyResultIntoSuspend()
-doAssert numCopies == 2
+doAssert numCopies == 1
 
 proc copySinkParamIntoSuspend(x: sink Object) =
   let got = suspend(Object, cont, pass(x, cont))
