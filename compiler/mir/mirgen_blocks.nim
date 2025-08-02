@@ -351,6 +351,7 @@ proc restoreContext*(c; bu; with: sink BlockCtx) =
   ## blocks prior to the savepoint as is. A unstructured scope exit is emitted.
   assert c.blocks.len == with.savepoint + 1
   c.closeScope(bu, with.currScope, false)
+  c.toDestroy.add:
+    toOpenArray(with.toDestroy, c.toDestroy.len, with.toDestroy.high)
   c.blocks.add(with.blocks)
   c.savepoint = with.savepoint
-  c.toDestroy = with.toDestroy
