@@ -1134,7 +1134,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     else:
       result = s
 
-    if result[0].typ != nil and result[0].typ.callConv == ccTailcall and
+    if result[0].typ != nil and
+       result[0].typ.skipTypes(abstractInst).callConv == ccTailcall and
        sfGeneratedOp notin getCurrOwner(c).flags and
        getCurrOwner(c).typ != nil and
        getCurrOwner(c).typ.callConv == ccTailcall and
@@ -1442,7 +1443,8 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     if active:
       if n.kind in nkCallKinds and
-         n[0].typ != nil and n[0].typ.callConv == ccTailcall:
+         n[0].typ != nil and
+         n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
         n = newTreeI(nkReturnStmt, n.info, n)
       else:
         n = newTreeI(nkReturnStmt, n.info,
