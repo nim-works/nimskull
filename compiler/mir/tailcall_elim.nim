@@ -32,7 +32,7 @@ proc getCalleeType(tree: MirTree, pos: NodePosition, env: MirEnv): PType =
   if tree[pos].kind == mnkProc:
     env[tree[pos].prc].typ
   else:
-    env.types[env.types.canonical(tree[pos].typ)]
+    env.types[tree[pos].typ].skipTypes(abstractInst)
 
 proc emitParamBlobInit(bu: var MirBuilder, tree: MirTree, call: NodePosition,
                        to: Value, g: ModuleGraph, owner: PSym,
