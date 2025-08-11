@@ -466,7 +466,10 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
       # xxx: we really should guard on `sfGenSym`; but macros can transplant
       #      symbols from pretty much anywhere, so we don't know where gensym
       #      really came from.
-      if n.sym.kind in {kind, skTemp}:
+      if n.sym.kind in {kind, skTemp, skGenerated}:
+        # declaration position converts generated sym to the correct type
+        if n.sym.kind == skGenerated:
+          n.sym.kind = kind
         n.sym.owner = currOwner # xxx: modifying the sym owner is suss
         n
       else:

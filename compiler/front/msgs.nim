@@ -580,6 +580,7 @@ func astDiagToLegacyReportKind*(
   of adSemCannotMixTypesAndValuesInTuple: rsemCannotMixTypesAndValuesInTuple
   of adSemNoReturnTypeDeclared: rsemNoReturnTypeDeclared
   of adSemReturnNotAllowed: rsemReturnNotAllowed
+  of adSemGeneratedSymUsed: rsemUndeclaredSymUsed
   of adSemFieldAssignmentInvalid: rsemFieldAssignmentInvalid
   of adSemFieldNotAccessible: rsemFieldNotAccessible
   of adSemObjectRequiresFieldInit: rsemObjectRequiresFieldInit

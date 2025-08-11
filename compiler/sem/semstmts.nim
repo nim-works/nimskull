@@ -3039,7 +3039,8 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
   result[namePos] =
     semRoutineName(c, n[namePos], kind, allowAnon = kind in AllowAnon)
 
-  c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
+  if result[namePos].kind != nkError:
+    c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
 
   if result[namePos].kind == nkError:
     if result[namePos].diag.kind == adSemDefNameSym:

@@ -2707,15 +2707,19 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
         delSon(regs[ra].nimNode, bb)
     of opcGenSym:
       decodeBC(rkNimNode)
-      let k = regs[rb].intVal
-      checkHandle(regs[rc])
-      assert regs[rc].handle.typ.kind == akString
+      let rh =
+        if regs[rb].kind == rkInt:
+          # Called from compatibility symbol
+          rc
+        else:
+          rb
+
+      checkHandle(regs[rh])
+      assert regs[rh].handle.typ.kind == akString
       # XXX: costly stringify of strVal... `getIdent` doesn't use openArray :(
-      let name = if regs[rc].strVal.len == 0: ":tmp"
-                 else: $regs[rc].strVal
-      guestValidate(k in 0..ord(high(TSymKind)),
-        "request to create symbol of invalid kind")
-      var sym = newSym(k.TSymKind, getIdent(c.cache, name), nextSymId c.idgen, c.module.owner, c.debug[pc])
+      let name = if regs[rh].strVal.len == 0: ":tmp"
+                 else: $regs[rh].strVal
+      var sym = newSym(skGenerated, getIdent(c.cache, name), nextSymId c.idgen, nil, c.debug[pc])
       incl(sym.flags, sfGenSym)
       regs[ra].nimNode = newSymNode(sym)
     of opcNccValue:

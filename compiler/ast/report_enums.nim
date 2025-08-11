@@ -702,6 +702,7 @@ type
     rsemPragmaRecursiveDependency
     rsemMisplacedDeprecation
     rsemNoUnionForJs
+    rsemUndeclaredSymUsed
 
     rsemThisPragmaRequires01Args
     rsemMismatchedPopPush

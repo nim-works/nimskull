@@ -79,3 +79,4 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimskullNoNkNone")
   defineSymbol("nimskullHasSupportsZeroMem")
   defineSymbol("nimskullHasNoParseFloatMagic")
+  defineSymbol("nimskullHasUnaryGenSym")

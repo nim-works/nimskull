@@ -145,7 +145,8 @@ type
     nskProc, nskFunc, nskMethod, nskIterator,
     nskConverter, nskMacro, nskTemplate, nskField,
     nskEnumField, nskForVar, nskLabel,
-    nskStub
+    nskStub,
+    nskGenerated = ord(nskStub) + 2
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
@@ -432,10 +433,18 @@ proc bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): NimNode {.
   ##
   ## See the `manual <manual.html#macros-bindsym>`_ for more details.
 
+when defined(nimskullHasUnaryGenSym):
+  proc genSym*(ident = ""): NimNode {.magic: "NGenSym", noSideEffect.}
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+
 proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
-  magic: "NGenSym", noSideEffect.}
+  magic: "NGenSym", noSideEffect, deprecated: "genSym no longer takes a `kind` parameter".}
   ## Generates a fresh symbol that is guaranteed to be unique. The symbol
   ## needs to occur in a declaration context.
+  ##
+  ## This is a compatibility alias for `genSym`, the `kind` parameter is
+  ## ignored.
 
 proc callsite*(): NimNode {.magic: "NCallSite", benign, deprecated:
   "Deprecated since v0.18.1; use `varargs[untyped]` in the macro prototype instead".}
