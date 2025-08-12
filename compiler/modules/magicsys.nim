@@ -135,6 +135,17 @@ proc getCompilerProc*(g: ModuleGraph; name: string): PSym =
   if result == nil:
     result = loadCompilerProc(g, name)
 
+proc principalType*(typ: PType, idgen: IdGenerator): PType =
+  ## Given the concrete type `typ` of an expression appearing in a usage
+  ## context, returns the most general concrete type (i.e., the principal
+  ## type) without modifiers that doesn't lose significant type information.
+  result = typ
+  if result.kind == tyStatic:
+    result = typ.lastSon
+  if result.kind == tySink:
+    result = typ.lastSon
+  result = skipIntLit(result, idgen)
+
 proc registerCompilerProc*(g: ModuleGraph; s: PSym) =
   strTableAdd(g.compilerprocs, s)
 
