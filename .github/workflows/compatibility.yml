@@ -5,6 +5,8 @@ on:
       - devel
       # Github Merge Queue temporary branches
       - gh-readonly-queue/**
+      # Dependabot branches
+      - dependabot/**
 
   pull_request:
     # Only consider PRs to devel
