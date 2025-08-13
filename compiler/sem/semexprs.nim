@@ -126,7 +126,7 @@ const
   IntegralTypes = {tyBool, tyEnum, tyChar, tyInt..tyUInt64}
 
 proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
-  let srcTyp = src.typ.skipTypes({tyStatic})
+  let srcTyp = principalType(src.typ, c.idgen)
   result = convOK
   if sameType(targetTyp, srcTyp) and targetTyp.sym == srcTyp.sym:
     # don't annoy conversions that may be needed on another processor:
@@ -813,14 +813,9 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
       inc lastIndex
 
-    # watch out for ``sink T``!
-    # XXX: things would be easier if ``sink T`` only exists for the operands
-    #      of a ``tyProc``
-    typ = typ.skipTypes({tySink})
-
     # finish the array type:
     rawAddSon(result.typ, createRange(firstIndex, lastIndex, indexType))
-    addSonSkipIntLit(result.typ, typ, c.idgen)
+    rawAddSon(result.typ, principalType(typ, c.idgen))
 
     var hasError = false
     # fit all elements to be of the derived common type
@@ -3012,7 +3007,7 @@ proc semSetConstr(c: PContext, n: PNode): PNode =
         elem = result[i].typ
 
       if typ.isNil:
-        typ = skipTypes(elem, {tyGenericInst, tyOrdinal, tyAlias, tySink})
+        typ = principalType(elem, c.idgen)
 
     if not isOrdinalType(typ, allowEnumWithHoles=true):
       if typ.kind != tyError:
@@ -3022,7 +3017,7 @@ proc semSetConstr(c: PContext, n: PNode): PNode =
     elif lengthOrd(c.config, typ) > MaxSetElements:
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
-    addSonSkipIntLit(result.typ, typ, c.idgen)
+    rawAddSon(result.typ, typ)
 
     var hasError = false
     template handleError(n: PNode): PNode =
@@ -3146,7 +3141,7 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         fieldValue
 
     # the field type is the rhs' type
-    fieldSym.typ = skipIntLit(n[i][1].typ, c.idgen)
+    fieldSym.typ = principalType(n[i][1].typ, c.idgen)
     rawAddSon(typ, fieldSym.typ)
 
     typ.n.add newSymNode(fieldSym) # the type remembers fields as a "schema"
@@ -3189,7 +3184,7 @@ proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       etyp = tupExp[i].typ
 
     hasError = hasError or tupExp[i].isError
-    addSonSkipIntLit(typ, etyp, c.idgen)
+    rawAddSon(typ, principalType(etyp, c.idgen))
 
   tupExp.typ = typ
 

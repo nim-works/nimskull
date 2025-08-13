@@ -703,7 +703,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
   
   elif not haveGivenTyp and haveInit: # eg: var foo = 1
     def = initExpr
-    typ = initType.skipTypes({tyStatic, tySink}).skipIntLit(c.idgen)
+    typ = principalType(initType, c.idgen)
     if typ.kind in tyUserTypeClasses and typ.isResolvedUserTypeClass:
       typ = typ.lastSon
 

@@ -394,7 +394,7 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
     result.n.add it
 
   let
-    rangeT = range.mapIt(it.typ.skipTypes({tyStatic}).skipIntLit(c.idgen))
+    rangeT = range.mapIt(principalType(it.typ, c.idgen))
     hasUnknownTypes = tyFromExpr in {rangeT[0].kind, rangeT[1].kind}
 
   if not hasUnknownTypes:
@@ -1542,7 +1542,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
           def.flags.incl nfDefaultRefsParam
 
       if typ == nil:
-        typ = def.typ
+        typ = principalType(def.typ, c.idgen)
         if isEmptyContainer(typ):
           localReport(c.config, a, reportAst(
             rsemCannotInferParameterType, a[0]))
@@ -1801,10 +1801,10 @@ proc maybeAliasType(c: PContext; typeExpr, prev: PType): PType =
     result.sym = prev.sym
     assignType(prev, result)
 
-proc fixupTypeOf(c: PContext, prev: PType, typExpr: PNode) =
+proc fixupTypeOf(c: PContext, prev: PType, typ: PType) =
   if prev != nil:
     let result = newTypeS(tyAlias, c)
-    result.rawAddSon typExpr.typ
+    result.rawAddSon typ
     result.sym = prev.sym
     assignType(prev, result)
 
@@ -1999,8 +1999,8 @@ proc semTypeOf(c: PContext; n: PNode; prev: PType): PType =
       if result.n.isNil:
         result.n = t
     else:
-      fixupTypeOf(c, prev, t)
-      result = t.typ
+      result = principalType(t.typ, c.idgen)
+      fixupTypeOf(c, prev, result)
 
 proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   openScope(c)
@@ -2032,8 +2032,8 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
       if result.n.isNil:
         result.n = t
     else:
-      fixupTypeOf(c, prev, t)
-      result = t.typ
+      result = principalType(t.typ, c.idgen)
+      fixupTypeOf(c, prev, result)
 
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =

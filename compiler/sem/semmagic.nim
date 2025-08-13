@@ -51,7 +51,7 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   if typExpr.isError:
     result = c.config.wrapError(result)
   else:
-    result.typ = makeTypeDesc(c, typExpr.typ)
+    result.typ = makeTypeDesc(c, principalType(typExpr.typ, c.idgen))
 
 proc semSizeOf(c: PContext, n: PNode): PNode =
   case n.len
