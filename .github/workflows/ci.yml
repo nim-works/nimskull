@@ -209,14 +209,14 @@ jobs:
           filter: tree:0
 
       - name: Download binaries built from source archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           pattern: binaries from source archive*
           path: binary-from-source
           merge-multiple: true
 
       - name: Download release package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           # Download all release binaries to the same folder
           pattern: release binaries*
@@ -224,7 +224,7 @@ jobs:
           merge-multiple: true
 
       - name: Download release source archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: source archive
           path: source-archive
