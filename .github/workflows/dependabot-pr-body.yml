@@ -1,0 +1,26 @@
+name: Edit dependabot PR body for merge
+
+on:
+  pull_request_target:
+    types:
+      - opened
+
+permissions:
+  pull-requests: write
+
+jobs:
+  edit:
+    if: github.event.pull_request.user.login == 'app/dependabot'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Edit PR body
+        run: |
+          # Modifies the PR body to prepend a horizontal ruler.
+          # This makes sure /merge trims the entire PR body, preventing
+          # dependabot fancy formatting from littering the commit message
+          gh pr view "$PR_URL" --json body --jq '"---\n\n" + .body' \
+          | gh pr edit "$PR_URL" --body-file -
+        env:
+          PR_URL: ${{ github.event.pull_request.url }}
+          GH_TOKEN: ${{ github.token }}
