@@ -11,6 +11,8 @@ on:
       - staging-squash-merge.tmp
       # Github Merge Queue temporary branches
       - gh-readonly-queue/**
+      # Dependabot branches
+      - dependabot/**
 
   pull_request:
     # Only take PRs to devel
