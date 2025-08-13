@@ -94,7 +94,7 @@ jobs:
         with:
           triplet: x64-mingw-dynamic-release
           host-triplet: x64-mingw-dynamic-release
-          revision: 2024.01.12
+          revision: 2025.07.25
           overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
 
       - name: Install dependencies (Windows)
