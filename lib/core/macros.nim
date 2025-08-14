@@ -444,7 +444,9 @@ when defined(nimskullHasUnaryGenSym):
     ##
     ## This is a compatibility alias for `genSym <#genSym,string>`_, the `kind`
     ## parameter is ignored.
-    genSym(ident)
+    {.line.}:
+      discard kind 
+      genSym(ident)
 
   template genSym*(kind: NimSymKind): NimNode {.
     deprecated: "genSym no longer takes a `kind` parameter".} =
@@ -453,7 +455,9 @@ when defined(nimskullHasUnaryGenSym):
     ##
     ## This is a compatibility alias for `genSym <#genSym,string>`_, the `kind`
     ## parameter is ignored.
-    genSym()
+    {.line.}:
+      discard kind
+      genSym()
 
 else:
   # Old prototype for bootstrapping
