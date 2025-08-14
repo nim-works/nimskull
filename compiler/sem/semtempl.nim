@@ -252,7 +252,7 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
 
 func isTemplParam(c: TemplCtx, s: PSym): bool {.inline.} =
   ## True if `s` is a parameter symbol of the current template.
-  s.kind in {skParam, skGenerated} and s.owner == c.owner and sfTemplateParam in s.flags
+  s.kind == skParam and s.owner == c.owner and sfTemplateParam in s.flags
 
 func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is a parameter symbol of the current template.
@@ -304,10 +304,10 @@ proc onlyReplaceParams(c: var TemplCtx, n: PNode): PNode =
     if hasError:
       result = c.c.config.wrapError(result)
 
-proc newGenSym(n: PNode, c: var TemplCtx): PSym =
+proc newGenSym(kind: TSymKind, n: PNode, c: var TemplCtx): PSym =
   let (ident, err) = considerQuotedIdent(c.c, n)
   if err.isNil:
-    result = newSym(skGenerated, ident, nextSymId c.c.idgen, c.owner, n.info)
+    result = newSym(kind, ident, nextSymId c.c.idgen, c.owner, n.info)
     result.flags.incl {sfGenSym, sfShadowed}
   else:
     result = newSym(skError, ident, nextSymId c.c.idgen, c.owner, n.info)
@@ -384,7 +384,7 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
         replaceIdentBySym(c.c, n, ident)
       else:
         if n.kind != nkSym:
-          let local = newGenSym(ident, c)
+          let local = newGenSym(k, ident, c)
 
           addPrelimDecl(c.c, local)
           styleCheckDef(c.c.config, n.info, local)
@@ -497,7 +497,7 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
     elif definitionTemplParam(c, ident):
       n[namePos] = ident
     else:
-      var s = newGenSym(ident, c)
+      var s = newGenSym(k, ident, c)
       s.ast = n
       addPrelimDecl(c.c, s)
       styleCheckDef(c.c.config, n.info, s)
