@@ -10,16 +10,12 @@ import std/macros
 proc nameExpr(n: NimNode): NimNode =
   # Extracts the expression containing the replacement name
   case n.kind
-  of nnkStmtList, nnkStmtListExpr, nnkForStmt:
+  of nnkStmtList:
     nameExpr n[^1]
-  of nnkConstSection, nnkConstDef:
-    nameExpr n[0]
-  of nnkDiscardStmt:
-    nameExpr n[0]
+  of nkLetSection, nkVarSection, nkConstSection:
+    n[0][0]
   of RoutineNodes:
     n.name
-  of AtomicNodes:
-    n
   else:
     unreachable("unsupported kind: " & $n.kind)
 
@@ -61,24 +57,21 @@ do:
     discard
 
 replaceName:
-  for iter in [0]:
-    discard iter
+  var iter = 0
 do:
   iterator iter() = #[tt.Error
           ^ (SemSymbolKindMismatch)]#
     discard
 
 replaceName:
-  for conv in [0]:
-    discard conv
+  proc conv() = discard
 do:
   converter conv() = #[tt.Error
            ^ (SemSymbolKindMismatch)]#
     discard
 
 replaceName:
-  for meth in [0]:
-    discard meth
+  proc meth() = discard
 do:
   method meth(x: RootObj) {.base.} = #[tt.Error
         ^ (SemSymbolKindMismatch)]#
@@ -100,21 +93,18 @@ do:
 
 replaceName:
   let a = 0
-  a
 do:
   var a: int #[tt.Error
      ^ (SemSymbolKindMismatch)]#
 
 replaceName:
-  proc c = discard
-  c
+  proc c() = discard
 do:
   const c = 10 #[tt.Error
        ^ (SemSymbolKindMismatch)]#
 
 replaceName:
-  func T = discard
-  T
+  func T() = discard
 do:
   type T = int #[tt.Error
       ^ (SemSymbolKindMismatch)]#
