@@ -1116,7 +1116,7 @@ proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineIn
     discard genTypeInfoV1(m, t, info)
 
 proc genTypeInfoV2(m: BModule, t: PType; info: TLineInfo): Rope =
-  let origType = t
+  let origType = skipTypes(t, {tySink})
   # distinct types can have their own destructors
   var t = skipTypes(origType, irrelevantForBackend + tyUserTypeClasses - {tyDistinct})
 
@@ -1188,7 +1188,7 @@ proc typeToC(t: PType): string =
       result.addInt ord(c)
 
 proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
-  let origType = t
+  let origType = skipTypes(t, {tySink})
   var t = skipTypes(origType, irrelevantForBackend + tyUserTypeClasses)
 
   let prefixTI = "(&"

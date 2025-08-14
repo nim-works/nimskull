@@ -1345,9 +1345,9 @@ proc track(tracked: PEffects, n: PNode) =
         checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x)
     setLen(tracked.guards.s, oldFacts)
     if tracked.owner.kind != skMacro:
-      # XXX n.typ can be nil in runnableExamples, we need to do something about it.
-      if n.typ != nil and n.typ.skipTypes(abstractInst).kind == tyRef:
-        createTypeBoundOps(tracked, n.typ.lastSon, n.info)
+      let skipped = n.typ.skipTypes(abstractInst)
+      if skipped.kind == tyRef:
+        createTypeBoundOps(tracked, skipped.lastSon, n.info)
       createTypeBoundOps(tracked, n.typ, n.info)
   of nkTupleConstr:
     for i in 0..<n.len:
