@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   edit:
-    if: github.event.pull_request.user.login == 'app/dependabot'
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
 
     steps:
