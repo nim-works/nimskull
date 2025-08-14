@@ -2,6 +2,17 @@ version: 2
 updates:
   # Maintain dependencies for GitHub Actions
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # XXX: Workaround https://github.com/dependabot/dependabot-core/issues/6345
+    directories:
+      - /
+      - /.github/actions/download-compiler
+      - /.github/actions/upload-compiler
+      - /.github/actions/setup-mingw
+      - /.github/actions/setup-vcpkg
     schedule:
       interval: "weekly"
+    groups:
+      # Group download/upload artifact action updates
+      actions-artifacts:
+        patterns:
+          - actions/*-artifact

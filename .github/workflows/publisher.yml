@@ -26,7 +26,7 @@ jobs:
 
     steps:
       # Repository required for changelog builder
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           sparse-checkout: |
@@ -56,7 +56,7 @@ jobs:
 
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated source archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
@@ -65,7 +65,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Download generated release binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
@@ -75,7 +75,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Download release manifest tool
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
