@@ -577,6 +577,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemNoUnionForJs:
       result = "`{.union.}` is not implemented for js backend."
 
+    of rsemUndeclaredSymUsed:
+      result = "symbol used before declaration: "
+      result.add conf.getSymRepr r.sym
+
     of rsemBitsizeRequiresPositive:
       result = "bitsize needs to be positive"
 
@@ -3335,7 +3339,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: kind,
         ast: diag.wrongNode)
   of adSemDotOperatorsNotEnabled,
-     adSemCallOperatorsNotEnabled:
+     adSemCallOperatorsNotEnabled,
+     adSemGeneratedSymUsed:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,

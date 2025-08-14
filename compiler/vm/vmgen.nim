@@ -2003,7 +2003,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mNCallSite:
     if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcCallSite, dest)
-  of mNGenSym: genBinaryABC(c, n, dest, opcGenSym)
+  of mNGenSym: genUnaryABC(c, n, dest, opcGenSym)
   of mMinI, mMaxI, mAbsI, mDotDot:
     c.genCall(n, dest)
   of mExpandToAst:

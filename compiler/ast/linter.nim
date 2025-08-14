@@ -53,7 +53,7 @@ const
   skLiteralValue = {skEnumField, skLabel}
   skOverloadableDef = routineKinds
   skLocals = {skLet, skVar, skParam, skForVar, skField}
-  skIgnore = {skUnknown, skConditional, skDynLib, skStub, skTemp}
+  skIgnore = {skUnknown, skConditional, skDynLib, skStub, skTemp, skGenerated}
   # skResult needs to be accounted for here
 
 type

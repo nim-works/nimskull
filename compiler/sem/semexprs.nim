@@ -1660,6 +1660,11 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       # the owner should have been set by now by addParamOrResult
       c.config.internalAssert s.owner != nil
     result = newSymNode(s, n.info)
+  of skGenerated:
+    let info = getCallLineInfo(n)
+    markUsed(c, info, s)
+    result = c.config.newError(newSymNode(s, info),
+                               PAstDiag(kind: adSemGeneratedSymUsed))
   else:
     let info = getCallLineInfo(n)
     markUsed(c, info, s)
