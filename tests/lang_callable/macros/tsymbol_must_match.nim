@@ -12,7 +12,7 @@ proc nameExpr(n: NimNode): NimNode =
   case n.kind
   of nnkStmtList:
     nameExpr n[^1]
-  of nkLetSection, nkVarSection, nkConstSection:
+  of nnkLetSection, nnkVarSection, nnkConstSection:
     n[0][0]
   of RoutineNodes:
     n.name
