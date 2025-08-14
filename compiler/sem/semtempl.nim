@@ -252,7 +252,7 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
 
 func isTemplParam(c: TemplCtx, s: PSym): bool {.inline.} =
   ## True if `s` is a parameter symbol of the current template.
-  s.kind == skParam and s.owner == c.owner and sfTemplateParam in s.flags
+  s.kind in {skParam, skGenerated} and s.owner == c.owner and sfTemplateParam in s.flags
 
 func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is a parameter symbol of the current template.
