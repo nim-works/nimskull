@@ -145,8 +145,7 @@ type
     nskProc, nskFunc, nskMethod, nskIterator,
     nskConverter, nskMacro, nskTemplate, nskField,
     nskEnumField, nskForVar, nskLabel,
-    nskStub,
-    nskGenerated = ord(nskStub) + 2
+    nskStub, nskGenerated
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}

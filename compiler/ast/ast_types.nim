@@ -718,9 +718,9 @@ type
     skStub                ## symbol is a stub and not yet loaded from the ROD
                           ## file (it is loaded on demand, which may
                           ## mean: never)
-    skPackage             ## symbol is a package (used for canonicalization)
     skGenerated           ## symbol is generated and requires specialization in
                           ## a definition context
+    skPackage             ## symbol is a package (used for canonicalization)
 
   TSymKinds* = set[TSymKind]
 
