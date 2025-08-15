@@ -612,3 +612,13 @@ block use_closure_iterator_via_for_syntax:
         inc compare
 
   outer()
+
+block close_over_macro_params:
+  # macro parameters may be closed over like any other routine parameters
+  macro m(x: static int, y: int) =
+    proc inner() =
+      doAssert x == 1
+      doAssert not y.isNil
+    inner()
+
+  m(1, 2)
