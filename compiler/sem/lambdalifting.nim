@@ -216,16 +216,6 @@ proc isInnerProc(s: PSym): bool =
   if s.kind in {skProc, skFunc, skMethod, skConverter, skIterator} and s.magic == mNone:
     result = s.skipGenericOwner.kind in routineKinds
 
-proc newAsgnStmt(le, ri: PNode, info: TLineInfo): PNode =
-  # Bugfix: unfortunately we cannot use 'nkFastAsgn' here as that would
-  # mean to be able to capture string literals which have no GC header.
-  # However this can only happen if the capture happens through a parameter,
-  # which is however the only case when we generate an assignment in the first
-  # place.
-  result = newNodeI(nkAsgn, info, 2)
-  result[0] = le
-  result[1] = ri
-
 proc makeClosure*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; env: PNode; info: TLineInfo): PNode =
   result = newNodeIT(nkClosure, info, prc.typ)
   result.add(newSymNode(prc))
@@ -533,41 +523,36 @@ proc getUpViaParam(g: ModuleGraph; owner: PSym): PNode =
 
 proc rawClosureCreation(graph: ModuleGraph, idgen: IdGenerator,
                         c: LiftingPass; info: TLineInfo): PNode =
-  ## Generates and returns the AST for allocating and setting up an instance
-  ## of `owner`'s lifted local environment.
-  result = newNodeI(nkStmtList, c.owner.info)
+  ## Generates and returns the var statement AST for constructing an instance
+  ## of the local environment object.
+  let
+    typ = c.envSym.typ
+    constr = newObjConstr(typ, info)
+    signature = if c.owner.kind == skMacro: c.owner.internal
+                else: c.owner.typ
 
-  var env: PNode
-  if c.owner.isIterator:
-    env = newSymNode(c.envSym)
-  else:
-    env = newSymNode(c.envSym)
-    let v = newTreeI(nkVarSection, env.info):
-      newIdentDefs(env, newObjConstr(env.typ, info))
-    result.add(v)
+  # add the initialization for captured parameters to the construction:
+  for i in 1..<signature.n.len:
+    let param = signature.n[i].sym
+    if param.id in c.capturedVars:
+      let field = getFieldFromObj(typ.base, param)
+      constr.add(newTree(nkExprColonExpr, newSymNode(field), newSymNode(param)))
+      if c.owner.kind != skMacro:
+        createTypeBoundOps(graph, nil, field.typ, c.envSym.info, idgen)
+      if tfHasAsgn in field.typ.flags or
+         optSeqDestructors in graph.config.globalOptions:
+        c.owner.flags.incl sfInjectDestructors
 
-    # add assignment statements for captured parameters:
-    for i in 1..<c.owner.typ.n.len:
-      let local = c.owner.typ.n[i].sym
-      if local.id in c.capturedVars:
-        let fieldAccess = indirectAccess(env, local, env.info)
-        # add ``env.param = param``
-        result.add(newAsgnStmt(fieldAccess, newSymNode(local), env.info))
-        if c.owner.kind != skMacro:
-          createTypeBoundOps(graph, nil, fieldAccess.typ, env.info, idgen)
-        if tfHasAsgn in fieldAccess.typ.flags or optSeqDestructors in graph.config.globalOptions:
-          c.owner.flags.incl sfInjectDestructors
-
-  let upField = lookupInRecord(
-    env.typ.base.n, getIdent(graph.cache, upName))
-
+  let upField = lookupInRecord(typ.base.n, getIdent(graph.cache, upName))
   if upField != nil:
     let up = getUpViaParam(graph, c.owner)
     graph.config.internalAssert(
       up != nil and upField.typ.base == up.typ.base,
-      env.info, "internal error: cannot create up reference")
+      c.envSym.info, "internal error: cannot create up reference")
 
-    result.add(newAsgnStmt(rawIndirectAccess(env, upField, env.info), up, env.info))
+    constr.add(newTree(nkExprColonExpr, newSymNode(upField), up))
+
+  result = newTree(nkVarSection, newIdentDefs(newSymNode(c.envSym), constr))
 
 proc accessViaEnvVar(n: PNode; c: LiftingPass): PNode =
   let access = newSymNode(c.envSym)
@@ -791,7 +776,8 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
       let t = produceEnvType(d, idgen, fn, fn.info)
       prepareInnerRoutines(d, idgen, t, fn.info)
       let c = initLiftingPass(d, newEnvVar(g.cache, fn, t, fn.info, idgen))
-      result = rawClosureCreation(g, idgen, c, body.info)
+      result = newTreeI(nkStmtList, body.info)
+      result.add rawClosureCreation(g, idgen, c, body.info)
       result.add liftCapturedVars(body, g, idgen, c)
     elif d.requireUp or d.accessOuter:
       # the procedure only access the env parameter, without creating its
