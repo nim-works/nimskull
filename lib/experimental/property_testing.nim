@@ -209,7 +209,7 @@ proc startInnerSpec(ctx: var GlobalContext, name: string) =
       # shrink down to the same length
       discard ctx.specCounters.pop
     inc ctx.specCounters[^1]
-  ctx.ctxEcho ctx.specCounters.mapIt($it).join("."), " ", name
+  ctx.ctxEcho ctx.specCounters.mapIt($it).join("."), name
 
 proc stopInnerSpec(ctx: var GlobalContext) =
   discard ctx.specNames.pop
