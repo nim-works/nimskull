@@ -1589,6 +1589,9 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       if argNode.kind == nkError:
         localReport(c.config, argNode)
 
+      # mark underscore parameters as gensyms:
+      discard isDiscardUnderscore(arg)
+
       if a[j].kind == nkPragmaExpr:
         a[j][1] = pragmaDecl(c, arg, a[j][1], paramPragmas)
         # check if we got any errors and if so report them
@@ -1614,7 +1617,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       inc(counter)
       if def != nil and def.kind != nkEmpty:
         arg.ast = copyTree(def)
-      if containsOrIncl(check, arg.name.id):
+      if arg.name.s != "_" and containsOrIncl(check, arg.name.id):
         localReport(c.config, a[j], reportSym(
           rsemParameterRedefinition, arg))
 

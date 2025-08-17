@@ -846,6 +846,7 @@ proc semConstBoolExpr(c: PContext, n: PNode): PNode =
 
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode
+proc isDiscardUnderscore(v: PSym): bool
 
 include semtypes, semtempl, semgnrc, semstmts, semexprs
 

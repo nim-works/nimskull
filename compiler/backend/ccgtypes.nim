@@ -51,7 +51,11 @@ proc mangleParamName(c: ConfigRef; s: PSym): Rope =
   ## we cannot use 'sigConflicts' here since we don't have access to a BProc.
   ## Fortunately C's scoping rules are sane enough so that that doesn't
   ## cause any trouble.
-  if true:
+  if s.name.s == "_":
+    # multiple parameters can use an underscore as the name. Construct a
+    # locally unique C name by appending the parameter position
+    result = "_p" & $s.position
+  else:
     var res = s.name.s.mangle
     if isKeyword(s.name) or c.cppDefines.contains(res):
       res.add "_0"

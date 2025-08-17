@@ -104,9 +104,7 @@ proc addParamOrResult(c: PContext, param: PSym)
 
 proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
   if n[bodyPos].kind != nkEmpty:
-    let procParams = result.typ.n
-    for i in 1..<procParams.len:
-      addDecl(c, procParams[i].sym)
+    addParams(c, result.typ.n)
     maybeAddResult(c, result, result.ast)
 
     inc c.inGenericInst
