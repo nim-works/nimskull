@@ -2,23 +2,31 @@
 import std/macros
 import std/options # need this for counter examples
 
+import ./cmdline
+
 # these modules have limited use, so be selective
 from std/strformat import fmt
 from std/strutils import join, repeat
-from std/sugar import `=>` # XXX: maybe a bust because inference can't keep up
-from std/sequtils import toSeq, apply
+from std/sequtils import toSeq, apply, mapIt
 from std/times import toUnix, getTime
 from std/typetraits import enumLen
 
 import ./property_testing_core
-from ./property_testing_core import toPTStatus
 
 #-- Assert Property Reporting
 
 type
+  RunMode = enum
+    rmTest
+    rmOutline
+
+  Args = object
+    runMode: RunMode
+
   GlobalContext* = object
     hasFailure: bool
     specNames: seq[string]
+    specCounters: seq[uint]
     # compileTime: bool      ## are we executing the property at compile time
     # ctOutput: string       ## the output generated
 
@@ -102,8 +110,8 @@ proc defAssertPropParams(): AssertParams =
 proc indent(ctx: GlobalContext): string =
   '\t'.repeat(max(ctx.specNames.len - 2, 0))
 
-proc ctxEcho(ctx: GlobalContext, msg: string) =
-  echo ctx.indent, msg
+proc ctxEcho(ctx: GlobalContext, msg: varargs[string]) =
+  echo ctx.indent, msg.join(" ")
 
 proc reportSuccess(ctx: GlobalContext, msg: string) =
   ## XXX: do better reporting
@@ -192,7 +200,16 @@ proc name(ctx: GlobalContext): string =
 
 proc startInnerSpec(ctx: var GlobalContext, name: string) =
   ctx.specNames.add(name)
-  ctx.ctxEcho name
+  if ctx.specNames.len == ctx.specCounters.len:
+    inc ctx.specCounters[^1]
+  elif ctx.specNames.len > ctx.specCounters.len:
+    ctx.specCounters.add(1)
+  else:
+    while ctx.specCounters.len != ctx.specNames.len:
+      # shrink down to the same length
+      discard ctx.specCounters.pop
+    inc ctx.specCounters[^1]
+  ctx.ctxEcho ctx.specCounters.mapIt($it).join("."), " ", name
 
 proc stopInnerSpec(ctx: var GlobalContext) =
   discard ctx.specNames.pop
@@ -272,8 +289,8 @@ template spec*(n: string = "", body: untyped): untyped =
 when isMainModule:
   spec "nim":
     spec "uint32":
-      forAll("are >= 0, yes it's silly ", uint32Arb(),
-             proc(i: uint32): PTStatus = i >= 0)
+      forAll("are >= 0", uint32Arb(),
+             proc(i: uint32): PTStatus = i >= 0) # a silly check
 
       const
         min: uint32 = 100000000
