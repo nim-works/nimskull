@@ -175,12 +175,13 @@ func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
   ## `exists` is updated to indicate whether a scope was found.
   if name in entities:
     let lifetimes {.cursor.} = entities[name]
-    # search for the upper bound:
-    var i = 0
-    while i < lifetimes.len and at >= lifetimes[i].scope.a:
-      inc i
-
-    if i - 1 >= 0:
+    if lifetimes[0].scope.a <= at:
+      var i = 0
+      while i < lifetimes.len and at >= lifetimes[i].scope.a:
+        inc i
+      while i > 1 and lifetimes[i - 1].scope.b < at:
+        dec i
+      # i now points to one past the best matching lifetime
       result = lifetimes[i - 1]
       exists = true
     else:
