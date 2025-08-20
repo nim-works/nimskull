@@ -366,7 +366,7 @@ type
 proc buildReleaseBinaries(args = "") =
   ## Build binaries needed for creating a release
   # Boot the compiler
-  boot("-d:danger " & args)
+  boot("-d:release " & args)
   # Build the tools
   buildTools(args)
 
