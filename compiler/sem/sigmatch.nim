@@ -3461,6 +3461,12 @@ proc record*(diags: DiagContext, rep: sink SemReport) =
     diags.slots.setLen(diags.maxSlots)
   diags.slots[diags.current].add diag
 
+proc shift*(diags: DiagContext) =
+  ## A hack to support the dot field, dot call, and dot setter resolution.
+  if diags.slots.len != 0:
+    # all arguments are now at their original position + 1
+    diags.slots.insert(@[], 1)
+
 proc emitDiagnostics*(c: PContext, m: TCandidate) =
   ## Emits all diagnostics gathered for the candidate.
   for it in m.diagnostics.items:

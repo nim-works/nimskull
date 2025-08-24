@@ -341,6 +341,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
         # we are going to try multiple variants
         n.sons[0..1] = [nil, n[1], f]
         nOrig.sons[0..1] = [nil, nOrig[1], f]
+        shift(diags)
 
         if nfExplicitCall in n.flags:
           tryOp ".()"
@@ -353,6 +354,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
       n.sons[0..1] = [nil, n[1], calleeName]
       nOrig.sons[0..1] = [nil, nOrig[1], calleeName]
+      shift(diags)
       tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
