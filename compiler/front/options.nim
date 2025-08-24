@@ -197,6 +197,7 @@ type
     irVm     = "vm"
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  DiagHandler* = proc(conf: ConfigRef, report: sink Report) {.closure.}
 
   HackController* = object
     ## additional configuration switches to control the behavior of the
@@ -309,6 +310,9 @@ type
       ## callback that is invoked when an enabled report is passed to report
       ## handling. The callback is meant to handle rendering/displaying of
       ## the report
+    diagHandler*: DiagHandler
+      ## a callback that receives all emitted diagnostics and is responsible
+      ## for handling them
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to

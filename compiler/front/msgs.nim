@@ -41,7 +41,7 @@ from compiler/ast/reports_sem import SemReport
 export InstantiationInfo
 export TErrorHandling
 
-proc handleReport*(
+proc handleReport(
     conf: ConfigRef,
     r: Report,
     reportFrom: InstantiationInfo,
@@ -626,7 +626,7 @@ proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
   if r.category == repVM and r.vmReport.trace != nil:
     handleReport(c, wrap(r.vmReport.trace[]), reportFrom)
 
-proc handleReport*(
+proc handleReport(
     conf: ConfigRef,
     r: Report,
     reportFrom: InstantiationInfo,
@@ -690,42 +690,56 @@ proc handleReport*(
   of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")
 
-template fatalReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
+proc emit*(config: ConfigRef, report: sink Report, at: InstantiationInfo) {.inline.} =
+  ## Emits the diagnostic represented by `report`, with `at` being the compiler
+  ## source location to which the report should point to. This is a fire-and-
+  ## forget operation; the callsite has to assume `emit` returns normally.
+  assert config.diagHandler != nil
+  report.reportFrom = toReportLineInfo(at)
+  config.diagHandler(config, report)
+
+proc report(config: ConfigRef, report: sink Report,
+            at: InstantiationInfo) {.inline.} =
+  ## Sends `report` to the report hook and discards the result.
+  report.reportFrom = toReportLineInfo(at)
+  discard config.report(report)
+
+template fatalReport*(conf: ConfigRef, info: TLineInfo, rep: ReportTypes) =
   # this works around legacy reports stupidity
-  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doAbort)
+  conf.report(wrap(rep, instLoc(), info), instLoc())
+  quit(conf, true)
 
 template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  ## `local` means compilation keeps going until errorMax is reached (via
-  ## `doNothing`), `global` means it stops.
-  handleReport(
-    conf, wrap(report, instLoc(), info), instLoc(), doRaise)
+  ## Emits the report and yields control to the closest fatal error handler.
+  ## Control is never passed back to the current continuation.
+  conf.emit(wrap(report, instLoc(), info), instLoc())
+  raise ERecoverableError.newException("")
 
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc()), instLoc(), doRaise)
+  ## Emits the report and yields control to the closest fatal error handler.
+  ## Control is never passed back to the current continuation.
+  conf.emit(wrap(report, instLoc()), instLoc())
+  raise ERecoverableError.newException("")
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
-    handleReport(
-      conf, wrap(report, instLoc(), info), instLoc(), doNothing)
+    conf.emit(wrap(report, instLoc(), info), instLoc())
 
 template localReport*(conf: ConfigRef; node: PNode, report: SemReport) =
   var tmp = report
   if isNil(tmp.ast):
     tmp.ast = node
-  handleReport(
-    conf, wrap(tmp, instLoc(), node.info), instLoc(), doNothing)
+  conf.emit(wrap(tmp, instLoc(), node.info), instLoc())
 
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc()), instLoc(), doNothing)
+  conf.emit(wrap(report, instLoc()), instLoc())
 
 template localReport*(conf: ConfigRef, report: Report) =
-  handleReport(conf, report, instLoc(), doNothing)
+  conf.emit(report, instLoc())
 
 # xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
 #      and the whole concept of "reports" indicating error handling action at a
@@ -840,11 +854,16 @@ proc handleLexerDiag*(
     conf: ConfigRef,
     diag: LexerDiag,
     reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
+    isFatal = false
   ) {.inline.} =
   # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = diag.lexerDiagToLegacyReport()
-  handleReport(conf, rep, reportFrom, eh)
+  var rep = diag.lexerDiagToLegacyReport()
+  if isFatal:
+    # report and abort
+    conf.report(rep, reportFrom)
+    quit(conf, false)
+  else:
+    conf.emit(rep, reportFrom)
 
 # xxx: All the ParserReport stuff needs to go, it should just be the parser
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
@@ -925,12 +944,10 @@ proc parseDiagToLegacyReport(d: ParseDiag): Report =
 proc handleParserDiag*(
     conf: ConfigRef,
     diag: ParseDiag,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
+    reportFrom: InstantiationInfo
   ) {.inline.} =
   # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = parseDiagToLegacyReport(diag)
-  handleReport(conf, rep, reportFrom, eh)
+  conf.emit(parseDiagToLegacyReport(diag), reportFrom)
 
 proc semReportCountMismatch*(
     kind: ReportKind,
@@ -975,21 +992,19 @@ proc illformedAstReport(node: PNode, explain: string): SemReport {.inline.} =
 
 template semReportIllformedAst*(
     conf: ConfigRef, node: PNode, explain: string): untyped =
-  handleReport(
-    conf,
+  conf.emit(
     wrap(
       illformedAstReport(node, explain),
       instLoc(),
       node.info),
-    instLoc(),
-    doNothing)
+    instLoc())
 
 template semReportIllformedAst*(
   conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =
   semReportIllformedAst(conf, node, createSemIllformedAstMsg(node, expected))
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)
+  conf.emit(wrap(report, instLoc(), info), instLoc())
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
