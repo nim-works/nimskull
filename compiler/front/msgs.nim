@@ -611,7 +611,8 @@ func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
 
 proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
                                 reportFrom: InstantiationInfo) =
-  if r.category in { repSem, repVM } and r.location.isSome():
+  if r.category in { repSem, repVM } and r.location.isSome() and
+     r.context.len == 0:
     r.context = c.getContext(r.location.get())
 
   if r.category == repVM and r.vmReport.trace != nil:
