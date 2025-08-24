@@ -1353,37 +1353,40 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
     # the original callee (which is likely an nkIdent) has to be restored:
     n[0] = orig[0]
 
-    # there is a call operator overload and we need to try it, save it here
-    let callOpr = overloadedCallOpr(c, n)
+    proc tryOverloadedCall(c: PContext, n: PNode, flags: TExprFlags
+                          ): PNode {.nimcall.} =
+      ## Tries to analyze `n` as a direct operation, returning the typed call
+      ## expression on success, nil otherwise.
+      let oldHandler = move c.config.diagHandler
+      var captures: seq[Report]
+      var wasError: bool
+      c.config.diagHandler = proc(conf: ConfigRef, rep: sink Report) =
+        if conf.severity(rep) == rsevError:
+          # cannot raise, as that would require being able to restore the
+          # previous sem state (scope, generics, etc.)
+          wasError = true
+        else:
+          captures.add rep
 
-    # `prc` might just be a poorly resolved symbol we're recovering now
-    result = semOverloadedCallAnalyseEffects(c, n, flags)
-
-    if callOpr != nil and (result.isNil or result.kind == nkError):
-      # we're here for 1 of 2 reasons:
-      # 1. nil result and last ditch attempt with `callOpr`
-      # 2. error result and maybe `callOpr` will save us
-      let attempt = semExpr(c, callOpr, flags)
-      if attempt.isNil and result.isError:
-        # don't update `result` if the attempt produced nothing or we'd
-        # overwrite a pre-existing, and more precise, error
-        discard "don't bother changing `result`"
+      result = semOverloadedCallAnalyseEffects(c, n, flags)
+      if wasError:
+        result = nil
       else:
-        # we either recovered or even callOpr came up with an error
-        result = attempt
+        for it in captures.mitems:
+          oldHandler(c.config, move it)
 
-    # xxx: `semcall` and `sigmatch` avoid altering input the AST which leads to
-    #      arguments not being analysed. This leads to poor error messages, we
-    #      do that here with a guard for `compiles` context to avoid the extra
-    #      work when a human won't see errors. Fundamentally, this shouldn't be
-    #      necessary as we're throwing away the analysis somewhere in the
-    #      `sigmatch` and `semcall` tire fire.
-    if result.isError and result.diag.wrongNode.kind in nkCallKinds:
-      discard semOpAux(c, result.diag.wrongNode)
+      c.config.diagHandler = oldHandler
 
-    if result.isNil:
-      result = c.config.newError(n,
-                  PAstDiag(kind: adSemExpressionCannotBeCalled))
+    # there might be a call operator available as a fallback
+    let callOpr = overloadedCallOpr(c, n)
+    if callOpr.isNil:
+      return semDirectOp(c, n, flags-{efNoUndeclared})
+    else:
+      # if overload resolution fails, fall back to the call operator
+      result = tryOverloadedCall(c, n, flags)
+      if result.isNil:
+        return semDirectOp(c, callOpr, flags)
+      # else: use the after-call analysis below
 
   if result.kind in nkCallKinds:
     # overloadedCallOpr may produce other kinds, see related issue:
