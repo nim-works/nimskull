@@ -161,7 +161,6 @@ type
     cmdSwitchExpandarc
     cmdSwitchBenchmarkvm
     cmdSwitchProfilevm
-    cmdSwitchSinkinference
     cmdSwitchCursorinference
     cmdSwitchPanics
     cmdSwitchSourcemap
@@ -291,7 +290,6 @@ type
     fullSwitchTxtExpandarc           = "expandarc"
     fullSwitchTxtBenchmarkvm         = "benchmarkvm"
     fullSwitchTxtProfilevm           = "profilevm"
-    fullSwitchTxtSinkinference       = "sinkinference"
     fullSwitchTxtCursorinference     = "cursorinference"
     fullSwitchTxtPanics              = "panics"
     fullSwitchTxtSourcemap           = "sourcemap"
@@ -419,7 +417,6 @@ const
       cmdSwitchExpandarc          : {fullSwitchTxtExpandarc},
       cmdSwitchBenchmarkvm        : {fullSwitchTxtBenchmarkvm},
       cmdSwitchProfilevm          : {fullSwitchTxtProfilevm},
-      cmdSwitchSinkinference      : {fullSwitchTxtSinkinference},
       cmdSwitchCursorinference    : {fullSwitchTxtCursorinference},
       cmdSwitchPanics             : {fullSwitchTxtPanics},
       cmdSwitchSourcemap          : {fullSwitchTxtSourcemap},
@@ -1604,9 +1601,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "profilevm":
     setSwitchAndSrc cmdSwitchProfilevm
     processOnOffSwitchG(conf, {optProfileVM}, arg, switch)
-  of "sinkinference":
-    setSwitchAndSrc cmdSwitchSinkinference
-    processOnOffSwitch(conf, {optSinkInference}, arg, switch)
   of "cursorinference":
     setSwitchAndSrc cmdSwitchCursorinference
     # undocumented, for debugging purposes only:
