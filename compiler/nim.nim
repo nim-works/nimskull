@@ -146,6 +146,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
 
 when not defined(selftest):
   var conf = newConfigRef(cli_reporter.reportHook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   conf.writeHook = msgs.msgWrite
   conf.writelnHook =

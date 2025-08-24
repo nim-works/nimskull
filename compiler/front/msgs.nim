@@ -1060,3 +1060,11 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
       # We mangle upper letters and digits too so that there cannot
       # be clashes with our special meanings of 'Z' and 'O'
       result.addInt ord(c)
+
+proc defaultDiagHandler*(conf: ConfigRef, rep: sink Report) =
+  ## Handles the report/diagnostic by sending it to the display/render hook,
+  ## but only if the report is "enabled" according to the current configuration.
+  ## Depending on the configuration, the program may be terminated.
+  let reportFrom = (rep.reportFrom.file, rep.reportFrom.line.int,
+                    rep.reportFrom.col.int)
+  handleReport(conf, rep, reportFrom)
