@@ -2178,7 +2178,7 @@ proc semProcAnnotation(c: PContext, prc: PNode): PNode =
   # let the semantic checker deal with it:
   result = semAnnotation(c, addr prc[pragmasPos], prc, {})
 
-proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
+proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode =
   ## used for resolving 'auto' in lambdas based on their callsite
   addInNimDebugUtils(c.config, "semInferredLambda", n, result)
   let original = n[namePos].sym
@@ -3391,4 +3391,3 @@ proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = semExpr(c, n, flags)
   else:
     result = semExprNoType(c, n)
-

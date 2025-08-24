@@ -698,7 +698,7 @@ proc setGlobalValue*(c: var EvalContext; s: PSym, val: PNode) =
 ## the code directly inside the VM. It is used for NimScript execution and by
 ## the ``nimeval`` interface
 
-proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext {.nosinks.} =
+proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext =
   result = PEvalPassContext(idgen: idgen, graph: graph, module: module)
 
 proc isDecl(n: PNode): bool =

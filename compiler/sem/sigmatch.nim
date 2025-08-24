@@ -3399,11 +3399,8 @@ proc argtypeMatches*(c: PContext, f, a: PType, fromHlo = false): bool =
   else:
     res != nil
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
 proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
-                      op: TTypeAttachedOp; col: int): PSym {.nosinks.} =
+                      op: TTypeAttachedOp; col: int): PSym =
   var m = newCandidate(c, dc.typ)
   if col >= dc.typ.len:
     localReport(c.config, info, reportSym(rsemCannotInstantiate, dc))

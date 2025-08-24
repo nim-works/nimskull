@@ -809,9 +809,6 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
     {.line: L.}: raiseAccessViolation(r, L)
 
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
 proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
   ## In the case of an error, raises an exception of type `VmError`. If no
