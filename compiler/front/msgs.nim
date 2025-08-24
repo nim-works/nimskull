@@ -274,7 +274,7 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       when defined(windows):
         flushFile(stderr)
 
-proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
+proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe, noreturn.} =
   if conf.isDefined("nimDebug"):
     quitOrRaise(conf)
   elif defined(debug) or withTrace or conf.hasHint(rintStackTrace):
@@ -741,12 +741,6 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
 template localReport*(conf: ConfigRef, report: Report) =
   conf.emit(report, instLoc())
 
-# xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
-#      and the whole concept of "reports" indicating error handling action at a
-#      callsite, is *terrible*. While it will result in the compiler exiting,
-#      it is currently implemented very indirectly, through
-#      ``isCompilerFatal``.
-
 proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
                             instLoc: InstantiationInfo) {.noreturn, inline.} =
   ## this proc firewalls other code from legacy reports, used in conjunction
@@ -759,8 +753,8 @@ proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
       else:
         wrap(intRep, instLoc, info)
 
-  conf.handleReport(rep, instLoc, doAbort)
-  unreachable("not aborted")
+  conf.report(rep, instLoc)
+  quit(conf, true)
 
 template internalError*(
     conf: ConfigRef,
@@ -788,8 +782,8 @@ proc doInternalAssert*(conf: ConfigRef,
       else:
         wrap(intRep, instLoc, info)
 
-  conf.handleReport(rep, instLoc, doAbort)
-  unreachable("not aborted")
+  conf.report(rep, instLoc)
+  quit(conf, true)
 
 template internalAssert*(
     conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
