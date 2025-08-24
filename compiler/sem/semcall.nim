@@ -356,6 +356,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
+      c.config.diagHandler = move oldHandler
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
           let sym = n[1].typ.typSym
@@ -372,7 +373,6 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
           result.call = c.config.newError(n, msg)
 
       c.closeShadowScope()
-      c.config.diagHandler = move oldHandler
       return
     elif result.state != csMatch:
       if {nfDotField, nfDotSetter} * n.flags != {}:
