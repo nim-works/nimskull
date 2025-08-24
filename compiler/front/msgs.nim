@@ -690,15 +690,6 @@ proc handleReport*(
   of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")
 
-template globalAssert*(
-    conf: ConfigRef;
-    cond: untyped, info: TLineInfo = unknownLineInfo, arg = "") =
-  ## avoids boilerplate
-  if not cond:
-    var arg2 = "'$1' failed" % [astToStr(cond)]
-    if arg.len > 0: arg2.add "; " & astToStr(arg) & ": " & arg
-    handleReport(conf, info, errGenerated, arg2, doRaise, instLoc())
-
 template fatalReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   # this works around legacy reports stupidity
   handleReport(conf, wrap(report, instLoc(), info), instLoc(), doAbort)
@@ -939,16 +930,6 @@ proc handleParserDiag*(
   ) {.inline.} =
   # REFACTOR: this is a temporary bridge into existing reporting
   let rep = parseDiagToLegacyReport(diag)
-  handleReport(conf, rep, reportFrom, eh)
-
-proc handleReport*(
-    conf: ConfigRef,
-    diag: PAstDiag,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
-  ) {.inline.} =
-  # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = conf.astDiagToLegacyReport(conf, diag)
   handleReport(conf, rep, reportFrom, eh)
 
 proc semReportCountMismatch*(
