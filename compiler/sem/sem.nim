@@ -84,7 +84,7 @@ import
     vmdef,
   ]
 
-from std/options as std_options import some, none
+from std/options as std_options import some, none, isSome, unsafeGet
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
@@ -98,7 +98,7 @@ from compiler/ast/reports_sem import SemReport,
 # TODO: `semtypes` misuses `VMReport` to indicate a compile time error, it's a
 #       semantic analysis error born of compile time evaluation
 from compiler/ast/reports_vm import VMReport
-from compiler/ast/report_enums import ReportKind
+from compiler/ast/report_enums import ReportKind, ReportCategory
 
 when defined(nimsuggest):
   # TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and

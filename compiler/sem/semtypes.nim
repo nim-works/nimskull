@@ -1689,7 +1689,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   else:
     var m = newCandidate(c, t)
     m.isNoCall = true
-    matches(c, n, copyNodeWithKids(n), m)
+    matches(c, n, copyNodeWithKids(n), nil, m)
 
     case m.state
     of csMatch:

@@ -1165,7 +1165,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc resolveIndirectCall(c: PContext; n: PNode;
                          t: PType): TCandidate =
   initCandidate(c, result, t)
-  matches(c, n, copyNodeWithKids(n), result)
+  matches(c, n, copyNodeWithKids(n), nil, result)
 
 proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if n.kind == nkError:

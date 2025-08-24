@@ -38,6 +38,7 @@ proc pickBestCandidate(c: PContext,
                        n, nOrig: PNode,
                        startScope: PScope,
                        filter: TSymKinds,
+                       diags: DiagContext,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch]) =
   var
@@ -65,7 +66,7 @@ proc pickBestCandidate(c: PContext,
                             "missing type information")
     initCallCandidate(c, z, sym, scope)
     block:
-      matches(c, n, nOrig, z)
+      matches(c, n, nOrig, diags, z)
       if z.state == csMatch:
         # little hack so that iterators are preferred over everything else:
         if sym.kind == skIterator:
@@ -316,8 +317,20 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
   # the original scope
   c.openShadowScope()
 
+  var oldHandler = move c.config.diagHandler
+  let diags = newDiagContext(n.len)
+  c.config.diagHandler = proc(conf: ConfigRef, rep: sink Report) =
+    if rep.category == repSem:
+      if rep.semReport.location.isSome:
+        rep.semReport.context =
+          conf.getContext(rep.semReport.location.unsafeGet)
+      diags.record(rep.semReport)
+    else:
+      oldHandler(conf, rep) # pass on to the outer handler
+
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, nOrig, scope, filter, result, alt, errors)
+    pickBestCandidate(c, headSymbol, n, nOrig, scope, filter, diags,
+                      result, alt, errors)
   pickBest(f)
 
   let overloadsState = result.state
@@ -367,6 +380,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
           result.call = c.config.newError(n, msg)
 
       c.closeShadowScope()
+      c.config.diagHandler = move oldHandler
       return
     elif result.state != csMatch:
       if {nfDotField, nfDotSetter} * n.flags != {}:
@@ -376,6 +390,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
         n[0] = f
         nOrig[0] = f
       c.closeShadowScope()
+      c.config.diagHandler = move oldHandler
       return
 
   # a match was found; commit the created symbols to the symbol table. Note
@@ -383,6 +398,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
   # ambiguous
   assert result.state == csMatch
   c.mergeShadowScope()
+  c.config.diagHandler = move oldHandler
 
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
@@ -573,6 +589,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
   var errors: seq[SemCallMismatch]
 
   var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+  emitDiagnostics(c, r) # always emit all captured diags for the match
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
     if errors.len > 0:

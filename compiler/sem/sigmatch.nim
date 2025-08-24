@@ -54,6 +54,16 @@ from compiler/ast/report_enums import ReportKind,
 from compiler/ast/reports import Report
 
 type
+  DiagContext* = ref object
+    ## Context to which captured diagnostics are registered to.
+    slots: seq[seq[ref SemReport]]
+      ## for each operand of matched call, the list of diagnostics captured
+      ## during its analysis, or nil, if none were emitted/captured
+    current: int
+      ## the slot to store captured diagnostics in
+    maxSlots {.requiresInit.}: int
+      ## the maximum possible number of slots
+
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
 
@@ -89,6 +99,8 @@ type
                               ## table in the future.
     inheritancePenalty: int   ## to prefer closest father object type
     error*: SemCallMismatch
+    diagnostics: seq[ref SemReport]
+      ## diagnostics captured during typing/analysis of the candidate
 
   TTypeRelFlag* = enum
     trDontBind
@@ -142,6 +154,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.genericConverter = false
   c.inheritancePenalty = 0
   c.error = SemCallMismatch()
+  c.diagnostics = @[]
   initIdTable(c.bindings)
 
 proc initCallCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
@@ -181,6 +194,7 @@ proc copyCandidate(a: var TCandidate, b: TCandidate) =
   a.calleeSym = b.calleeSym
   a.call = copyTree(b.call)
   a.baseTypeMatch = b.baseTypeMatch
+  a.diagnostics = b.diagnostics
   copyIdTable(a.bindings, b.bindings)
 
 proc typeRel*(c: var TCandidate, f, aOrig: PType,
@@ -2619,6 +2633,14 @@ proc setSon(father: PNode, at: int, son: PNode) =
   #for i in oldLen..<at:
   #  father[i] = newNodeIT(nkEmpty, son.info, getSysType(tyVoid))
 
+proc setCurrent(diags: DiagContext, to: int) {.inline.} =
+  if diags != nil:
+    diags.current = to
+
+proc inheritDiags(m: var TCandidate, diags: DiagContext) =
+  if diags != nil and diags.current < diags.slots.len:
+    m.diagnostics.add diags.slots[diags.current]
+
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
   when defined(nimCompilerStacktraceHints):
@@ -2777,12 +2799,14 @@ proc matchesGenericParams*(c: PContext, args: PNode, m: var TCandidate) =
   # the responsibility of the callsite
   m.state = csMatch
 
-proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet) =
+proc matchesAux(c: PContext, n, nOrig: PNode, diags: DiagContext,
+                m: var TCandidate, marker: var IntSet) =
   ## used to match a call `n` with a candidate `m`, noting matched formal
   ## params in `marker` by position. `m` and `marker` are out parameters and
   ## updated with the produced results.
 
   template noMatchAux() =
+    inheritDiags(m, diags)
     m.state = csNoMatch
     m.error.firstMismatch.pos = a
     m.error.firstMismatch.arg = operand
@@ -2863,6 +2887,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     c.openShadowScope
 
     operand = n[a] # initialize to current arg in case of early `noMatch`
+    diags.setCurrent(a)
 
     # untyped varargs
     if a >= formalLen - 1 and              # last or finished passing args
@@ -3120,6 +3145,12 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
         checkConstraint(operand)
 
+    # for typed arguments, all diags captured for the argument are added to
+    # the candidate
+    if formal.isNil or
+       (formal.typ.kind != tyUntyped and not formal.typ.isVarargsUntyped):
+      inheritDiags(m, diags)
+
     if m.state == csMatch and
        not (m.calleeSym != nil and m.calleeSym.kind in {skTemplate, skMacro}):
       c.mergeShadowScope
@@ -3263,9 +3294,10 @@ proc semFinishOperands*(c: PContext, n: PNode) =
 proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   # for 'suggest' support:
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  matchesAux(c, n, nOrig, nil, m, marker)
 
-proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+proc matches*(c: PContext, n, nOrig: PNode, diags: DiagContext,
+              m: var TCandidate) =
   addInNimDebugUtils(c.config, "matches", n, m)
 
   if n.kind == nkError:
@@ -3292,10 +3324,15 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   if m.callee.kind == tyGenericBody:
     matchesType(c, n, m, marker)
   else:
-    matchesAux(c, n, nOrig, m, marker)
+    matchesAux(c, n, nOrig, diags, m, marker)
 
   if m.state == csNoMatch:
     return
+
+  # make sure diagnostics emitted for default parameter value
+  # insertion are captured into their own slot
+  if diags != nil:
+    diags.current = diags.maxSlots - 1
 
   # check that every formal parameter got a value:
   for f in 1..<m.callee.n.len:
@@ -3410,6 +3447,24 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:
       assert sfFromGeneric in result.flags
+
+proc newDiagContext*(num: int): DiagContext =
+  ## Create a new diagnostic context for a call with `num` arguments.
+  DiagContext(maxSlots: num + 1)
+
+proc record*(diags: DiagContext, rep: sink SemReport) =
+  ## Records `rep` with the context.
+  let diag = new SemReport
+  diag[] = rep
+  if diags.slots.len == 0:
+    # allocate once, and only when needed
+    diags.slots.setLen(diags.maxSlots)
+  diags.slots[diags.current].add diag
+
+proc emitDiagnostics*(c: PContext, m: TCandidate) =
+  ## Emits all diagnostics gathered for the candidate.
+  for it in m.diagnostics.items:
+    c.config.localReport(it[])
 
 when not declared(tests):
   template tests(s: untyped) = discard
