@@ -602,23 +602,34 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
     #      - ``paramTypesMatchAux``
     return nil
 
-  let oldErrorCount = c.config.errorCounter
-  let oldErrorMax = c.config.errorMax
-  let oldErrorOutputs = c.config.m.errorOutputs
+  let oldHandler = c.config.diagHandler
+  var diags: seq[Report]
+  c.config.diagHandler = proc(conf: ConfigRef, rep: sink Report) =
+    # abort on the first error, capture all other diagnostics
+    if conf.severity(rep) == rsevError:
+      raise ERecoverableError.newException("")
+    else:
+      diags.add rep
 
-  c.config.m.errorOutputs = {}
-  c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
+  # TODO: figuring out whether an expression is "constant" must not require
+  #       tentatively evaluating it first. Instead, semantic analysis itself
+  #       needs to keep track of the constness of expressions
+  try:
+    result = evalConstExpr(c.module, c.idgen, c.graph, result)
+    case result.kind
+    of nkError, nkEmpty:
+      result = nil
+    else:
+      discard
+  except ERecoverableError:
+    result = nil # evaluation failed
 
-  result = evalConstExpr(c.module, c.idgen, c.graph, result)
-  case result.kind
-  of nkError, nkEmpty:
-    result = nil
-  else:
-    discard
-
-  c.config.errorCounter = oldErrorCount
-  c.config.errorMax = oldErrorMax
-  c.config.m.errorOutputs = oldErrorOutputs
+  c.config.diagHandler = oldHandler
+  # emit all captured diagnostics when the expression really is a
+  # constant expression
+  if result != nil:
+    for it in diags.items:
+      c.config.localReport(it)
 
 proc evalConstExpr(c: PContext, n: PNode): PNode =
   ## Tries to turn the expression `n` into AST that represents a concrete
