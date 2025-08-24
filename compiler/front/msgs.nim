@@ -307,8 +307,6 @@ proc errorActions(
         result = (doAbort, false)
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       result = (doAbort, false)
-    elif eh == doRaise:
-      result = (doRaise, false)
 
 proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
   ## Get list of context context entries from the current message context
@@ -611,12 +609,6 @@ func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   else:
     astDiagToLegacyReportKind(diag.kind)
 
-proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
-  ## Write out report from the nkError node
-  # xxx: legacy report temporarily here until we can rip it out
-  assert node.kind == nkError
-  return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
-
 proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
                                 reportFrom: InstantiationInfo) =
   if r.category in { repSem, repVM } and r.location.isSome():
@@ -671,19 +663,12 @@ proc handleReport(
   of doAbort:
     # a hook-requested abort always overrides the computed handling
     (action, trace) = (doAbort, false)
-  of doRaise:
-    case action
-    of doRaise, doAbort:
-      discard "a hook-requested raise doesn't override an abort"
-    of doNothing, doDefault:
-      (action, trace) = (doRaise, false)
   of doNothing, doDefault:
     discard "use the computed strategy"
 
   # now perform the selected action:
   case action
   of doAbort:   quit(conf, trace)
-  of doRaise:   raiseRecoverableError("report")
   of doNothing: discard
   of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")

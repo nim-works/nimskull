@@ -179,7 +179,6 @@ type
               ## reaction.
     doNothing ## Don't do anything
     doAbort   ## Immediately abort compilation
-    doRaise   ## Raise recoverable error
 
   ProjectInputMode* = enum
     pimStdin ## the contents of the main module are provided by stdin
