@@ -362,39 +362,22 @@ proc opMapTypeImplToAst*(cache: IdentCache; t: PType; info: TLineInfo; idgen: Id
 proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
                 filename: string, line: int): Result[PNode, Report] =
   ## Invokes the parser for the given `code` and returns either the parsed AST
-  ## or the first error that occurred during parsing
-
-  # @haxscramper: REFACTOR because parsing can expectedly fail (for example
-  # `"{a+}"` in strformat module) we need to handle failure and report it as
-  # a *VM* exception, so user can properly handle this.
-  #
-  # Previous implementation also relied on the report hook override -
-  # in the future this need to be completely removed, since I
-  # personally find exceptions-as-control-flow extremely ugly and unfit
-  # for any serious work. Technically it does the job, one might argue
-  # this is a good compromized, but I'd much rather have a paser
-  # template that (1) writes out error message with correction location
-  # information and (2) if parser is in 'speculative' mode, aborts the
-  # parsing completely (via early exit checks in the parser module).
-  # Yes, more work, but it avoids rebouncing exceptions through two (or
-  # even three) compiler subsystems (`Lexer?->Parser->Vm`)
+  ## or the first error that occurred during parsing.
 
   type TemporaryExceptionHack = ref object of CatchableError
     report: Report
 
-  let oldHook = config.structuredReportHook
-
-  config.structuredReportHook = proc(
-      conf: ConfigRef, report: Report
-  ): TErrorHandling =
+  # on the first error, abort parsing and return the diagnostic instead of
+  # parsed node
+  let oldHandler = config.diagHandler
+  config.diagHandler = proc(conf: ConfigRef, report: sink Report) =
     # @haxscramper: QUESTION This check might be affected by current severity
     # configurations, maybe it makes sense to do a hack-in that would
     # ignore all user-provided CLI otions?
-    if report.category in {repParser, repLexer} and
-        conf.severity(report) == rsevError:
+    if conf.severity(report) == rsevError:
+      # abort parsing
       raise TemporaryExceptionHack(report: report)
-    else:
-      return oldHook(conf, report)
+    # drop everything else (hints and warnings)
 
   try:
     let ast = parseString(code, cache, config, filename, line).toPNode()
@@ -402,8 +385,8 @@ proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
   except TemporaryExceptionHack as e:
     result.initFailure(move e.report)
 
-  # restore the previous report hook:
-  config.structuredReportHook = oldHook
+  # restore the previous report handler:
+  config.diagHandler = oldHandler
 
 proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
                 info: TLineInfo): Result[PNode, Report] {.inline.} =
