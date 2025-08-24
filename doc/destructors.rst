@@ -331,28 +331,6 @@ An implementation is allowed, but not required to implement even more move
 optimizations (and the current implementation does not).
 
 
-Sink parameter inference
-========================
-
-The current implementation can do a limited form of sink parameter
-inference. But it has to be enabled via `--sinkInference:on`:option:, either
-on the command line or via a `push` pragma.
-
-To enable it for a section of code, one can
-use `{.push sinkInference: on.}` ... `{.pop.}`.
-
-The `.nosinks`:idx: pragma can be used to disable this inference
-for a single routine:
-
-.. code-block:: nim
-
-  proc addX(x: T; child: T) {.nosinks.} =
-    x.s.add child
-
-
-The details of the inference algorithm are currently undocumented.
-
-
 Rewrite rules
 =============
 

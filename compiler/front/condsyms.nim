@@ -45,7 +45,6 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimHasIsNamedTuple")
   defineSymbol("nimHashOrdinalFixed")
 
-  defineSymbol("nimHasSinkInference")
   defineSymbol("nimNewIntegerOps")
   defineSymbol("nimHasInvariant")
   defineSymbol("nimHasStacktraceMsgs")
