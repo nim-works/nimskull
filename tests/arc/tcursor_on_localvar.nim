@@ -28,7 +28,7 @@ proc newConfig*(): Config =
     result.table = newOrderedTable[string, OrderedTable[string, string]]()
 
 # ----------------------------------------------------------------------------------------------------------------------
-proc add*(self: Config, param, value, section: string) {.nosinks.} =
+proc add*(self: Config, param, value, section: string) =
     let s = if section == "": defaultSection else: section
 
     if not self.table.contains(s):
