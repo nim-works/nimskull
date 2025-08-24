@@ -331,9 +331,6 @@ type
       ## global instance of the time tracer, for creating an execution time
       ## trace
 
-    when defined(nimDebugUnreportedErrors):
-      unreportedErrors*: OrderedTable[NodeId, PNode]
-
 const 
   IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
     ## IDE commands requiring source locations, related `MsgConfig.trackPos`

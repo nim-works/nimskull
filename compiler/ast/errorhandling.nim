@@ -44,9 +44,6 @@ import
     options,
   ]
 
-when defined(nimDebugUnreportedErrors):
-  import std/tables
-
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
@@ -118,10 +115,6 @@ proc newError*(
   if diag.instLoc.filename in ["???", ""]:
     diag.instLoc = inst # compilerInfoPos
 
-  when defined(nimDebugUnreportedErrors):
-    if diag.kind != adWrappedError:
-      conf.unreportedErrors[result.diag.diagId] = result
-
   if diag.kind notin {adWrappedError, adWrappedSymError}:
     # emit the diagnostic/report right away
     conf.emit(conf.astDiagToLegacyReport(conf, diag), inst)
@@ -173,9 +166,6 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
     discard
   of nkError:
     buildErrorList(config, n.diag.wrongNode, errs)
-    when defined(nimDebugUnreportedErrors):
-      if n.errorKind == adWrappedError and errs.len == 0:
-        echo "Empty WrappedError: ", config $ n.info
     errs.add n
   of nkWithSons:
     for i in 0..<n.len:

@@ -85,19 +85,6 @@ when not defined(leanCompiler):
     compiler/backend/jsbackend,
     compiler/tools/[docgen, docgen2]
 
-when defined(nimDebugUnreportedErrors):
-  import std/exitprocs
-  import compiler/utils/astrepr
-
-  proc echoAndResetUnreportedErrors(conf: ConfigRef) =
-    if conf.unreportedErrors.len > 0:
-      echo "Unreported errors:"
-      for nodeId, node in conf.unreportedErrors:
-        var reprConf = defaultTReprConf
-        reprConf.flags.incl trfShowNodeErrors
-        echo conf.treeRepr(node)
-      conf.unreportedErrors.clear
-
 type
   InternalStateDump = ref object
     version*: string
@@ -518,9 +505,6 @@ proc mainCommand*(graph: ModuleGraph) =
     if conf.cmd in cmdDocLike + {cmdRst2html, cmdRst2tex}: ret = ret / htmldocsDir
     conf.outDir = ret
 
-  when defined(nimDebugUnreportedErrors):
-    addExitProc proc = echoAndResetUnreportedErrors(conf)
-
   when defined(gcOrc) and not defined(leakTest):
     # Compilation is currently very taxing on ORC due to frequent
     # creations and destructions of ref objects with potential cycles.
@@ -717,9 +701,6 @@ proc mainCommand*(graph: ModuleGraph) =
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if conf.isEnabled(rintSuccessX):
       conf.writeln(cmdOutStatus, $genSuccessX(conf))
-
-  when defined(nimDebugUnreportedErrors):
-    echoAndResetUnreportedErrors(conf)
 
   when PrintRopeCacheStats:
     echo "rope cache stats: "
