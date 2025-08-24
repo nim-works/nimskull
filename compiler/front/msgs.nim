@@ -634,25 +634,8 @@ proc handleReport(
     # error handling
     return
 
-  var userAction = doNothing
-  case writabilityKind(conf, rep)
-  of writeDisabled:
-    discard "don't invoke the hook"
-  of writeEnabled:
-    # go through the report hook
-    fillReportAndHandleVmTrace(conf, rep, reportFrom)
-    userAction = conf.report(rep)
-  of writeForceEnabled:
-    # also go through the report hook, but temporarily override ``writeln``
-    # with something that always echoes something
-    fillReportAndHandleVmTrace(conf, rep, reportFrom)
-    let oldHook = conf.writelnHook
-    conf.writelnHook = proc (conf: ConfigRef, msg: string, flags: MsgFlags) =
-      echo msg
-
-    userAction = conf.report(rep)
-    conf.writelnHook = oldHook
-
+  fillReportAndHandleVmTrace(conf, rep, reportFrom)
+  let userAction = conf.report(rep)
   # ``errorActions`` also increments the error counter, so make sure to always
   # call it
   var (action, trace) = errorActions(conf, rep, doNothing)

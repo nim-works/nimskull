@@ -118,14 +118,6 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   ## only in case of an error).
   ## returns an nkError
   addInNimDebugUtils(c.config, "notFoundError", n, result)
-  if c.config.m.errorOutputs == {}:
-    # xxx: this is a hack to detect we're evaluating a constant expression or
-    #      some other vm code, it seems
-    # fail fast:
-    result = c.config.newError(n, PAstDiag(kind: adSemRawTypeMismatch))
-    return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
-           #      which means `doRaise`, but that made sense because we did a
-           #      double pass, now we simply return for fast exit.
   if errors.len == 0:
     # no further explanation available for reporting
     #
@@ -409,9 +401,6 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       # don't report an ambiguity error when the candidates both only matched
       # due to errors
       assert alt.fauxMatch == tyError
-    elif c.config.m.errorOutputs == {}:
-      # quick error message for performance of 'compiles' built-in:
-      globalReport(c.config, n.info, reportSem(rsemAmbiguous))
 
     elif c.config.errorCounter == 0:
       localReport(c.config, n.info, reportSymbols(

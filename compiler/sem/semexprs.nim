@@ -1320,25 +1320,19 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # This is a proc variable, apply normal overload resolution
       let m = resolveIndirectCall(c, n, t)
       if m.state != csMatch:
-        result =
-          if c.config.m.errorOutputs == {}:
-            # speed up error generation:
-            globalReport(c.config, n.info, SemReport(kind: rsemTypeMismatch))
-            c.graph.emptyNode
-          else:
-            var hasErrorType = false
-            for i in 1..<n.len:
-              if n[i].typ.kind == tyError:
-                hasErrorType = true
-                break
+        var hasErrorType = false
+        for i in 1..<n.len:
+          if n[i].typ.kind == tyError:
+            hasErrorType = true
+            break
 
-            if hasErrorType:
-              # XXX: legacy path, consolidate with nkError
-              errorNode(c, n)
-            else:
-              c.config.newError(n,
-                  PAstDiag(kind: adSemCallIndirectTypeMismatch,
-                          indirCallTyp: n[0].typ))
+        if hasErrorType:
+          # XXX: legacy path, consolidate with nkError
+          result = errorNode(c, n)
+        else:
+          result = c.config.newError(n,
+            PAstDiag(kind: adSemCallIndirectTypeMismatch,
+                    indirCallTyp: n[0].typ))
       else:
         result = m.call
         instGenericConvertersSons(c, result, m)
@@ -2710,8 +2704,6 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   openScope(c)
   let oldOwnerLen = c.graph.owners.len
   let oldGenerics = c.generics
-  let oldErrorOutputs = c.config.m.errorOutputs
-  if efExplain notin flags: c.config.m.errorOutputs = {}
   let oldHandler = move c.config.diagHandler
   let oldContextLen = msgs.getInfoContextLen(c.config)
   let oldExecConsLen = c.executionCons.len
@@ -2748,7 +2740,6 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope
-  c.config.m.errorOutputs = oldErrorOutputs
 
 proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # we replace this node by a 'true' or 'false' node:
