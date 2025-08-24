@@ -44,8 +44,7 @@ export TErrorHandling
 proc handleReport(
     conf: ConfigRef,
     r: Report,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing) {.noinline.}
+    reportFrom: InstantiationInfo) {.noinline.}
 
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
@@ -629,8 +628,7 @@ proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
 proc handleReport(
     conf: ConfigRef,
     r: Report,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing) {.noinline.} =
+    reportFrom: InstantiationInfo) {.noinline.} =
   ## Takes the report `r` and handles it. If the report is "enabled" according
   ## to the active configuration, it is passed to the active report hook and,
   ## if the report corresponds to an error, error handling is performed.
@@ -665,7 +663,7 @@ proc handleReport(
 
   # ``errorActions`` also increments the error counter, so make sure to always
   # call it
-  var (action, trace) = errorActions(conf, rep, eh)
+  var (action, trace) = errorActions(conf, rep, doNothing)
 
   # decide what to do, based on the hook-provided action and the computed
   # action. The more severe handling out of the two wins
