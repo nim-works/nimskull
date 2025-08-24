@@ -19,7 +19,6 @@ import
     ast_types,
     ast,
     errorhandling,
-    errorreporting,
     lineinfos,
     trees
   ],
@@ -371,34 +370,6 @@ template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo
 
     return config.newError(node, diag, instLoc())
 
-proc reportIfError(config: ConfigRef, n: PNode) =
-  ## If `n` is a `nkError`, reports the error via `handleReport`. This is
-  ## only meant for errors from vm/vmgen invocations and is also only a
-  ## transition helper until all vm invocation functions properly propagate
-  ## `nkError`
-  if n.isError:
-    # Errors from direct vmgen invocations don't have a stack-trace
-    if n.diag.kind == adVmGenError and n.diag.duringJit or
-        n.diag.kind == adVmError:
-      let st =
-        case n.diag.kind
-        of adVmGenError: n.diag.vmGenTrace
-        of adVmError:    n.diag.vmTrace
-        else:            unreachable()
-
-      config.handleReport(
-                wrap(VMReport(kind: rvmStackTrace,
-                        currentExceptionA: st.currentExceptionA,
-                        currentExceptionB: st.currentExceptionB,
-                        stacktrace: st.stacktrace,
-                        skipped: st.skipped,
-                        location: some st.location,
-                        reportInst: toReportLineInfo(st.instLoc))),
-                instLoc(-1))
-
-    config.localReport(n)
-
-
 template mkCallback(cn, rn, body): untyped =
   let p = proc(cn: TCtx, rn: TFullReg): PNode = body
   p
@@ -530,9 +501,7 @@ proc evalStaticStmt*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode,
   result = evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
 
 proc setupCompileTimeVar*(module: PSym; idgen: IdGenerator; g: ModuleGraph; n: PNode) {.inline.} =
-  let r = evalConstExprAux(module, idgen, g, nil, n, emStaticStmt)
-  # TODO: the node needs to be returned to the caller instead
-  reportIfError(g.config, r)
+  discard evalConstExprAux(module, idgen, g, nil, n, emStaticStmt)
 
 proc setupMacroParam(reg: var TFullReg, jit: var JitState, c: var TCtx, x: PNode, typ: PType) =
   case typ.kind
@@ -667,7 +636,6 @@ proc execProc*(jit: var JitState, c: var TCtx; sym: PSym;
 
       let r = execute(jit, c, thread, cb)
       result = r.unpackResult(c.config, c.graph.emptyNode)
-      reportIfError(c.config, result)
       if result.isError:
         result = nil
   else:
@@ -724,10 +692,7 @@ proc myProcess(c: PPassContext, n: PNode): PNode =
     setupGlobalCtx(c.module, c.graph, c.idgen)
     let eval = PEvalContext(c.graph.vm)
 
-    let r = evalStmt(eval.jit, eval.vm, n)
-    reportIfError(c.graph.config, r)
-    # TODO: use the node returned by evalStmt as the result and don't report
-    #       the error here
+    discard evalStmt(eval.jit, eval.vm, n)
     result = newNodeI(nkEmpty, n.info)
   else:
     result = n

@@ -57,9 +57,6 @@ proc applyPatterns(c: PContext, n: PNode): PNode =
       return
 
     if not isNil(pattern):
-      if pattern.isError:
-        c.config.localReport(pattern.ast)
-
       let x = applyRule(c, pattern, result)
 
       if x.isNil:

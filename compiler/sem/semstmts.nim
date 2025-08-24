@@ -264,9 +264,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
           else:
             makeRefType(c.config, a[0][1].typ, c.idgen)
 
-        if symbolNode.kind == nkError:
-          localReport(c.config, symbolNode)
-        else:
+        if symbolNode.kind != nkError:
           # propagate the symbol's type to the node
           symbolNode.typ = symbol.typ
 
@@ -522,10 +520,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
     # a custom pragma as opposed to a built-in
     let (ident, err) = considerQuotedIdent(c, key)
     if err != nil:
-      # XXX: replace with propagating ``nkError``. As it is now, an erroneous
-      #      ``nkAccQuoted`` will not disable following macro pragmas if
-      #      errorMax > 1!
-      localReport(c.config, n)
+      # TODO: don't try the other macros if the identifier is malformed
       return
     elif strTableGet(c.userPragmas, ident) != nil:
       return # User defined pragma
@@ -1823,9 +1818,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
         typeDefLeftSidePass(c, typeSection, i)
         return
       name[1] = pragmaDecl(c, s, name[1], typePragmas)
-      # check if we got any errors and if so report them
-      for e in ifErrorWalkErrors(c.config, name[1]):
-        localReport(c.config, e)
 
     if typeDef[1].kind != nkEmpty:
       # the type is generic. So that the right-side pass can easily
@@ -2004,12 +1996,6 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # process the type's body:
       pushOwner(c, s)
       var t = semTypeNode(c, a[2], s.typ)
-      
-      if t.kind == tyError and t.n.isError:
-        # we've got a tyError with a report in n
-        # xxx: we should probably propagate tyError like nkError
-        c.config.localReport(t.n)
-      
       if s.typ == nil:
         s.typ = t
       elif t != s.typ and (s.typ == nil or s.typ.kind != tyAlias):

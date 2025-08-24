@@ -21,7 +21,6 @@ import
     idents,
     trees,
     lineinfos,
-    errorreporting,
     errorhandling,
   ],
   compiler/modules/[
@@ -2204,11 +2203,6 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   case n.kind
   of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
     result = c.semInferredLambda(c, bindings, n)
-    if result.kind == nkError:
-      # xxx: output the error now otherwise we'll just get an inferred lambda
-      #      failure without an explanation, ideally this should be
-      #      explained/added context of the inferred lambda error itself.
-      c.config.localReport(result)
   of nkSym:
     let inferred = c.semGenerateInstance(c, n.sym, bindings, n.info)
     result =
@@ -3346,10 +3340,6 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
             # here. For generic routines, incompatible default expression are
             # detected after instantiation
             copyTree(formal.ast)
-
-        if defaultValue.isError:
-          # xxx: change this to propagate
-          c.config.localReport(defaultValue)
 
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam

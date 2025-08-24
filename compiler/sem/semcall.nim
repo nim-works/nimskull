@@ -44,11 +44,6 @@ proc pickBestCandidate(c: PContext,
     o: TOverloadIter
     sym = initOverloadIter(o, c, startScope, headSymbol)
     scope = o.lastOverloadScope
-  
-  if sym.isError:
-    # xxx: this should be in the loop below but it's not that simple as we'll
-    #      end up with lots of excessive reports, need a bigger rethink
-    localReport(c.config, sym.ast)
 
   while sym != nil:
     if sym.kind in filter:
@@ -753,9 +748,6 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
     var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
-      if resolved.kind == nkError:
-        localReport(c.config, resolved)
-
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):
         result = nil

@@ -28,7 +28,6 @@ import
     renderer,
     types,
     nimsets,
-    errorreporting,
     errorhandling,
     astmsgs,
     lineinfos,
@@ -398,9 +397,7 @@ proc commonType*(c: PContext; x: PType, y: PNode): PType =
   result = commonType(c, x, y.typ)
 
 proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
-  let (ident, err) = considerQuotedIdent(c, n)
-  if err != nil:
-    localReport(c.config, err)
+  let (ident, _) = considerQuotedIdent(c, n)
   result = newSym(kind, ident, nextSymId c.idgen, getCurrOwner(c), n.info)
   when defined(nimsuggest):
     suggestDecl(c, n, result)
@@ -670,12 +667,10 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   let e = semExprWithType(c, n)
   popExecCon(c)
   if e.isError:
-    localReport(c.config, e)
     return n
 
   result = evalConstExpr(c, e)
   if result.isError:
-    localReport(c.config, result)
     result = e # error correction
 
 proc semRealConstExpr(c: PContext, n: PNode): PNode =

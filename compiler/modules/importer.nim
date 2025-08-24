@@ -22,7 +22,6 @@ import
     lineinfos,
     wordrecg,
     errorhandling,
-    errorreporting,
   ],
   compiler/modules/[
     modulepaths,
@@ -461,8 +460,6 @@ proc readExceptSet(c: PContext, n: PNode): IntSet =
     let (ident, err) = lookups.considerQuotedIdent(c, n[i])
     if err.isNil:
       result.incl(ident.id)
-    else:
-      localReport(c.config, err)
 
 proc evalImportExcept*(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)

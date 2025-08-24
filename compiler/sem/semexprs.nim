@@ -866,9 +866,7 @@ proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
   of nkSym:
     return isUnresolvedSym(n.sym)
   of nkIdent, nkAccQuoted:
-    let (ident, err) = considerQuotedIdent(c, n)
-    if err != nil:
-      localReport(c.config, err)
+    let (ident, _) = considerQuotedIdent(c, n)
     var amb = false
     let sym = searchInScopes(c, ident, amb)
     if sym != nil:
@@ -1157,7 +1155,6 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
         let err = newError(c.config, n,
                     PAstDiag(kind:adSemRecursiveDependencyIterator,
                              recurrCallee: callee))
-        localReport(c.config, err)
 
         # error correction, prevents endless for loop elimination in transf.
         # See bug #2051:
@@ -2520,9 +2517,7 @@ proc lookUpForDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PSym =
   case n.kind
   of nkIdent, nkAccQuoted:
     var amb = false
-    let (ident, err) = considerQuotedIdent(c, n)
-    if err != nil:
-      localReport(c.config, err)
+    let (ident, _) = considerQuotedIdent(c, n)
     result = if onlyCurrentScope:
                localSearchInScope(c, ident)
              else:
@@ -2578,8 +2573,6 @@ proc semExpandToAst(c: PContext, n: PNode): PNode =
       if symx.kind in {skTemplate, skMacro} and symx.typ.len == macroCall.len:
         cand = symx
         inc cands
-      elif symx.isError:
-        localReport(c.config, symx.ast)
       symx = nextOverloadIter(o, c, headSymbol)
     if cands == 0:
       localReport(c.config, n.info, semReportCountMismatch(
@@ -3409,8 +3402,6 @@ proc semExport(c: PContext, n: PNode): PNode =
       while s != nil:
         if s.kind == skEnumField:
           localReport(c.config, a.info, reportSym(rsemCannotExport, s))
-        elif s.isError:
-          localReport(c.config, s.ast)
 
         if s.kind in ExportableSymKinds+{skModule} and sfError notin s.flags:
           result.add(newSymNode(s, a.info))
@@ -3453,8 +3444,6 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
     if n.kind in {nkIdent, nkAccQuoted}:
       let s = qualifiedLookUp(c, n, {})
       if s.isError:
-        # XXX: move to propagating nkError, skError, and tyError
-        localReport(c.config, s.ast)
         result = false
       else:
         result = s != nil and isGenericRoutineStrict(s)
@@ -3536,8 +3525,6 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
     if a.kind in OverloadableSyms-{skModule}:
       inc(i)
       if i > 1: break
-    elif a.isError:
-      localReport(c.config, a.ast)
     a = nextOverloadIter(o, c, n)
   let info = getCallLineInfo(n)
   if i <= 1:
@@ -3554,8 +3541,6 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
-      elif a.isError:
-        localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
 
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
@@ -3778,9 +3763,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkPragmaExpr:
     let
       pragma = n[1]
-      (pragmaName, err) = considerQuotedIdent(c, pragma[0])
-    if err != nil:
-      localReport(c.config, err)
+      (pragmaName, _) = considerQuotedIdent(c, pragma[0])
 
     case whichKeyword(pragmaName)
     of wExplain:
