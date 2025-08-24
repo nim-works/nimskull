@@ -122,6 +122,10 @@ proc newError*(
     if diag.kind != adWrappedError:
       conf.unreportedErrors[result.diag.diagId] = result
 
+  if diag.kind notin {adWrappedError, adWrappedSymError}:
+    # emit the diagnostic/report right away
+    conf.emit(conf.astDiagToLegacyReport(conf, diag), inst)
+
 template newError*(
     conf: ConfigRef,
     wrongNode: PNode,
