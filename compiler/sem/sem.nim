@@ -100,10 +100,9 @@ from compiler/ast/reports_sem import SemReport,
 from compiler/ast/reports_vm import VMReport
 from compiler/ast/report_enums import ReportKind, ReportCategory
 
-when defined(nimsuggest):
-  # TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
-  #       it's silly that the compiler hook looks so broadly
-  from compiler/ast/reports import Report
+# TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
+#       it's silly that the compiler hook looks so broadly
+from compiler/ast/reports import Report, ReportSeverity
 
 import compiler/tools/suggest
 

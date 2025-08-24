@@ -2695,23 +2695,12 @@ proc semQuoteAst(c: PContext, n: PNode): PNode =
   result = semDirectOp(c, call, {})
 
 proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
-  # watch out, hacks ahead:
-  when defined(nimsuggest):
-    # Remove the error hook so nimsuggest doesn't report errors there
-    let tempHook = c.graph.config.structuredReportHook
-    c.graph.config.structuredReportHook =
-      proc(conf: ConfigRef, report: Report): TErrorHandling = discard
-
-  let oldErrorCount = c.config.errorCounter
-  let oldErrorMax = c.config.errorMax
   let oldCompilesId = c.compilesContextId
   # if this is a nested 'when compiles', do not increase the ID so that
   # generic instantiations can still be cached for this level.
   if c.compilesContextId == 0:
     inc c.compilesContextIdGenerator
     c.compilesContextId = c.compilesContextIdGenerator
-
-  c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
 
   # open a scope for temporary symbol inclusions:
   let oldScope = c.currentScope
@@ -2720,6 +2709,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldGenerics = c.generics
   let oldErrorOutputs = c.config.m.errorOutputs
   if efExplain notin flags: c.config.m.errorOutputs = {}
+  let oldHandler = move c.config.diagHandler
   let oldContextLen = msgs.getInfoContextLen(c.config)
   let oldExecConsLen = c.executionCons.len
 
@@ -2729,16 +2719,20 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldProcCon = c.p
   c.generics = @[]
 
+  c.config.diagHandler = proc(config: ConfigRef, rep: sink Report) =
+    # abort the sub-compilation on the first error
+    if severity(config, rep) == rsevError:
+      raise ERecoverableError.newException("")
+    else:
+      discard "drop everything else"
+
   try:
     result = semExpr(c, n, flags)
     if result != nil and efNoSem2Check notin flags:
       result = foldInAst(c.module, result, c.idgen, c.graph)
       trackStmt(c, c.module, result, isTopLevel = false)
-    if c.config.errorCounter != oldErrorCount and
-       result != nil and result.kind != nkError:
-      result = nil
   except ERecoverableError:
-    discard
+    result = nil # analysis failed
   # undo symbol table changes (as far as it's possible):
   c.compilesContextId = oldCompilesId
   c.generics = oldGenerics
@@ -2747,15 +2741,11 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inGenericInst = oldInGenericInst
   c.p = oldProcCon
   setLen(c.executionCons, oldExecConsLen)
+  c.config.diagHandler = oldHandler
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope
   c.config.m.errorOutputs = oldErrorOutputs
-  c.config.errorCounter = oldErrorCount
-  c.config.errorMax = oldErrorMax
-  when defined(nimsuggest):
-    # Restore the error hook
-    c.graph.config.structuredReportHook = tempHook
 
 proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # we replace this node by a 'true' or 'false' node:
