@@ -1746,9 +1746,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemNodeNotAllowed:
       result = "'$1' not allowed here" % r.ast.render
 
-    of rsemCustomGlobalError:
-      result = r.str
-
     of rsemCannotImportItself:
       result = "module '$1' cannot import itself" % r.symstr
 
