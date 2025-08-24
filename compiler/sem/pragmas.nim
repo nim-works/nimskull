@@ -71,7 +71,7 @@ const
     wDeprecated, wNodecl, wError, wUsed}
     ## common pragmas for declarations, to a good approximation
   procPragmas* = declPragmas + {FirstCallConv..LastCallConv,
-    wMagic, wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
+    wMagic, wNoSideEffect, wSideEffect, wNoreturn, wDynlib, wHeader,
     wCompilerProc, wCore, wProcVar, wVarargs, wCompileTime,
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
@@ -103,7 +103,7 @@ const
     wTrMacros, wEffects, wComputedGoto,
     wExperimental, wUsed, wByRef, wCallconv}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
-    wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
+    wNoSideEffect, wSideEffect, wNoreturn, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
     wRaises, wLocks, wTags, wEffectsOf,
     wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
@@ -515,7 +515,6 @@ proc pragmaToOptions(w: TSpecialWord): TOptions {.inline.} =
   of wByRef: {optByRef}
   of wImplicitStatic: {optImplicitStatic}
   of wTrMacros: {optTrMacros}
-  of wSinkInference: {optSinkInference}
   else: {}
 
 proc processExperimental(c: PContext; n: PNode): PNode =
@@ -1270,9 +1269,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of wNoDestroy:
         result = noVal(c, it)
         incl(sym.flags, sfGeneratedOp)
-      of wNosinks:
-        result = noVal(c, it)
-        incl(sym.flags, sfWasForwarded)
       of wDynlib:
         if isLocal(sym):
           result = disallowedExternalLocal(c, it)
