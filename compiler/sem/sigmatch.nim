@@ -2653,6 +2653,12 @@ proc inheritDiags(m: var TCandidate, diags: DiagContext) =
     m.diagnostics.add diags.general
     diags.general.shrink(0)
 
+proc addAllDiagnostics*(m: var TCandidate, diags: DiagContext) =
+  ## Adds all non-general diagnostics recored with `diags` to `m`.
+  if diags != nil:
+    for it in diags.slots.items:
+      m.diagnostics.add it
+
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
   when defined(nimCompilerStacktraceHints):

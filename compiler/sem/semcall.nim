@@ -383,6 +383,9 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
         nOrig.sons.delete(2)
         n[0] = f
         nOrig[0] = f
+      # make sure that all recorded diagnostics are emitted, by adding them to
+      # the no-match candidate
+      result.addAllDiagnostics(diags)
       c.closeShadowScope()
       c.config.diagHandler = move oldHandler
       return
