@@ -44,6 +44,3 @@ else:
   {.pragma: compilerRtl, compilerproc.}
 
 {.pragma: benign, gcsafe, locks: 0.}
-
-when defined(nimHasSinkInference):
-  {.push sinkInference: on.}

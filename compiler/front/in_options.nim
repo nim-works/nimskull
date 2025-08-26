@@ -105,7 +105,6 @@ type
                       ## evaluation
     optTrMacros       ## en/disable pattern matching
     optMemTracker
-    optSinkInference  ## 'sink T' inference
     optCursorInference
     optImportHidden
 

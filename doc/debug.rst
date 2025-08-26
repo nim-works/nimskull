@@ -236,7 +236,7 @@ routine. See the snippet below to show how tracing was added to
 .. code-block:: nim
 
     proc semOverloadedCall(c: PContext, n, nOrig: PNode,
-                           filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+                           filter: TSymKinds, flags: TExprFlags): PNode =
       addInNimDebugUtils(c.config, "semOverloadedCall")
       # Rest of the code as before ...
 

@@ -717,9 +717,6 @@ proc tryEvalStaticArgument(c: PContext, n: PNode): PNode =
       else:      n
     result.typ = typ
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
 include hlo, seminst, semcall
 
 template resultTypeIsInferrable(typ: PType): untyped =
@@ -925,7 +922,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
 # -- code-myopen
 
 proc myOpen(graph: ModuleGraph; module: PSym;
-            idgen: IdGenerator): PPassContext {.nosinks.} =
+            idgen: IdGenerator): PPassContext =
   var c = newContext(graph, module)
   c.idgen = idgen
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
@@ -978,7 +975,7 @@ proc recoverContext(c: PContext) =
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
   c.executionCons.setLen(1)
 
-proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
+proc myProcess(context: PPassContext, n: PNode): PNode =
   ## Entry point for the semantic analysis pass, this proc is part of the
   ## compiler graph `passes` interface. This adapts that interface to the sem
   ## implementation by wrapping `semStmtAndGenerateGenerics`.

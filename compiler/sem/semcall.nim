@@ -573,7 +573,7 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   result = updateDefaultParams(c.config, result)
 
 proc semOverloadedCall(c: PContext, n, nOrig: PNode,
-                       filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+                       filter: TSymKinds, flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semOverloadedCall", n, result)
   var errors: seq[SemCallMismatch]
 
