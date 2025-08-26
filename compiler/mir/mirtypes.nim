@@ -68,7 +68,6 @@ type
     tkCstring
 
     tkImported
-    tkIndirect # not a real type
 
     # record-like types:
     tkRecord
@@ -180,7 +179,7 @@ const
   PointerType* = TypeId 15
 
   Skip = {tyAlias, tyDistinct, tySink, tyGenericInst, tyEnum, tyOrdinal,
-          tyRange} + tyUserTypeClasses
+          tyRange, tyInferred} + tyUserTypeClasses
     ## types not relevant to the MIR type description
 
   MangleFlag = 0x4000'u16
@@ -198,7 +197,7 @@ func hash(env: TypeEnv, t: TypeHeader): Hash =
   of tkVoid, tkBool, tkChar, tkPointer, tkString, tkCstring:
     discard "no additional content to hash"
   of tkInt, tkUInt, tkFloat, tkPtr, tkRef, tkVar, tkLent, tkSeq,
-     tkUncheckedArray, tkOpenArray, tkSet, tkIndirect, tkImported:
+     tkUncheckedArray, tkOpenArray, tkSet, tkImported:
     result = result !& hash(t.a)
   of tkArray:
     result = result !& hash(t.a) !& hash(t.b)
@@ -232,7 +231,7 @@ func isEqual(env: TypeEnv, a, b: TypeHeader): bool =
   of tkVoid, tkBool, tkChar, tkPointer, tkString, tkCstring:
     true
   of tkInt, tkUInt, tkFloat, tkPtr, tkRef, tkVar, tkLent, tkSeq,
-     tkUncheckedArray, tkOpenArray, tkSet, tkIndirect, tkImported:
+     tkUncheckedArray, tkOpenArray, tkSet, tkImported:
     a.a == b.a
   of tkArray:
     a.a == b.a and a.b == b.b
@@ -342,8 +341,8 @@ func size*(desc: TypeHeader, env: TypeEnv): BiggestInt {.inline.} =
 
 proc elem*(desc: TypeHeader): TypeId {.inline.} =
   ## Returns the element type for `h`.
-  assert desc.kind in {tkArray, tkSeq, tkUncheckedArray, tkIndirect,
-                       tkImported, tkOpenArray, tkLent, tkVar, tkPtr, tkRef}
+  assert desc.kind in {tkArray, tkSeq, tkUncheckedArray, tkImported,
+                       tkOpenArray, tkLent, tkVar, tkPtr, tkRef}
   desc.a.TypeId
 
 proc count*(desc: TypeHeader): uint32 {.inline.} =
@@ -444,17 +443,14 @@ proc computeDepth*(env: TypeEnv, desc: TypeHeader, pos: int32): int =
       inc result
   of tkUnion:
     result = 0
-  of tkImported, tkIndirect:
+  of tkImported:
     result = computeDepth(env, env.headerFor(desc.elem, Lowered), pos)
   else:
     unreachable(desc.kind)
 
 proc canonical*(env: TypeEnv, typ: TypeId): TypeId =
-  ## Returns the canonical symbol for `typ`. All indirections are skipped.
+  ## Returns the canonical symbol for `typ`.
   result = env.symbols[typ].canon
-  # skip indirections:
-  while env.headerFor(result, Canonical).kind == tkIndirect:
-    result = env.headerFor(result, Canonical).elem
 
 proc isEmbedded*(env: TypeEnv, typ: TypeId): bool =
   ## Whether the `typ` is a record that's directly embedded where it's used.
@@ -463,11 +459,11 @@ proc isEmbedded*(env: TypeEnv, typ: TypeId): bool =
 
 proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## Returns the ID of the field with position `pos`. Said field *must* exist
-  ## in record-like type `typ`. Imported types and indirection are skipped.
+  ## in record-like type `typ`. Imported types are skipped.
 
-  # skip indirections and imported types:
+  # skip imported types:
   var typ = env.symbols[typ].canon
-  while env.headerFor(typ, Canonical).kind in {tkIndirect, tkImported}:
+  while env.headerFor(typ, Canonical).kind == tkImported:
     typ = env.headerFor(typ, Canonical).elem
 
   var curr = 0'i32
@@ -872,14 +868,6 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
     # have no relevance in the MIR's type syste, beyond taking up slots
     # XXX: untyped/typed shouldn't reach here, but currently they do
     simple(VoidType)
-  of tyEnum, tyOrdinal, tyRange:
-    # the underlying type is usually a simple, single-node type, so
-    # translate it directly
-    typeToMir(env, t.lastSon, canon)
-  of tyUserTypeClasses, tyGenericInst, tyInferred, tySink, tyAlias, tyDistinct:
-    # use a type-reference instead of in-place translation. This prevents
-    # unnecessary de-duplication work for, e.g., object types
-    single(tkIndirect, t.lastSon)
   else:
     unreachable(t.kind)
 
@@ -1021,7 +1009,8 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
 proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
   discard getSize(env.config, t) # compute size, alignment, and field offsets
 
-  if t.kind == tyObject:
+  case t.kind
+  of tyObject:
     if sfCompilerProc in t.sym.flags:
       # compilerproc types can be defined in multiple modules (see
       # ``TNimType``). Only create a type symbol for the instance that's
@@ -1055,6 +1044,14 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
                                         result);
         c != result):
       env.symbols[result].canon = c
+  of Skip:
+    # except for `inst`, the type symbol is identical to that of the
+    # skipped-to type
+    let base = env.add(skipIrrelevant(t))
+    var sym = env.symbols[base]
+    sym.inst = t
+    result = env.symbols.add(sym)
+    env.map[t] = result
   else:
     # create the type description preserving the original type symbols:
     let

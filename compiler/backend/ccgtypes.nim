@@ -99,7 +99,7 @@ proc mapType(types: TypeEnv, typ: TypeId): TCTypeKind
 proc mapType(types: TypeEnv; desc: TypeHeader): TCTypeKind =
   ## Maps a NimSkull type to the corresponding C type.
   case desc.kind
-  of tkIndirect, tkImported:
+  of tkImported:
     mapType(types, desc.elem)
   of tkVoid: ctVoid
   of tkBool: ctBool
