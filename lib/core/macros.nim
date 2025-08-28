@@ -464,10 +464,8 @@ else:
   proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
     magic: "NGenSym", noSideEffect.}
 
-proc callsite*(): NimNode {.magic: "NCallSite", benign, deprecated:
-  "Deprecated since v0.18.1; use `varargs[untyped]` in the macro prototype instead".}
+proc callsite*(): NimNode {.magic: "NCallSite", benign.}
   ## Returns the AST of the invocation expression that invoked this macro.
-  # see https://github.com/nim-lang/RFCs/issues/387 as candidate replacement.
 
 proc toStrLit*(n: NimNode): NimNode =
   ## Converts the AST `n` to the concrete Nim code and wraps that
