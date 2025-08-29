@@ -2483,36 +2483,35 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       else:
         r = typeRel(m, base(f), a)
 
-        if arg.isError:
-          result = arg
-          m.baseTypeMatch = false
-          return
-
         case r
         of isGeneric:
           inc(m.convMatches)
           result = copyTree(arg)
           result.typ = getInstantiatedType(c, arg, m, base(f))
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isFromIntLit:
           inc(m.intConvMatches, 256)
           result = implicitConv(nkHiddenStdConv, f[0], arg, m, c)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isEqual:
           inc(m.convMatches)
           result = copyTree(arg)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isSubtype: # bug #4799, varargs accepting subtype relation object
           inc(m.subtypeMatches)
           if base(f).kind == tyTypeDesc:
             result = arg
           else:
             result = implicitConv(nkHiddenSubConv, base(f), arg, m, c)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         else:
           result = userConvMatch(c, m, base(f), a, arg)
           if result != nil:
-            m.baseTypeMatch = result.kind != nkError
+            if result.kind == nkError:
+              # XXX: is it actually possible for ``userConvMatch`` to return
+              #      an error if the input isn't one already?
+              m.fauxMatch = tyError
+            m.baseTypeMatch = true
 
 proc paramTypesMatch*(
     candidate: var TCandidate,
