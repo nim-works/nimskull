@@ -2340,7 +2340,11 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
 
   if r == isBothMetaConvertible:
     result = instantiateRoutineExpr(c, m.bindings, arg)
-    if result.isNil or result.isError:
+    if result.isNil:
+      return
+    elif result.isError:
+      inc(m.convMatches)
+      m.fauxMatch = tyError
       return
 
     inc(m.convMatches)
@@ -2396,7 +2400,11 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         implicitConv(nkHiddenStdConv, f, arg, m, c)
   of isInferred, isInferredConvertible:
     result = instantiateRoutineExpr(c, m.bindings, arg)
-    if result.isNil or result.isError:
+    if result.isNil:
+      return
+    elif result.isError:
+      inc(m.genericMatches)
+      m.fauxMatch = tyError
       return
 
     case r
@@ -2799,14 +2807,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
     noMatchAux()
 
-  template noMatchDueToError() =
-    {.line.}:
-      ## found an nkError along the way so wrap the call in an error, do not use
-      ## if the legacy `localReport`s etc are being used.
-      c.closeShadowScope # don't merge changes
-      m.call = wrapError(c.config, m.call)
-      noMatchAux()
-
   template checkConstraint(n: untyped) {.dirty.} =
     if not formal.constraint.isNil:
       if matchNodeKinds(formal.constraint, n):
@@ -2964,11 +2964,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       else:
         setSon(m.call, formal.position + 1, arg)
 
-      if operand.kind == nkError:
-        discard "could be a faux match, rejected in semResolvedCall"
-      elif arg.isError:
-        noMatchDueToError()
-
       inc f
     else:                                  # unnamed param `foo("baz")`
       if f >= formalLen:
@@ -3024,11 +3019,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           else:
             container.add arg
             incrIndexType(container.typ)
-
-          if operand.kind == nkError:
-            discard "could be a faux match, rejected in semResolvedCall"
-          elif arg.kind == nkError:
-            noMatchDueToError()
 
           if m.baseTypeMatch: # match type `T` in `varargs[T]`
             checkConstraint(operand)
@@ -3118,11 +3108,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
                   formal = formal.typ, actual = n[a].typ)]))
 
             noMatch()
-
-          if operand.kind == nkError:
-            discard "could be a faux match, rejected in semResolvedCall"
-          elif arg.kind == nkError:
-            noMatchDueToError()
 
         checkConstraint(operand)
 
