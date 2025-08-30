@@ -27,11 +27,13 @@ type
     hasFailure: bool
     specNames: seq[string]
     specCounters: seq[uint]
+    propCounter: uint32
     # compileTime: bool      ## are we executing the property at compile time
     # ctOutput: string       ## the output generated
 
   AssertReport*[T] = object
     ## result of a property assertion, with all runs information
+    propNum: uint32
     name: string
     runId: PossibleRunId
     failures: uint32
@@ -75,13 +77,13 @@ proc `$`*[T](r: AssertReport[T]): string =
     else:
       "status: success"
 
-  result = fmt"{r.name} - {status}, totalRuns: {r.runId.int}"
+  result = fmt"{r.propNum} {r.name} - {status}, totalRuns: {r.runId.int}"
 
-proc startReport[T](name: string, seed: uint32): AssertReport[T] =
+proc startReport[T](propNum: uint32, name: string, seed: uint32): AssertReport[T] =
   ## start a new report
-  result = AssertReport[T](name: name, runId: noRunId, failures: 0, seed: seed,
-                        failureType: ptPass, firstFailure: noRunId,
-                        counterExample: none[T]())
+  result = AssertReport[T](propNum: propNum, name: name, runId: noRunId,
+                        failures: 0, seed: seed, failureType: ptPass,
+                        firstFailure: noRunId, counterExample: none[T]())
 
 #-- Assert Properties
 
@@ -129,7 +131,8 @@ proc execProperty*[A](
   propCheck: PropCheck[A],
   params: AssertParams = defAssertPropParams()): AssertReport[A] =
 
-  result = startReport[A](name, params.seed)
+  inc ctx.propCounter
+  result = startReport[A](ctx.propCounter, name, params.seed)
   var
     rng = params.random # XXX: need a var version
     p = newProperty(arb, propCheck)
@@ -200,6 +203,7 @@ proc name(ctx: GlobalContext): string =
 
 proc startInnerSpec(ctx: var GlobalContext, name: string) =
   ctx.specNames.add(name)
+  ctx.propCounter = 0
   if ctx.specNames.len == ctx.specCounters.len:
     inc ctx.specCounters[^1]
   elif ctx.specNames.len > ctx.specCounters.len:
