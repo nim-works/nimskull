@@ -37,7 +37,6 @@ proc errorHandling*(err: PNode): TErrorHandling =
   ## `msg.liMessage` when reporting errors.
   assert err.isError, "err can't be nil and must be an nkError"
   case err.diag.astDiagToLegacyReportKind:
-    of rsemCustomGlobalError: doRaise
     of rsemFatalError: doAbort
     else: doNothing
 
