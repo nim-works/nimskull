@@ -77,7 +77,7 @@ proc `$`*[T](r: AssertReport[T]): string =
     else:
       "status: success"
 
-  result = fmt"{r.propNum} {r.name} - {status}, totalRuns: {r.runId.int}"
+  result = fmt"{r.name} (id: {r.propNum}) - {status}, totalRuns: {r.runId.int}"
 
 proc startReport[T](propNum: uint32, name: string, seed: uint32): AssertReport[T] =
   ## start a new report
@@ -203,7 +203,6 @@ proc name(ctx: GlobalContext): string =
 
 proc startInnerSpec(ctx: var GlobalContext, name: string) =
   ctx.specNames.add(name)
-  ctx.propCounter = 0
   if ctx.specNames.len == ctx.specCounters.len:
     inc ctx.specCounters[^1]
   elif ctx.specNames.len > ctx.specCounters.len:
