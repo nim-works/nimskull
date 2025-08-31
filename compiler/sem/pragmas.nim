@@ -62,6 +62,9 @@ from compiler/ast/report_enums import ReportKind,
 
 from compiler/ic/ic import addCompilerProc
 
+type
+  InvalidPragmaHandler = proc(c: PContext, n: PNode): PNode {.closure.}
+
 const
   FirstCallConv* = wNimcall
   LastCallConv* = wTailcall
@@ -1020,7 +1023,7 @@ proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
   else:
     result = qualifiedLookUp(c, n, {checkUndeclared})
 
-proc semCustomPragma(c: PContext, n: PNode): PNode =
+proc semCustomPragma(c: PContext, n: PNode, invalid: InvalidPragmaHandler): PNode =
   var callNode: PNode
 
   case n.kind
@@ -1033,14 +1036,14 @@ proc semCustomPragma(c: PContext, n: PNode): PNode =
   of nkPragmaCallKinds - {nkExprColonExpr}:
     callNode = n
   else:
-    result = invalidPragma(c, n)
+    result = invalid(c, n)
     return
 
   let r = c.semOverloadedCall(c, callNode, callNode, {skTemplate}, {efNoUndeclared})
   if r.isError:
     return r
   elif r.isNil or sfCustomPragma notin r[0].sym.flags:
-    result = invalidPragma(c, n)
+    result = invalid(c, n)
     return
 
   result = r
@@ -1640,25 +1643,30 @@ proc applyStmtPragma(c: PContext, owner: PSym, it: PNode, k: TSpecialWord): PNod
 #      statement. Doing so would slightly change the semantics, however.
 
 proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
-                         validPragmas: TSpecialWords, sym: PSym) =
+                         validPragmas: TSpecialWords, sym: PSym,
+                         tryCustom=true,
+                         invalid: InvalidPragmaHandler = invalidPragma) =
   ## Pre-processes the single pragma `it`, but doesn't apply it yet. The pre-
   ## processed pragma (multiple if the input pragma is a user-pragma) is
-  ## appended to `result`.
+  ## appended to `result`. Unknown Custom pragmas are only considered when
+  ## `considerCustom` is 'true'; `invalid` is called for non-applicable
+  ## pragmas.
   ##
   ## `sym` (nil is allowed) is only provided for use by error diagnostics and
   ## isn't mutated.
   let key = it.key
 
-  proc customPragma(c: PContext, n: PNode, s: PSym): PNode =
+  proc customPragma(c: PContext, n: PNode, s: PSym,
+                    invalid: InvalidPragmaHandler): PNode =
     if s == nil or s.kind in allowsCustomPragma:
-      semCustomPragma(c, n)
+      semCustomPragma(c, n, invalid)
     else:
       illegalCustomPragma(c, n, s)
 
   let r =
     case key.kind
     of nkBracketExpr:
-      invalidPragma(c, it)
+      invalid(c, it)
     of nkCast:
       # pass through the cast pragma. It's later going to be treated as a
       # ``wCast``
@@ -1666,13 +1674,15 @@ proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
     of nkIdentKinds:
       # uses normal processing
       nil
+    elif tryCustom:
+      customPragma(c, it, sym, invalid)
     else:
-      # must be either a custom pragma or an error
-      customPragma(c, it, sym)
+      invalid(c, it)
 
   if r != nil:
     # already processed
-    result.add r
+    if r.kind != nkEmpty:
+      result.add r
     return
 
   let (ident, error) = considerQuotedIdent(c, key)
@@ -1695,7 +1705,8 @@ proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
     else:
       # expand the user pragma in-place:
       for it in userPragma.ast.items:
-        prepareSinglePragma(c, it, result, validPragmas, sym)
+        prepareSinglePragma(c, it, result, validPragmas, sym,
+                            tryCustom, invalid)
 
     dec c.instCounter
   else:
@@ -1705,10 +1716,15 @@ proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
         checkPragmaUse(c.config, key.info, k, ident.s)
 
       result.add it
+    elif tryCustom:
+      # try to treat as a custom pragma
+      let got = customPragma(c, it, sym, invalid)
+      if got.kind != nkEmpty:
+        result.add got
     else:
-      # try to treat as a custom pragma, which will produce an error if it's
-      # not a valid custom pragma
-      result.add customPragma(c, it, sym)
+      let got = invalid(c, it)
+      if got.kind != nkEmpty:
+        result.add got
 
 proc semSinglePragmaInStmt(
     c: PContext; owner: PSym, it: PNode, validPragmas: TSpecialWords, r: var seq[PNode]): TSpecialWord
@@ -1761,7 +1777,7 @@ proc semIdentPragmaInStmt(c: PContext, owner: PSym, it: PNode, r: var seq[PNode]
     else:
       # it might still be a custom pragma
       result = wInvalid
-      r.add semCustomPragma(c, it)
+      r.add semCustomPragma(c, it, invalidPragma)
 
 proc semSinglePragmaInStmt(
     c: PContext; owner: PSym, it: PNode, validPragmas: TSpecialWords, r: var seq[PNode]): TSpecialWord =
@@ -1785,7 +1801,7 @@ proc semSinglePragmaInStmt(
   of nkIdentKinds:
     result = semIdentPragmaInStmt(c, owner, it, r, validPragmas)
   else:
-    r.add semCustomPragma(c, it)
+    r.add semCustomPragma(c, it, invalidPragma)
 
 proc overwriteLineInfo(n: PNode; info: TLineInfo) =
   n.info = info
@@ -1864,18 +1880,16 @@ proc implicitPragmas*(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWo
     let o = it.otherPragmas
     if o != nil:
       for x in o.items:
-        prepareSinglePragma(c, x, tmp, validPragmas, sym)
+        # pragmas not applicable to the symbol are silently ignored
+        prepareSinglePragma(c, x, tmp, validPragmas, sym,
+          tryCustom=(sym.kind in allowsCustomPragma),
+          proc(c: PContext, n: PNode): PNode = c.graph.emptyNode)
 
-        # filter the nodes. If they're erroneous, it means that the pragma
-        # doesn't apply to the symbol
+        # the pragmas' AST is going to be mutated, so create a copy
         for y in tmp.items:
-          if not y.isError:
-            # we're mutating the pragma's AST, so a copy is required
-            let pragma = copyTree(y)
-            overwriteLineInfo(pragma, n.info)
-            result.add(pragma)
-
-        tmp.setLen(0)
+          let pragma = copyTree(y)
+          overwriteLineInfo(pragma, n.info)
+          result.add pragma
 
   if result.len == 0:
     # there were no applicable pragmas; restore the original
