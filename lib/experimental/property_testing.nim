@@ -3,6 +3,8 @@ import std/macros
 import std/options # need this for counter examples
 
 import ./cmdline
+import ./cmdline/parsers
+from std/sugar import `=>`
 
 # these modules have limited use, so be selective
 from std/strformat import fmt
@@ -17,8 +19,8 @@ import ./property_testing_core
 
 type
   RunMode = enum
-    rmTest
-    rmOutline
+    rmTest = "test"
+    rmOutline = "outline"
 
   Args = object
     runMode: RunMode
@@ -286,6 +288,19 @@ template spec*(n: string = "", body: untyped): untyped =
   else:
     echo "Success"
     quit(QuitSuccess)
+
+#-- CLI
+
+var cli = commandBuilder(Args)
+  .name("pbt") # todo auto detect based on test
+  .initCli()
+cli.addHelpFlag()
+cli.flagBuilder()
+  .name("mode")
+  .parser(RunMode, (opt, v, var args) => (args.runMode = v))
+  .describe("whether to run the tests or outline them")
+  .addTo(cli)
+let args = cli.run(defaults = Args(runMode: rmTest))
 
 #-- Hackish Tests
 
