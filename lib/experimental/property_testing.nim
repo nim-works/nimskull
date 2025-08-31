@@ -33,7 +33,7 @@ type
 
   AssertReport*[T] = object
     ## result of a property assertion, with all runs information
-    propNum: uint32
+    id: uint32
     name: string
     runId: PossibleRunId
     failures: uint32
@@ -77,11 +77,11 @@ proc `$`*[T](r: AssertReport[T]): string =
     else:
       "status: success"
 
-  result = fmt"{r.name} (id: {r.propNum}) - {status}, totalRuns: {r.runId.int}"
+  result = fmt"{r.name} (id: {r.id}) - {status}, totalRuns: {r.runId.int}"
 
-proc startReport[T](propNum: uint32, name: string, seed: uint32): AssertReport[T] =
+proc startReport[T](id: uint32, name: string, seed: uint32): AssertReport[T] =
   ## start a new report
-  result = AssertReport[T](propNum: propNum, name: name, runId: noRunId,
+  result = AssertReport[T](id: id, name: name, runId: noRunId,
                         failures: 0, seed: seed, failureType: ptPass,
                         firstFailure: noRunId, counterExample: none[T]())
 
