@@ -297,12 +297,6 @@ type
     # nimsuggest
     rsemSugNoSymbolAtPosition
 
-    # Global Errors
-    rsemCustomGlobalError
-      ## just like custom error, but treat it like a "raise" and fast track the
-      ## "graceful" abort of this compilation run, used by `errorreporting` to
-      ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
-
     # Module errors
     rsemSystemNeeds
     rsemInvalidModulePath

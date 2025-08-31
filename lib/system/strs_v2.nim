@@ -45,9 +45,9 @@ proc prepareAdd(s: var NimStringV2; addlen: int) {.compilerRtl.} =
     let oldP = s.p
     # can't mutate a literal, so we need a fresh copy here:
     when compileOption("threads"):
-      s.p = cast[ptr NimStrPayload](allocShared0(contentSize(newLen)))
+      s.p = cast[ptr NimStrPayload](allocShared(contentSize(newLen)))
     else:
-      s.p = cast[ptr NimStrPayload](alloc0(contentSize(newLen)))
+      s.p = cast[ptr NimStrPayload](alloc(contentSize(newLen)))
     s.p.cap = newLen
     if s.len > 0:
       # we are about to append, so there is no need to copy the \0 terminator:
@@ -57,9 +57,9 @@ proc prepareAdd(s: var NimStringV2; addlen: int) {.compilerRtl.} =
     if newLen > oldCap:
       let newCap = max(newLen, resize(oldCap))
       when compileOption("threads"):
-        s.p = cast[ptr NimStrPayload](reallocShared0(s.p, contentSize(oldCap), contentSize(newCap)))
+        s.p = cast[ptr NimStrPayload](reallocShared(s.p, contentSize(newCap)))
       else:
-        s.p = cast[ptr NimStrPayload](realloc0(s.p, contentSize(oldCap), contentSize(newCap)))
+        s.p = cast[ptr NimStrPayload](realloc(s.p, contentSize(newCap)))
       s.p.cap = newCap
 
 proc nimAddCharV1(s: var NimStringV2; c: char) {.compilerRtl, inline.} =
@@ -74,13 +74,12 @@ proc toNimStr(str: cstring, len: int): NimStringV2 {.compilerproc.} =
     result = NimStringV2(len: 0, p: nil)
   else:
     when compileOption("threads"):
-      var p = cast[ptr NimStrPayload](allocShared0(contentSize(len)))
+      var p = cast[ptr NimStrPayload](allocShared(contentSize(len)))
     else:
-      var p = cast[ptr NimStrPayload](alloc0(contentSize(len)))
+      var p = cast[ptr NimStrPayload](alloc(contentSize(len)))
     p.cap = len
-    if len > 0:
-      # we are about to append, so there is no need to copy the \0 terminator:
-      copyMem(unsafeAddr p.data[0], str, len)
+    copyMem(unsafeAddr p.data[0], str, len)
+    p.data[len] = '\0'
     result = NimStringV2(len: len, p: p)
 
 proc cstrToNimstr(str: cstring): NimStringV2 {.compilerRtl.} =
@@ -108,9 +107,9 @@ proc rawNewString(space: int): NimStringV2 {.compilerproc.} =
     result = NimStringV2(len: 0, p: nil)
   else:
     when compileOption("threads"):
-      var p = cast[ptr NimStrPayload](allocShared0(contentSize(space)))
+      var p = cast[ptr NimStrPayload](allocShared(contentSize(space)))
     else:
-      var p = cast[ptr NimStrPayload](alloc0(contentSize(space)))
+      var p = cast[ptr NimStrPayload](alloc(contentSize(space)))
     p.cap = space
     result = NimStringV2(len: 0, p: p)
 
@@ -131,6 +130,8 @@ proc setLengthStrV2(s: var NimStringV2, newLen: int) {.compilerRtl.} =
   else:
     if newLen > s.len or isLiteral(s):
       prepareAdd(s, newLen - s.len)
+    if newLen > s.len:
+      zeroMem(addr s.p.data[s.len], newLen - s.len)
     s.p.data[newLen] = '\0'
   s.len = newLen
 
@@ -148,9 +149,9 @@ proc nimAsgnStrV2(a: var NimStringV2, b: NimStringV2) {.compilerRtl.} =
       # on the other hand... These get turned into moves now.
       frees(a)
       when compileOption("threads"):
-        a.p = cast[ptr NimStrPayload](allocShared0(contentSize(b.len)))
+        a.p = cast[ptr NimStrPayload](allocShared(contentSize(b.len)))
       else:
-        a.p = cast[ptr NimStrPayload](alloc0(contentSize(b.len)))
+        a.p = cast[ptr NimStrPayload](alloc(contentSize(b.len)))
       a.p.cap = b.len
     a.len = b.len
     copyMem(unsafeAddr a.p.data[0], unsafeAddr b.p.data[0], b.len+1)
@@ -159,9 +160,9 @@ proc nimPrepareStrMutationImpl(s: var NimStringV2) =
   let oldP = s.p
   # can't mutate a literal, so we need a fresh copy here:
   when compileOption("threads"):
-    s.p = cast[ptr NimStrPayload](allocShared0(contentSize(s.len)))
+    s.p = cast[ptr NimStrPayload](allocShared(contentSize(s.len)))
   else:
-    s.p = cast[ptr NimStrPayload](alloc0(contentSize(s.len)))
+    s.p = cast[ptr NimStrPayload](alloc(contentSize(s.len)))
   s.p.cap = s.len
   copyMem(unsafeAddr s.p.data[0], unsafeAddr oldP.data[0], s.len+1)
 

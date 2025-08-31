@@ -2204,11 +2204,6 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   case n.kind
   of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
     result = c.semInferredLambda(c, bindings, n)
-    if result.kind == nkError:
-      # xxx: output the error now otherwise we'll just get an inferred lambda
-      #      failure without an explanation, ideally this should be
-      #      explained/added context of the inferred lambda error itself.
-      c.config.localReport(result)
   of nkSym:
     let inferred = c.semGenerateInstance(c, n.sym, bindings, n.info)
     result =
@@ -2340,7 +2335,11 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
 
   if r == isBothMetaConvertible:
     result = instantiateRoutineExpr(c, m.bindings, arg)
-    if result.isNil or result.isError:
+    if result.isNil:
+      return
+    elif result.isError:
+      inc(m.convMatches)
+      m.fauxMatch = tyError
       return
 
     inc(m.convMatches)
@@ -2396,7 +2395,11 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         implicitConv(nkHiddenStdConv, f, arg, m, c)
   of isInferred, isInferredConvertible:
     result = instantiateRoutineExpr(c, m.bindings, arg)
-    if result.isNil or result.isError:
+    if result.isNil:
+      return
+    elif result.isError:
+      inc(m.genericMatches)
+      m.fauxMatch = tyError
       return
 
     case r
@@ -2480,36 +2483,35 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       else:
         r = typeRel(m, base(f), a)
 
-        if arg.isError:
-          result = arg
-          m.baseTypeMatch = false
-          return
-
         case r
         of isGeneric:
           inc(m.convMatches)
           result = copyTree(arg)
           result.typ = getInstantiatedType(c, arg, m, base(f))
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isFromIntLit:
           inc(m.intConvMatches, 256)
           result = implicitConv(nkHiddenStdConv, f[0], arg, m, c)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isEqual:
           inc(m.convMatches)
           result = copyTree(arg)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isSubtype: # bug #4799, varargs accepting subtype relation object
           inc(m.subtypeMatches)
           if base(f).kind == tyTypeDesc:
             result = arg
           else:
             result = implicitConv(nkHiddenSubConv, base(f), arg, m, c)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         else:
           result = userConvMatch(c, m, base(f), a, arg)
           if result != nil:
-            m.baseTypeMatch = result.kind != nkError
+            if result.kind == nkError:
+              # XXX: is it actually possible for ``userConvMatch`` to return
+              #      an error if the input isn't one already?
+              m.fauxMatch = tyError
+            m.baseTypeMatch = true
 
 proc paramTypesMatch*(
     candidate: var TCandidate,
@@ -2799,14 +2801,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
     noMatchAux()
 
-  template noMatchDueToError() =
-    {.line.}:
-      ## found an nkError along the way so wrap the call in an error, do not use
-      ## if the legacy `localReport`s etc are being used.
-      c.closeShadowScope # don't merge changes
-      m.call = wrapError(c.config, m.call)
-      noMatchAux()
-
   template checkConstraint(n: untyped) {.dirty.} =
     if not formal.constraint.isNil:
       if matchNodeKinds(formal.constraint, n):
@@ -2964,11 +2958,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       else:
         setSon(m.call, formal.position + 1, arg)
 
-      if operand.kind == nkError:
-        discard "could be a faux match, rejected in semResolvedCall"
-      elif arg.isError:
-        noMatchDueToError()
-
       inc f
     else:                                  # unnamed param `foo("baz")`
       if f >= formalLen:
@@ -3024,11 +3013,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           else:
             container.add arg
             incrIndexType(container.typ)
-
-          if operand.kind == nkError:
-            discard "could be a faux match, rejected in semResolvedCall"
-          elif arg.kind == nkError:
-            noMatchDueToError()
 
           if m.baseTypeMatch: # match type `T` in `varargs[T]`
             checkConstraint(operand)
@@ -3118,11 +3102,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
                   formal = formal.typ, actual = n[a].typ)]))
 
             noMatch()
-
-          if operand.kind == nkError:
-            discard "could be a faux match, rejected in semResolvedCall"
-          elif arg.kind == nkError:
-            noMatchDueToError()
 
         checkConstraint(operand)
 
