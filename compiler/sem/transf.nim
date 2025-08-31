@@ -627,8 +627,10 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     of tyObject:
       let diff = inheritanceDiff(dest, source)
       if diff == 0 or diff == high(int):
-        result = transform(c, n[1])
-        result.typ = n.typ
+        if sameType(n.typ, n[1].typ):
+          result = transform(c, n[1])
+        else:
+          result = transformSons(c, n)
       else:
         result = newTreeIT(
           if diff < 0: nkObjUpConv else: nkObjDownConv,
@@ -638,8 +640,11 @@ proc transformConv(c: PTransf, n: PNode): PNode =
   of tyObject:
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):
-      result = transform(c, n[1])
-      result.typ = n.typ
+      if sameType(n.typ, n[1].typ):
+        # the conversion doesn't modify the type, drop it
+        result = transform(c, n[1])
+      else:
+        result = transformSons(c, n)
     else:
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,

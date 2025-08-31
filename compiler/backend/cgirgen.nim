@@ -193,9 +193,10 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
   ## between the source type (i.e. that of `n`) and the destination type.
   ## If it is, generates the conversion operation IR and returns it -- nil
   ## otherwise
-  if dest.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject:
-    # if the destination is an object (or ptr/ref object), it must be an
-    # object conversion
+  if dest.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject and
+     n.typ.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject:
+    # if the destination and source are an object (or ptr/ref object), it must
+    # be an object conversion
     genObjConv(n, dest, info)
   else:
     nil
