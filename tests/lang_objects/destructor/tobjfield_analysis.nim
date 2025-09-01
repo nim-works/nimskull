@@ -1,5 +1,6 @@
 discard """
   output: '''works'''
+  joinable: false
 """
 
 #  bug #11095

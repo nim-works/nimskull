@@ -758,7 +758,7 @@ discard pair()
 
 
 # bug #17450
-proc noConsume(x: OO) {.nosinks.} = echo x
+proc noConsume(x: OO) = echo x
 
 proc main3 =
   var i = 1
@@ -801,4 +801,3 @@ proc atomicClosureOp =
   of attachedTrace: genAddrOf(x)
 
 atomicClosureOp()
-

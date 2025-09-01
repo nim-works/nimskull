@@ -238,9 +238,8 @@ scope:
   scope:
     def_cursor _8: string = this[].value
     def _9: string = parentDir(arg _8) -> [Unwind]
-    def _10: string
-    =copy(name _10, arg this[].value)
-    def _11: tuple[head: string, tail: string] = splitPath(consume _10) -> [L2]
+    def_cursor _10: string = this[].value
+    def _11: tuple[head: string, tail: string] = splitPath(arg _10) -> [L2]
     bind_mut _19: string = _11.1
     def _12: string = move _19
     wasMoved(name _19)
@@ -468,7 +467,7 @@ type
 proc rawCloseScope(c: PContext) =
   c.currentScope = c.currentScope.parent
 
-proc addInterfaceDecl(c: PContext; s: Symbol) =
+proc addInterfaceDecl(c: PContext; s: sink Symbol) =
   c.currentScope.symbols.add s
 
 proc mergeShadowScope*(c: PContext) =

@@ -57,7 +57,6 @@ when defined(useDfa):
   import dfa
 
 import liftdestructors
-include sinkparameter_inference
 
 ##[
 This module contains the second semantic checking pass over the AST. Necessary
@@ -1046,7 +1045,6 @@ proc trackCall(tracked: PEffects; n: PNode) =
       case op[i].kind
       of tySink:
         createTypeBoundOps(tracked,  op[i][0], n.info)
-        checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
       of tyVar:
         tracked.hasDangerousAssign = true
       #of tyOut:
@@ -1198,7 +1196,6 @@ proc track(tracked: PEffects, n: PNode) =
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n[0].typ, n.info)
     if n[0].kind != nkSym or not isLocalVar(tracked, n[0].sym):
-      checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[1])
       if not tracked.hasDangerousAssign and n[0].kind != nkSym:
         tracked.hasDangerousAssign = true
   of nkVarSection, nkLetSection:
@@ -1327,9 +1324,7 @@ proc track(tracked: PEffects, n: PNode) =
         if x[0].kind == nkSym:
           notNilCheck(tracked, x[1], x[0].sym.typ)
           objConvCheck(tracked.config, x[1])
-        checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x[1])
-      else:
-        checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x)
+
     setLen(tracked.guards.s, oldFacts)
     if tracked.owner.kind != skMacro:
       let skipped = n.typ.skipTypes(abstractInst)
@@ -1346,7 +1341,6 @@ proc track(tracked: PEffects, n: PNode) =
           createTypeBoundOps(tracked, n[i][0].typ, n.info)
         else:
           createTypeBoundOps(tracked, n[i].typ, n.info)
-      checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
   of nkPragmaBlock:
     let pragmaList = n[0]
     var bc = createBlockContext(tracked)
@@ -1413,7 +1407,6 @@ proc track(tracked: PEffects, n: PNode) =
     for i in 0..<n.safeLen:
       track(tracked, n[i])
       objConvCheck(tracked.config, n[i])
-      checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n.typ, n.info)
   of nkBracketExpr:

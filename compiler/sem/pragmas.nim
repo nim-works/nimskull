@@ -74,7 +74,7 @@ const
     wDeprecated, wNodecl, wError, wUsed}
     ## common pragmas for declarations, to a good approximation
   procPragmas* = declPragmas + {FirstCallConv..LastCallConv,
-    wMagic, wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
+    wMagic, wNoSideEffect, wSideEffect, wNoreturn, wDynlib, wHeader,
     wCompilerProc, wCore, wProcVar, wVarargs, wCompileTime,
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
@@ -106,7 +106,7 @@ const
     wTrMacros, wEffects, wComputedGoto,
     wExperimental, wUsed, wByRef, wCallconv}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
-    wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
+    wNoSideEffect, wSideEffect, wNoreturn, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
     wRaises, wLocks, wTags, wEffectsOf,
     wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
@@ -518,7 +518,6 @@ proc pragmaToOptions(w: TSpecialWord): TOptions {.inline.} =
   of wByRef: {optByRef}
   of wImplicitStatic: {optImplicitStatic}
   of wTrMacros: {optTrMacros}
-  of wSinkInference: {optSinkInference}
   else: {}
 
 proc processExperimental(c: PContext; n: PNode): PNode =
@@ -1273,9 +1272,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of wNoDestroy:
         result = noVal(c, it)
         incl(sym.flags, sfGeneratedOp)
-      of wNosinks:
-        result = noVal(c, it)
-        incl(sym.flags, sfWasForwarded)
       of wDynlib:
         if isLocal(sym):
           result = disallowedExternalLocal(c, it)
@@ -1648,12 +1644,12 @@ proc applyStmtPragma(c: PContext, owner: PSym, it: PNode, k: TSpecialWord): PNod
 
 proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
                          validPragmas: TSpecialWords, sym: PSym,
-                         considerCustom=true,
+                         tryCustom=true,
                          invalid: InvalidPragmaHandler = invalidPragma) =
   ## Pre-processes the single pragma `it`, but doesn't apply it yet. The pre-
   ## processed pragma (multiple if the input pragma is a user-pragma) is
-  ## appended to `result`. Custom pragmas are only considered when
-  ## `considerCustom` is 'true'; `invalid` is called for not-applicable
+  ## appended to `result`. Unknown Custom pragmas are only considered when
+  ## `considerCustom` is 'true'; `invalid` is called for non-applicable
   ## pragmas.
   ##
   ## `sym` (nil is allowed) is only provided for use by error diagnostics and
@@ -1678,7 +1674,7 @@ proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
     of nkIdentKinds:
       # uses normal processing
       nil
-    elif considerCustom:
+    elif tryCustom:
       customPragma(c, it, sym, invalid)
     else:
       invalid(c, it)
@@ -1710,7 +1706,7 @@ proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
       # expand the user pragma in-place:
       for it in userPragma.ast.items:
         prepareSinglePragma(c, it, result, validPragmas, sym,
-                            considerCustom, invalid)
+                            tryCustom, invalid)
 
     dec c.instCounter
   else:
@@ -1720,9 +1716,8 @@ proc prepareSinglePragma(c: PContext; it: PNode, result: var seq[PNode],
         checkPragmaUse(c.config, key.info, k, ident.s)
 
       result.add it
-    elif considerCustom:
-      # try to treat as a custom pragma, which will produce an error if it's
-      # not a valid custom pragma
+    elif tryCustom:
+      # try to treat as a custom pragma
       let got = customPragma(c, it, sym, invalid)
       if got.kind != nkEmpty:
         result.add got
@@ -1887,7 +1882,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWo
       for x in o.items:
         # pragmas not applicable to the symbol are silently ignored
         prepareSinglePragma(c, x, tmp, validPragmas, sym,
-          considerCustom=(sym.kind in allowsCustomPragma),
+          tryCustom=(sym.kind in allowsCustomPragma),
           proc(c: PContext, n: PNode): PNode = c.graph.emptyNode)
 
         # the pragmas' AST is going to be mutated, so create a copy

@@ -5,6 +5,7 @@ discard """
     underlying array is treated as alive afterwards
   '''
   targets: "c js vm"
+  joinable: false
 """
 
 import mhelper

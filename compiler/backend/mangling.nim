@@ -162,8 +162,6 @@ proc mangle(g: ModuleGraph, env: TypeEnv, desc: TypeHeader): string =
   of tkSet:
     result = "e"
     result.addInt desc.count
-  of tkIndirect:
-    unreachable("cannot mangle")
 
 proc mangle(g: ModuleGraph, env: TypeEnv, id: TypeId): string =
   result = mangle(g, env[id])
