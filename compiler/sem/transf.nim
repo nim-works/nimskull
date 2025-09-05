@@ -571,6 +571,10 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
     [conv, newNodeIT(nkNilLit, prc.info, getSysType(c.graph, prc.info, tyNil))]
 
 proc transformConv(c: PTransf, n: PNode): PNode =
+  if sameType(n.typ.skipTypes({tySink}), n[1].typ.skipTypes({tySink})):
+    # the conversion doesn't modify the type, drop it
+    return transform(c, n[1])
+
   # numeric types need range checks:
   var dest = skipTypes(n.typ, abstractVarRange)
   var source = skipTypes(n[1].typ, abstractVarRange)
@@ -627,10 +631,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     of tyObject:
       let diff = inheritanceDiff(dest, source)
       if diff == 0 or diff == high(int):
-        if sameType(n.typ, n[1].typ):
-          result = transform(c, n[1])
-        else:
-          result = transformSons(c, n)
+        result = transformSons(c, n)
       else:
         result = newTreeIT(
           if diff < 0: nkObjUpConv else: nkObjDownConv,
@@ -640,11 +641,8 @@ proc transformConv(c: PTransf, n: PNode): PNode =
   of tyObject:
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):
-      if sameType(n.typ, n[1].typ):
-        # the conversion doesn't modify the type, drop it
-        result = transform(c, n[1])
-      else:
-        result = transformSons(c, n)
+      # must be some distinct type conversion; keep
+      result = transformSons(c, n)
     else:
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,
