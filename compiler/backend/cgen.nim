@@ -1210,10 +1210,7 @@ proc writeModule(m: BModule) =
   var code = genModule(m, cf)
   if code != "" or m.config.symbolFiles != disabledSf:
     when hasTinyCBackend:
-      if m.config.cmd == cmdTcc:
-        tccgen.compileCCode($code, m.config)
-        onExit()
-        return
+      discard
 
     if not shouldRecompile(m, code, cf):
       cf.flags = {CfileFlag.Cached}

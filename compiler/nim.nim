@@ -93,13 +93,10 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
     conf.logGcStats(GC_getStatistics())
   if conf.errorCounter != 0: return
 
-  when hasTinyCBackend:
-    if conf.cmd == cmdTcc:
-      tccgen.run(conf, conf.arguments)
   if optRun in conf.globalOptions:
     let output = conf.absOutFile
     case conf.cmd
-    of cmdBackends, cmdTcc:
+    of cmdBackends:
       let nimRunExe = getNimRunExe(conf)
       var cmdPrefix: string
       if nimRunExe.len > 0: cmdPrefix.add nimRunExe.quoteShell
