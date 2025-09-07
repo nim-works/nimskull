@@ -225,7 +225,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     # graph.backend can be nil under IC when nothing changed at all:
     if graph.backend != nil:
       cgenWriteModules(graph.backend, conf)
-  if conf.cmd != cmdTcc and graph.backend != nil:
+  if graph.backend != nil:
     extccomp.callCCompiler(conf)
     extccomp.writeJsonBuildInstructions(conf)
     if conf.depfile.string.len != 0:
@@ -507,7 +507,7 @@ proc mainCommand*(graph: ModuleGraph) =
 
   ## command prepass
   if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
-  if conf.cmd notin cmdBackends + {cmdTcc, cmdNimscript, cmdInteractive}:
+  if conf.cmd notin cmdBackends + {cmdNimscript, cmdInteractive}:
     customizeForBackend(graph, conf, backendC)
   if conf.outDir.isEmpty:
     # doc like commands can generate a lot of files (especially with --project)
@@ -539,16 +539,6 @@ proc mainCommand*(graph: ModuleGraph) =
   ## process all commands
   case conf.cmd
   of cmdBackends: compileToBackend()
-  of cmdTcc:
-    when hasTinyCBackend:
-      let cc = extccomp.setCC(conf, "tcc")
-      doAssert cc == ccTcc, "what happened to tcc?"
-      if conf.backend != backendC:
-        conf.logError("'run' requires c backend, got: '$1'" % $conf.backend)
-      else:
-        compileToBackend()
-    else:
-      conf.logError("'run' command not available; rebuild with -d:tinyc")
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
@@ -714,7 +704,7 @@ proc mainCommand*(graph: ModuleGraph) =
     writeToStream(conf.timeTracer, f)
     f.close()
 
-  if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
+  if conf.errorCounter == 0 and conf.cmd notin {cmdDump, cmdNop}:
     if conf.isEnabled(rintSuccessX):
       conf.writeln(cmdOutStatus, $genSuccessX(conf))
 

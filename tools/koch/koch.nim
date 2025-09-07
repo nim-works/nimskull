@@ -77,7 +77,6 @@ Commands for core developers:
                            to niminst
   archive [options]        builds the release source archive; options are passed
                            to niminst
-  installdeps [options]    installs external dependency (e.g. tinyc) to dist/
   tests [options]          run the testsuite (run a subset of tests by
                            specifying a category, e.g. `tests cat async`)
   temp options             creates a temporary compiler for testing
@@ -455,17 +454,6 @@ proc hostInfo(): string =
   "hostOS: $1, hostCPU: $2, int: $3, float: $4, cpuEndian: $5, cwd: $6" %
     [hostOS, hostCPU, $int.sizeof, $float.sizeof, $cpuEndian, getCurrentDir()]
 
-proc installDeps(dep: string, commit = "") =
-  # the hashes/urls are version controlled here, so can be changed seamlessly
-  # and tied to a nim release (mimicking git submodules)
-  var commit = commit
-  case dep
-  of "tinyc":
-    if commit.len == 0: commit = "916cc2f94818a8a382dd8d4b8420978816c1dfb3"
-    cloneDependency(distDir, "https://github.com/timotheecour/nim-tinyc-archive", commit)
-  else: doAssert false, "unsupported: " & dep
-  # xxx: also add linenoise, niminst etc, refs https://github.com/nim-lang/RFCs/issues/206
-
 proc testTools(cmd: string) =
   # xxx: temporarily placing nimscript testing to ensure it's at least running
   nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
@@ -558,7 +546,6 @@ when isMainModule:
       of "geninstall": geninstall(op.cmdLineRest)
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
-      of "installdeps": installDeps(op.cmdLineRest)
       of "test", "tests": tests(op.cmdLineRest)
       of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)
