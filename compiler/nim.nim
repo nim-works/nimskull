@@ -44,9 +44,6 @@ from std/osproc import execCmd
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
 
-when hasTinyCBackend:
-  import compiler/backend/tccgen
-
 when defined(profiler) or defined(memProfiler):
   {.hint: "Profiling support is turned on!".}
   import sdt/nimprof

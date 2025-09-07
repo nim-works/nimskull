@@ -91,9 +91,6 @@ from compiler/ast/ast import newType, rawAddSon
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
 
-when options.hasTinyCBackend:
-  import backend/tccgen
-
 const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
                     mAppendSeqElem, mEnumToStr, mExit,
                     mAbsI, mDotDot, mEqCString, mIsolate}
@@ -1209,9 +1206,6 @@ proc writeModule(m: BModule) =
                   obj: completeCfilePath(m.config, toObjFile(m.config, cfile)), flags: {})
   var code = genModule(m, cf)
   if code != "" or m.config.symbolFiles != disabledSf:
-    when hasTinyCBackend:
-      discard
-
     if not shouldRecompile(m, code, cf):
       cf.flags = {CfileFlag.Cached}
 

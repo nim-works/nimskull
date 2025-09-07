@@ -41,7 +41,6 @@ from compiler/ast/reports import
   ReportTypes
 
 const
-  hasTinyCBackend* = defined(tinyc)
   useEffectSystem* = true
   useWriteTracking* = false
   copyrightYear* = "2022"
