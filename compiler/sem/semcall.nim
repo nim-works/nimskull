@@ -311,7 +311,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
 
   var oldHandler = move c.config.diagHandler
   let diags = newDiagContext(n.len)
-  c.config.diagHandler = proc(conf: ConfigRef, rep: sink Report) =
+  c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
     if rep.category == repSem:
       if rep.semReport.location.isSome:
         rep.semReport.context =
@@ -358,7 +358,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
-      c.config.diagHandler = move oldHandler
+      c.config.setDiagHandler(oldHandler)
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
           let sym = n[1].typ.typSym
@@ -387,7 +387,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       # the no-match candidate
       result.addAllDiagnostics(diags)
       c.closeShadowScope()
-      c.config.diagHandler = move oldHandler
+      c.config.setDiagHandler(oldHandler)
       return
 
   # a match was found; commit the created symbols to the symbol table. Note
@@ -395,7 +395,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
   # ambiguous
   assert result.state == csMatch
   c.mergeShadowScope()
-  c.config.diagHandler = move oldHandler
+  c.config.setDiagHandler(oldHandler)
 
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):

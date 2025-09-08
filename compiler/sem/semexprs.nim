@@ -1354,7 +1354,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       let oldHandler = move c.config.diagHandler
       var captures: seq[Report]
       var wasError: bool
-      c.config.diagHandler = proc(conf: ConfigRef, rep: sink Report) =
+      c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
         if conf.severity(rep) == rsevError:
           # cannot raise, as that would require being able to restore the
           # previous sem state (scope, generics, etc.)
@@ -1369,7 +1369,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
         for it in captures.mitems:
           oldHandler(c.config, move it)
 
-      c.config.diagHandler = oldHandler
+      c.config.setDiagHandler(oldHandler)
 
     # there might be a call operator available as a fallback
     let callOpr = overloadedCallOpr(c, n)
@@ -2714,7 +2714,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldProcCon = c.p
   c.generics = @[]
 
-  c.config.diagHandler = proc(config: ConfigRef, rep: sink Report) =
+  c.config.setDiagHandler proc(config: ConfigRef, rep: sink Report) =
     # abort the sub-compilation on the first error
     if severity(config, rep) == rsevError:
       raise ERecoverableError.newException("")
@@ -2736,7 +2736,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inGenericInst = oldInGenericInst
   c.p = oldProcCon
   setLen(c.executionCons, oldExecConsLen)
-  c.config.diagHandler = oldHandler
+  c.config.setDiagHandler(oldHandler)
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope

@@ -583,6 +583,10 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
   ## Get active report hook
   conf.structuredReportHook
 
+proc setDiagHandler*(conf: ConfigRef, handler: sink DiagHandler) {.inline.} =
+  ## Sets the active diagnostic handler.
+  conf.diagHandler = handler
+
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"

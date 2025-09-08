@@ -369,8 +369,8 @@ proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
 
   # on the first error, abort parsing and return the diagnostic instead of
   # parsed node
-  let oldHandler = config.diagHandler
-  config.diagHandler = proc(conf: ConfigRef, report: sink Report) =
+  let oldHandler = move config.diagHandler
+  config.setDiagHandler proc(conf: ConfigRef, report: sink Report) =
     # @haxscramper: QUESTION This check might be affected by current severity
     # configurations, maybe it makes sense to do a hack-in that would
     # ignore all user-provided CLI otions?
@@ -386,7 +386,7 @@ proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
     result.initFailure(move e.report)
 
   # restore the previous report handler:
-  config.diagHandler = oldHandler
+  config.setDiagHandler(oldHandler)
 
 proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
                 info: TLineInfo): Result[PNode, Report] {.inline.} =

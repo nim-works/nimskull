@@ -601,9 +601,9 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
     #      - ``paramTypesMatchAux``
     return nil
 
-  let oldHandler = c.config.diagHandler
+  let oldHandler = move c.config.diagHandler
   var diags: seq[Report]
-  c.config.diagHandler = proc(conf: ConfigRef, rep: sink Report) =
+  c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
     # abort on the first error, capture all other diagnostics
     if conf.severity(rep) == rsevError:
       raise ERecoverableError.newException("")
@@ -623,7 +623,7 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   except ERecoverableError:
     result = nil # evaluation failed
 
-  c.config.diagHandler = oldHandler
+  c.config.setDiagHandler(oldHandler)
   # emit all captured diagnostics when the expression really is a
   # constant expression
   if result != nil:
