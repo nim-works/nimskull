@@ -309,16 +309,23 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
   # the original scope
   c.openShadowScope()
 
-  var oldHandler = move c.config.diagHandler
+  proc push(c: PContext, diags: DiagContext): DiagHandler {.nimcall.} =
+    # pushing the handler is moved into a separate procedure in order to
+    # get around an env copy (which would add unecessary pressure to the cycle
+    # collector)
+    result = move c.config.diagHandler
+    let oldHandler = result
+    c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
+      if rep.category == repSem:
+        if rep.semReport.location.isSome:
+          rep.semReport.context =
+            conf.getContext(rep.semReport.location.unsafeGet)
+        diags.record(rep.semReport)
+      else:
+        oldHandler(conf, rep) # pass on to the outer handler
+
   let diags = newDiagContext(n.len)
-  c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
-    if rep.category == repSem:
-      if rep.semReport.location.isSome:
-        rep.semReport.context =
-          conf.getContext(rep.semReport.location.unsafeGet)
-      diags.record(rep.semReport)
-    else:
-      oldHandler(conf, rep) # pass on to the outer handler
+  let oldHandler = push(c, diags)
 
   template pickBest(headSymbol) =
     pickBestCandidate(c, headSymbol, n, nOrig, scope, filter, diags,
