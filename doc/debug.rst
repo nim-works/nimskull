@@ -38,7 +38,6 @@ how to use them.
 Define                        Enables
 ----------------------------- -------
 `nimDebugUtils`               Allows for semantic analysis execution tracing and more
-`nimDebugUnreportedErrors`    Enable unreported error debugging
 `nimVMDebugExecute`           Print out every instruction executed by the VM
 `nimCompilerStacktraceHints`  Add extra information (node location + kind) to some
 ============================= =======

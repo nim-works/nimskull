@@ -742,6 +742,7 @@ when isMainModule:
 
   let argv = getExecArgs()
   let conf = newConfigRef(cli_reporter.reportHook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   handleCmdLine(newIdentCache(), conf, argv)
 else:
@@ -795,6 +796,7 @@ else:
         suggestMode: true,
         processCmdLine: mockCmdLine
       )
+    conf.diagHandler = msgs.defaultDiagHandler
     conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
     self.initDefinesProg(conf, "nimsuggest")
 

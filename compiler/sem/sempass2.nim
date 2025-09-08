@@ -20,8 +20,6 @@ import
     types,
     idents,
     wordrecg,
-    errorreporting,
-    errorhandling,
     lineinfos,
     trees,
   ],
@@ -1143,17 +1141,6 @@ proc allowCStringConv(n: PNode): bool =
   of nkAddr: result = isCharArrayPtr(n.typ, true)
   else: result = isCharArrayPtr(n.typ, false)
 
-proc reportErrors(c: ConfigRef, n: PNode) =
-  ## Reports all errors found in the AST `n`.
-  case n.kind
-  of nkError:
-    localReport(c, n)
-  of nkWithSons:
-    for it in n.items:
-      reportErrors(c, it)
-  of nkWithoutSons - {nkError}:
-    discard "ignore"
-
 proc track(tracked: PEffects, n: PNode) =
   addInNimDebugUtils(tracked.config, "track")
   case n.kind
@@ -1434,11 +1421,9 @@ proc track(tracked: PEffects, n: PNode) =
     inc tracked.leftPartOfAsgn
   of nkBindStmt, nkMixinStmt, nkImportStmt, nkImportExceptStmt, nkExportStmt,
      nkExportExceptStmt, nkFromStmt:
-    # a declarative statement that is not relevant to the analysis. Report
-    # errors part of the AST, but otherwise ignore
-    reportErrors(tracked.config, n)
+    discard "not relevant to the analysis"
   of nkError:
-    localReport(tracked.config, n)
+    discard "already reported, nothing to do"
   of nkNimNodeLit:
     discard "don't analyse literal AST"
   else:

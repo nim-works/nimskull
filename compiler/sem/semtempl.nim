@@ -104,8 +104,6 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     if a.kind != skModule:
       inc(i)
       if i > 1: break
-    elif a.isError:
-      localReport(c.config, a.ast)
     a = nextOverloadIter(o, c, n)
   let info = getCallLineInfo(n)
   if i <= 1 and r != scForceOpen:
@@ -129,8 +127,6 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
-      elif a.isError:
-        localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
 
 proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =
@@ -936,7 +932,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         # for such a symbol:
         while s != nil:
           if s.isError:
-            localReport(c.c.config, s.ast)
+            discard "already reported"
           elif isTemplParam(c, s):
             # template parameters are bound eagerly
             incl(s.flags, sfUsed)

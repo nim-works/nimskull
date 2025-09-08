@@ -17,7 +17,6 @@ import
     idents,
     renderer,
     errorhandling,
-    errorreporting,
     types
   ],
   compiler/front/[
@@ -153,10 +152,6 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
   result = newNodeI(nkArgList, n.info)
 
   for i in 1..givenRegularParams:
-    # xxx: propagate nkError
-    for e in walkErrors(conf, n[i]):
-      conf.localReport(e)
-
     if n[i].typ != nil and n[i].typ.kind == tyStatic and n[i].typ.n != nil:
       # replace static parameter arguments with the value expression
       result.add n[i].typ.n
@@ -176,13 +171,7 @@ proc evalTemplateArgs*(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode
 
   # add any generic parameters
   for i in 1..genericParams:
-    let it = n[givenRegularParams + i]
-
-    # xxx: propagate nkError
-    for e in walkErrors(conf, it):
-      conf.localReport(e)
-
-    result.add it
+    result.add n[givenRegularParams + i]
 
 # to prevent endless recursion in template instantiation
 const evalTemplateLimit* = 1000

@@ -38,17 +38,13 @@ proc pickBestCandidate(c: PContext,
                        n, nOrig: PNode,
                        startScope: PScope,
                        filter: TSymKinds,
+                       diags: DiagContext,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch]) =
   var
     o: TOverloadIter
     sym = initOverloadIter(o, c, startScope, headSymbol)
     scope = o.lastOverloadScope
-  
-  if sym.isError:
-    # xxx: this should be in the loop below but it's not that simple as we'll
-    #      end up with lots of excessive reports, need a bigger rethink
-    localReport(c.config, sym.ast)
 
   while sym != nil:
     if sym.kind in filter:
@@ -70,7 +66,7 @@ proc pickBestCandidate(c: PContext,
                             "missing type information")
     initCallCandidate(c, z, sym, scope)
     block:
-      matches(c, n, nOrig, z)
+      matches(c, n, nOrig, diags, z)
       if z.state == csMatch:
         # little hack so that iterators are preferred over everything else:
         if sym.kind == skIterator:
@@ -122,14 +118,6 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   ## only in case of an error).
   ## returns an nkError
   addInNimDebugUtils(c.config, "notFoundError", n, result)
-  if c.config.m.errorOutputs == {}:
-    # xxx: this is a hack to detect we're evaluating a constant expression or
-    #      some other vm code, it seems
-    # fail fast:
-    result = c.config.newError(n, PAstDiag(kind: adSemRawTypeMismatch))
-    return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
-           #      which means `doRaise`, but that made sense because we did a
-           #      double pass, now we simply return for fast exit.
   if errors.len == 0:
     # no further explanation available for reporting
     #
@@ -321,8 +309,27 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
   # the original scope
   c.openShadowScope()
 
+  proc push(c: PContext, diags: DiagContext): DiagHandler {.nimcall.} =
+    # pushing the handler is moved into a separate procedure in order to
+    # get around an env copy (which would add unecessary pressure to the cycle
+    # collector)
+    result = move c.config.diagHandler
+    let oldHandler = result
+    c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
+      if rep.category == repSem:
+        if rep.semReport.location.isSome:
+          rep.semReport.context =
+            conf.getContext(rep.semReport.location.unsafeGet)
+        diags.record(rep.semReport)
+      else:
+        oldHandler(conf, rep) # pass on to the outer handler
+
+  let diags = newDiagContext(n.len)
+  let oldHandler = push(c, diags)
+
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, nOrig, scope, filter, result, alt, errors)
+    pickBestCandidate(c, headSymbol, n, nOrig, scope, filter, diags,
+                      result, alt, errors)
   pickBest(f)
 
   let overloadsState = result.state
@@ -341,6 +348,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
         # we are going to try multiple variants
         n.sons[0..1] = [nil, n[1], f]
         nOrig.sons[0..1] = [nil, nOrig[1], f]
+        shift(diags)
 
         if nfExplicitCall in n.flags:
           tryOp ".()"
@@ -353,9 +361,11 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
       n.sons[0..1] = [nil, n[1], calleeName]
       nOrig.sons[0..1] = [nil, nOrig[1], calleeName]
+      shift(diags)
       tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
+      c.config.setDiagHandler(oldHandler)
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
           let sym = n[1].typ.typSym
@@ -380,7 +390,11 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
         nOrig.sons.delete(2)
         n[0] = f
         nOrig[0] = f
+      # make sure that all recorded diagnostics are emitted, by adding them to
+      # the no-match candidate
+      result.addAllDiagnostics(diags)
       c.closeShadowScope()
+      c.config.setDiagHandler(oldHandler)
       return
 
   # a match was found; commit the created symbols to the symbol table. Note
@@ -388,6 +402,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
   # ambiguous
   assert result.state == csMatch
   c.mergeShadowScope()
+  c.config.setDiagHandler(oldHandler)
 
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
@@ -398,9 +413,6 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       # don't report an ambiguity error when the candidates both only matched
       # due to errors
       assert alt.fauxMatch == tyError
-    elif c.config.m.errorOutputs == {}:
-      # quick error message for performance of 'compiles' built-in:
-      globalReport(c.config, n.info, reportSem(rsemAmbiguous))
 
     elif c.config.errorCounter == 0:
       localReport(c.config, n.info, reportSymbols(
@@ -578,6 +590,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
   var errors: seq[SemCallMismatch]
 
   var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+  emitDiagnostics(c, r) # always emit all captured diags for the match
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
     if errors.len > 0:
@@ -753,9 +766,6 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
     var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
-      if resolved.kind == nkError:
-        localReport(c.config, resolved)
-
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):
         result = nil
