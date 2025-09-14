@@ -446,11 +446,29 @@ proc myersDiff*[T](
   ## Generate series of sequence edit operations necessary to trasnform
   ## `aSeq` into `bSeq`. For item equality comparison use `itemCmp`
   ##
+  ## Ported from
   ## https://gist.github.com/adamnew123456/37923cf53f51d6b9af32a539cdfa7cc4
-  var front: Table[int, tuple[x: int, history: seq[SeqEdit]]]
-  front[1] = (0, @[])
-
+  var history: seq[SeqEdit]
+    ## stores the full edit graph. Each item is a node, with an edge existing
+    ## between each node and its predecessor in the list, unless the item is
+    ## a `seqNone`, in which case it represents an explicit edge between its
+    ## list successor and the item at `item.targetPos`
+  var front: Table[int, tuple[x, history: int]]
+  history.add SeqEdit(kind: sekNone, targetPos: -1)
+  front[1] = (0, 0)
   template one(idx: int): int = idx - 1
+
+  proc resolve(graph: seq[SeqEdit], last: int): seq[SeqEdit] =
+    var i = last
+    while i >= 0:
+      if graph[i].kind == sekNone:
+        i = graph[i].targetPos
+      else:
+        result.add graph[i]
+        dec i
+
+    # bring the items into the correct order:
+    reverse(result)
 
   let
     aMax = len(aSeq)
@@ -461,8 +479,7 @@ proc myersDiff*[T](
       let goDown =
         (k == -d or (k != d and front[k - 1].x < front[k + 1].x))
 
-
-      var (x, history) =
+      var (x, phistory) =
         if goDown:
           (front[k + 1].x, front[k + 1].history)
 
@@ -470,6 +487,9 @@ proc myersDiff*[T](
           (front[k - 1].x + 1, front[k - 1].history)
 
       var y = x - k
+
+      # add an explicit edge connecting the sub-graphs
+      history.add SeqEdit(kind: sekNone, targetPos: phistory)
 
       if 1 <= y and y <= bMax and goDown:
         history.add SeqEdit(kind: sekInsert, targetPos: one(y))
@@ -486,10 +506,10 @@ proc myersDiff*[T](
         history.add SeqEdit(kind: sekKeep, sourcePos: one(x), targetPos: one(y))
 
       if x >= aMax and y >= bMax:
-        return history
+        return resolve(history, history.high)
 
       else:
-        front[k] = (x, history)
+        front[k] = (x, history.high)
 
 proc shiftDiffed*[T](
     diff: seq[SeqEdit], oldSeq, newSeq: openArray[T]): ShiftedDiff =
