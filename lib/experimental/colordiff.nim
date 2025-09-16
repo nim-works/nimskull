@@ -704,6 +704,10 @@ proc formatDiffed*(
     text1, text2: string,
     conf: DiffFormatConf = diffFormatter()
   ): ColText =
-  ## Format diff of two text blocks via newline split and default
-  ## `formatDiffed` implementation
-  formatDiffed(text1.split("\n"), text2.split("\n"), conf)
+  ## Formats diff of two text blocks via newline split and default
+  ## `formatDiffed` implementation.
+  let text1 = text1.split("\n")
+  let text2 = text2.split("\n")
+  formatDiffed(
+    myersDiff(text1, text2).shiftDiffed(text1, text2),
+    text1, text2, conf)
