@@ -125,7 +125,7 @@ proc mapType(types: TypeEnv; desc: TypeHeader): TCTypeKind =
     else: unreachable()
   of tkArray, tkUncheckedArray:
     ctArray
-  of tkRecord, tkUnion:
+  of tkStruct, tkUnion:
     ctStruct
   of tkPtr, tkRef, tkLent, tkVar:
     case mapType(types, desc.elem)
@@ -177,7 +177,7 @@ proc containsGarbageCollectedRef(env: TypeEnv, typ: TypeId): bool =
     result = true
   of tkArray:
     result = containsGarbageCollectedRef(env, env[n].elem)
-  of tkRecord:
+  of tkStruct:
     var rec = typ
     # traverse the object hierarchy:
     while rec != VoidType:
@@ -194,7 +194,7 @@ proc containsGarbageCollectedRef(env: TypeEnv, typ: TypeId): bool =
     result = false
 
 proc usesRvo(types: TypeEnv, typ: TypeId): bool =
-  ## Computes for the record type `typ` whether it uses the return-value
+  ## Computes for the struct type `typ` whether it uses the return-value
   ## optimization.
   # seek to the root type in the inheritance hierarchy:
   var base = typ
@@ -202,7 +202,7 @@ proc usesRvo(types: TypeEnv, typ: TypeId): bool =
          next != VoidType):
     base = next
 
-  # does the type have a RTTI header? does the record have a garbage-collected
+  # does the type have a RTTI header? does the struct have a garbage-collected
   # field?
   # XXX: these rules originate from the refc days, where they were important
   #      for efficiency. This is no longer the case, and it'd make sense to
@@ -213,12 +213,12 @@ proc usesRvo(types: TypeEnv, typ: TypeId): bool =
 proc isInvalidReturnType(types: TypeEnv; typ: TypeId): bool =
   # Arrays cannot be returned by a C procedure, because C is
   # such a poor programming language.
-  # We exclude records with refs too. This enhances efficiency.
+  # We exclude structs with refs too. This enhances efficiency.
   # keep synchronized with ``mirpasses.eligibleForRvo``
   let typ = types.canonical(typ)
   case types.headerFor(typ, Lowered).kind
   of tkArray:  true
-  of tkRecord: usesRvo(types, typ)
+  of tkStruct: usesRvo(types, typ)
   else:        false
 
 proc isInvalidReturnType(m: BModule; rettype: PType): bool =
@@ -265,7 +265,7 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
 
 proc structOrUnion(kind: TypeKind): Rope =
   case kind
-  of tkRecord: "struct"
+  of tkStruct: "struct"
   of tkUnion:  "union"
   else:        unreachable(kind)
 
@@ -279,7 +279,7 @@ proc getTypeForward(m: BModule, typ: TypeId, desc: TypeHeader): Rope =
   if result != "": return
 
   case desc.kind
-  of tkRecord, tkUnion:
+  of tkStruct, tkUnion:
     result = computeTypeName(m.g.graph, m.types, typ)
     addForwardStructFormat(m, structOrUnion(desc.kind), result)
     m.forwTypeCache[typ] = result
@@ -508,7 +508,7 @@ proc genDecl(m: BModule, result: var Rope, typ: TypeId, name: Rope,
     if bitsize != 0:
       result.add ":" & $bitsize
 
-proc genFieldDesc(m: BModule, id: FieldId, field: RecField, pos: int,
+proc genFieldDesc(m: BModule, id: FieldId, field: StructField, pos: int,
                   result: var Rope, accessor: string) =
   var mangled: string
   if not field.isNamed:
@@ -530,7 +530,7 @@ proc genFieldDesc(m: BModule, id: FieldId, field: RecField, pos: int,
 proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
                         accessor: string)
 
-proc genRecordDesc(m: BModule, desc: TypeHeader, result: var Rope,
+proc genStructDesc(m: BModule, desc: TypeHeader, result: var Rope,
                    accessor: string) =
   if desc.isPacked(m.types) and hasAttribute in CC[m.config.cCompiler].props:
     # if only push/pop are supported, the outer struct is already wrapped in a
@@ -573,9 +573,9 @@ proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
   var i = 1
   for (id, it) in m.types.fields(desc, 1):
     if m.types.isEmbedded(it.typ):
-      # embedded record description. The accessor combined with the union
+      # embedded struct description. The accessor combined with the union
       # field name is passed along
-      genRecordDesc(m, m.types.headerFor(it.typ, Lowered), result,
+      genStructDesc(m, m.types.headerFor(it.typ, Lowered), result,
                     accessor & unionPrefix & $i & ".")
       result.addf(" $1$2;$n", [unionPrefix, $i])
     else:
@@ -594,7 +594,7 @@ proc genUnionDesc(m: BModule, desc: TypeHeader, name: Rope, result: var Rope) =
     genFieldDesc(m, id, it, 0, result, "")
   result.add "}"
 
-proc genRecordDesc(m: BModule, desc: TypeHeader, name: Rope, result: var Rope) =
+proc genStructDesc(m: BModule, desc: TypeHeader, name: Rope, result: var Rope) =
   let isPacked = desc.isPacked(m.types)
 
   if isPacked:
@@ -657,14 +657,14 @@ proc emitTypeDef(m: BModule, id: TypeId, desc: TypeHeader) =
     m.s[cfsTypes].addf("typedef $1_PTR($2, $3)$4;$n",
                        [rope(CallingConvToStr[desc.callConv(m.types)]),
                         rettype, name, params])
-  of tkRecord, tkUnion:
+  of tkStruct, tkUnion:
     if id notin m.forwTypeCache:
       m.forwTypeCache[id] = name
       addForwardStructFormat(m, structOrUnion(desc.kind), name)
 
     var recdesc: Rope
-    if desc.kind == tkRecord:
-      genRecordDesc(m, desc, name, recdesc)
+    if desc.kind == tkStruct:
+      genStructDesc(m, desc, name, recdesc)
     else:
       genUnionDesc(m, desc, name, recdesc)
     m.s[cfsTypes].addf("$1;$n", [recdesc])
@@ -673,11 +673,11 @@ proc emitTypeDef(m: BModule, id: TypeId, desc: TypeHeader) =
     useHeader(m, t.sym)
     addAbiCheck(m, t, name)
 
-    # fill in the field names for records:
+    # fill in the field names for structs and unions:
     let h = m.types.headerFor(desc.elem, Lowered)
     case h.kind
-    of tkRecord:
-      var tmp: Rope; genRecordDesc(m, h, "", tmp)
+    of tkStruct:
+      var tmp: Rope; genStructDesc(m, h, "", tmp)
     of tkUnion:
       var tmp: Rope; genUnionDesc(m, h, "", tmp)
     else:
@@ -716,7 +716,7 @@ proc useType(m: BModule, typ: TypeId, desc: TypeHeader; onlyName = false): Rope 
     # definition is the same as only a forward declaration
     emitTypeDef(m, typ, desc)
     result = m.typeCache[typ]
-  of tkRecord, tkUnion:
+  of tkStruct, tkUnion:
     if onlyName:
       # a forward declaration suffices
       result = getTypeForward(m, typ, desc)

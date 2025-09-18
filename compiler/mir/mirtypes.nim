@@ -69,8 +69,8 @@ type
 
     tkImported
 
-    # record-like types:
-    tkRecord
+    # struct-like types:
+    tkStruct
     tkUnion
     tkTaggedUnion
 
@@ -84,8 +84,8 @@ type
   FieldId* = distinct uint32
   HeaderId* = uint32
 
-  RecField* = object
-    ## Record field description.
+  StructField* = object
+    ## Struct/union field description.
     ident: LitId
     offset: IntVal
     align*: int16
@@ -121,8 +121,8 @@ type
 
     headers: Store[HeaderId, TypeHeader]
       ## all type headers
-    fields: seq[RecField]
-      ## all record fields referenced from `headers`
+    fields: seq[StructField]
+      ## all struct fields referenced from `headers`
     params: seq[tuple[x: uint32, typ: TypeId]]
       ## all parameters referenced from `headers`
 
@@ -151,10 +151,10 @@ type
     usizeType: TypeId
       ## the target-dependent unsigned integer type to use for size values
 
-  RecordBuilder = object
+  StructBuilder = object
     header: TypeHeader
     start: int
-    fields: seq[RecField]
+    fields: seq[StructField]
 
   ProcBuilder* = object
     header: TypeHeader
@@ -201,7 +201,7 @@ func hash(env: TypeEnv, t: TypeHeader): Hash =
     result = result !& hash(t.a)
   of tkArray:
     result = result !& hash(t.a) !& hash(t.b)
-  of tkRecord, tkUnion, tkTaggedUnion:
+  of tkStruct, tkUnion, tkTaggedUnion:
     # size and alignment doesn't need to be part of the hash. Two structural
     # types with the same content cannot have different size or alignment,
     # and two nominal types are always distinct
@@ -235,7 +235,7 @@ func isEqual(env: TypeEnv, a, b: TypeHeader): bool =
     a.a == b.a
   of tkArray:
     a.a == b.a and a.b == b.b
-  of tkRecord, tkUnion, tkTaggedUnion:
+  of tkStruct, tkUnion, tkTaggedUnion:
     if fieldCount(a) == fieldCount(b): # same number of fields?
       isEqual(env.fields, a.a, b.a, fieldCount(a))
     else:
@@ -382,51 +382,51 @@ iterator params*(env: TypeEnv, desc: TypeHeader
 
 func base*(desc: TypeHeader, env: TypeEnv): TypeId =
   ## Returns the node storing the base type (i.e., the parent type) for a
-  ## record type.
-  assert desc.kind == tkRecord
+  ## struct type.
+  assert desc.kind == tkStruct
   env.fields[desc.a].typ
 
 func fieldOffset*(desc: TypeHeader, env: TypeEnv): int32 =
   ## Returns the first field's position in the object.
-  assert desc.kind == tkRecord
+  assert desc.kind == tkStruct
   env.fields[desc.a].align.int32
 
 func isPacked*(desc: TypeHeader, env: TypeEnv): bool =
-  ## Whether the record type is
-  assert desc.kind == tkRecord
+  ## Whether the struct type is pacekd.
+  assert desc.kind == tkStruct
   env.fields[desc.a].extra == 1
 
 func numFields*(desc: TypeHeader): int =
-  ## Returns the number of fields in the record-like type, ignoring parent
+  ## Returns the number of fields in the struct-like type, ignoring parent
   ## types.
-  int(desc.b - desc.a) - ord(desc.kind == tkRecord)
+  int(desc.b - desc.a) - ord(desc.kind == tkStruct)
 
-func isNamed*(f: RecField): bool =
+func isNamed*(f: StructField): bool =
   f.ident != LitId(0)
 
-func name*(env: TypeEnv, f: RecField): lent string =
+func name*(env: TypeEnv, f: StructField): lent string =
   assert f.ident != LitId(0)
   result = env.idents[f.ident]
 
-func isNoMangle*(f: RecField): bool =
+func isNoMangle*(f: StructField): bool =
   ## Whether the field's name must not be mangled.
   (f.extra and MangleFlag) == 0
 
-func isNoAlias*(f: RecField): bool =
+func isNoAlias*(f: StructField): bool =
   (f.extra and NoAliasFlag) != 0
 
-func bitsize*(f: RecField): int =
+func bitsize*(f: StructField): int =
   int(f.extra and 0x00FF)
 
 {.pop.} # inline
 
 iterator fields*(env: TypeEnv, desc: TypeHeader;
-                 offset = 0): (FieldId, RecField) =
+                 offset = 0): (FieldId, StructField) =
   ## Returns all fields directly part of `desc`. Super types are not
   ## considered.
-  assert desc.kind in {tkRecord, tkUnion, tkTaggedUnion}
+  assert desc.kind in {tkStruct, tkUnion, tkTaggedUnion}
   # note: the field storing the super type is not included
-  let offset = ord(desc.kind == tkRecord) + offset
+  let offset = ord(desc.kind == tkStruct) + offset
   for it in (desc.a + uint32(offset))..<desc.b:
     yield (FieldId(it), env.fields[it])
 
@@ -435,7 +435,7 @@ proc computeDepth*(env: TypeEnv, desc: TypeHeader, pos: int32): int =
   ## 0 means it's part of `desc`, 1 means it's part of the first parent type,
   ## etc.
   case desc.kind
-  of tkRecord:
+  of tkStruct:
     result = 0
     var h {.cursor.} = desc
     while h.fieldOffset(env) > pos:
@@ -453,13 +453,13 @@ proc canonical*(env: TypeEnv, typ: TypeId): TypeId =
   result = env.symbols[typ].canon
 
 proc isEmbedded*(env: TypeEnv, typ: TypeId): bool =
-  ## Whether the `typ` is a record that's directly embedded where it's used.
+  ## Whether the `typ` is a struct that's directly embedded where it's used.
   env.symbols[typ].inst.isNil and
-    env.headerFor(typ, Lowered).kind in {tkRecord, tkTaggedUnion}
+    env.headerFor(typ, Lowered).kind in {tkStruct, tkTaggedUnion}
 
 proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## Returns the ID of the field with position `pos`. Said field *must* exist
-  ## in record-like type `typ`. Imported types are skipped.
+  ## in struct-like type `typ`. Imported types are skipped.
 
   # skip imported types:
   var typ = env.symbols[typ].canon
@@ -468,23 +468,23 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
 
   var curr = 0'i32
   # seek to the type in the inheritance hierarchy that contains the field
-  if env.headerFor(typ, Lowered).kind == tkRecord:
+  if env.headerFor(typ, Lowered).kind == tkStruct:
     curr = env.headerFor(typ, Lowered).fieldOffset(env)
-    while curr > pos: # part of the current record?
+    while curr > pos: # part of the current struct?
       # it's not, try the parent type
       typ = env.headerFor(typ, Lowered).base(env)
       curr = env.headerFor(typ, Lowered).fieldOffset(env)
 
-    assert typ != VoidType, "field not in record"
+    assert typ != VoidType, "field not in struct"
 
-  proc searchRecord(env: TypeEnv, desc: TypeHeader, pos: int32,
+  proc searchStruct(env: TypeEnv, desc: TypeHeader, pos: int32,
                     curr: var int32): (bool, FieldId) =
-    # look for the field whose position matches `pos`. Anonymous record-like
+    # look for the field whose position matches `pos`. Anonymous struct-like
     # types are always embedded at the moment, so they are transparently
     # recursed into
     for (id, it) in fields(env, desc):
       if isEmbedded(env, it.typ):
-        result = searchRecord(env, env.headerFor(it.typ, Lowered), pos, curr)
+        result = searchStruct(env, env.headerFor(it.typ, Lowered), pos, curr)
         if result[0]:
           return
       elif curr == pos:
@@ -494,11 +494,11 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
 
     result = (false, default(FieldId))
 
-  let r = searchRecord(env, env.headerFor(typ, Lowered), pos, curr)
+  let r = searchStruct(env, env.headerFor(typ, Lowered), pos, curr)
   assert r[0], "field not in type"
   result = r[1]
 
-# Record/proc builder API
+# struct/proc builder API
 # -----------------------
 
 proc newType*(env: var TypeEnv, desc: HeaderId): TypeId =
@@ -508,12 +508,12 @@ proc newType*(env: var TypeEnv, desc: HeaderId): TypeId =
     # no type symbol exists yet
     result = env.symbols.add(TypeSym(canon: result, desc: [desc, desc, desc]))
 
-proc openRecord(size: IntVal, align: int16; offset = 0;
-                base = VoidType): RecordBuilder =
-  result.header = TypeHeader(kind: tkRecord, size: size, align: align, b: 1)
-  result.fields.add RecField(typ: base, align: offset.int16)
+proc openStruct(size: IntVal, align: int16; offset = 0;
+                base = VoidType): StructBuilder =
+  result.header = TypeHeader(kind: tkStruct, size: size, align: align, b: 1)
+  result.fields.add StructField(typ: base, align: offset.int16)
 
-proc open(kind: TypeKind; size: IntVal, align: int16): RecordBuilder =
+proc open(kind: TypeKind; size: IntVal, align: int16): StructBuilder =
   assert kind in {tkUnion, tkTaggedUnion}
   result.header = TypeHeader(kind: kind, size: size, align: align)
 
@@ -530,37 +530,37 @@ proc openProc(env: TypeEnv, kind: TypeKind, conv: TCallingConvention,
     result.header.size = IntVal(env.config.target.ptrSize * 2)
   result.params.add (uint32(conv) or (uint32(ord(isVarargs)) shl 31), ret)
 
-proc openRecord(b: var RecordBuilder): RecordBuilder =
-  result = RecordBuilder(start: b.fields.len)
+proc openStruct(b: var StructBuilder): StructBuilder =
+  result = StructBuilder(start: b.fields.len)
   swap(result.fields, b.fields) # temporarily take over the buffer
-  result.header = TypeHeader(kind: tkRecord, b: 1)
-  result.fields.add RecField(typ: VoidType, align: 0)
+  result.header = TypeHeader(kind: tkStruct, b: 1)
+  result.fields.add StructField(typ: VoidType, align: 0)
 
-proc open(b: var RecordBuilder, kind: TypeKind): RecordBuilder =
+proc open(b: var StructBuilder, kind: TypeKind): StructBuilder =
   assert kind in {tkUnion, tkTaggedUnion}
-  result = RecordBuilder(start: b.fields.len)
+  result = StructBuilder(start: b.fields.len)
   swap(result.fields, b.fields) # temporarily take over the buffer
   result.header = TypeHeader(kind: kind)
 
-proc addField(b: var RecordBuilder, env: var TypeEnv, offset: IntVal,
+proc addField(b: var StructBuilder, env: var TypeEnv, offset: IntVal,
               typ: TypeId; name = ""; mangle = true) =
   ## Adds a field declaration. `typ` is the type, `name` the name, and `mangle`
   ## indicates whether the name should be mangled.
   inc b.header.b
   if name.len > 0:
-    b.fields.add RecField(typ: typ, offset: offset,
+    b.fields.add StructField(typ: typ, offset: offset,
                           ident: env.idents.getOrIncl(name),
                           extra: (if mangle: MangleFlag else: 0))
   else:
-    b.fields.add RecField(typ: typ, offset: offset)
+    b.fields.add StructField(typ: typ, offset: offset)
 
-proc addField(b: var RecordBuilder, offset: IntVal, typ: TypeId) =
+proc addField(b: var StructBuilder, offset: IntVal, typ: TypeId) =
   inc b.header.b
-  b.fields.add RecField(typ: typ, offset: offset)
+  b.fields.add StructField(typ: typ, offset: offset)
 
-proc addField(b: var RecordBuilder, env: var TypeEnv, s: PSym, typ: TypeId) =
-  var field = RecField(typ: typ, offset: env.toIntVal(s.offset),
-                       align: s.alignment.int16)
+proc addField(b: var StructBuilder, env: var TypeEnv, s: PSym, typ: TypeId) =
+  var field = StructField(typ: typ, offset: env.toIntVal(s.offset),
+                          align: s.alignment.int16)
   if {sfImportc, sfExportc} * s.flags == {}:
     field.ident = env.idents.getOrIncl(s.name.s)
     field.extra = MangleFlag
@@ -583,8 +583,8 @@ proc addParam*(b: var ProcBuilder, s: set[ParamFlag], typ: TypeId) =
   inc b.header.b
   b.params.add (cast[uint32](s), typ)
 
-proc close(prev: var RecordBuilder, env: var TypeEnv,
-           other: sink RecordBuilder): HeaderId =
+proc close(prev: var StructBuilder, env: var TypeEnv,
+           other: sink StructBuilder): HeaderId =
   ## Closes `other`, commiting the type description to `env`. `prev` must be
   ## the builder `other` was previously spawned from.
   var header = other.header
@@ -596,11 +596,11 @@ proc close(prev: var RecordBuilder, env: var TypeEnv,
   # hand the buffer back to the parent builder:
   swap(prev.fields, other.fields)
 
-  # nested records are currently always anonymous and never de-duplicated:
+  # nested structs are currently always anonymous and never de-duplicated:
   result = env.headers.add header
 
-proc close(b: sink RecordBuilder, env: var TypeEnv; unique = false): HeaderId =
-  ## Finalizes the record description and commits it to `env`. De-duplication
+proc close(b: sink StructBuilder, env: var TypeEnv; unique = false): HeaderId =
+  ## Finalizes the struct description and commits it to `env`. De-duplication
   ## is only performed if `unique` is false.
   var header = b.header
   header.a += env.fields.len.uint32
@@ -637,11 +637,11 @@ proc close(env: var TypeEnv, b: sink ProcBuilder): uint32 =
 
 proc add*(env: var TypeEnv, t: PType): TypeId
 
-proc recordToMir(env: var TypeEnv, rec: var RecordBuilder, n: PNode,
+proc recordToMir(env: var TypeEnv, str: var StructBuilder, n: PNode,
                  packed, canon: bool) =
   ## Translates record node/AST `n` to the corresponding MIR type description.
-  template recurse(rec: var RecordBuilder, n: PNode) =
-    recordToMir(env, rec, n, packed, canon)
+  template recurse(str: var StructBuilder, n: PNode) =
+    recordToMir(env, str, n, packed, canon)
 
   case n.kind
   of nkSym:
@@ -649,22 +649,22 @@ proc recordToMir(env: var TypeEnv, rec: var RecordBuilder, n: PNode,
     if canon:
       t = canonical(env, t)
 
-    rec.addField(env, n.sym, t)
+    str.addField(env, n.sym, t)
   of nkRecList:
     for it in n.items:
-      recurse(rec, it)
+      recurse(str, it)
   of nkRecCase:
     # at the moment, tagged union description are directly embedded into
-    # their parent record
-    var tu = rec.open(tkTaggedUnion)
+    # their parent struct
+    var tu = str.open(tkTaggedUnion)
     recurse(tu, n[0]) # discriminator
     for i in 1..<n.len:
       let child = n[i][^1]
       if child.kind == nkSym:
         recurse(tu, child)
       else:
-        # start a new record
-        var sub = tu.openRecord()
+        # start a new struct
+        var sub = tu.openStruct()
         if packed:
           sub.fields[^1].extra = 1 # mark as packed
         recurse(sub, child)
@@ -672,8 +672,8 @@ proc recordToMir(env: var TypeEnv, rec: var RecordBuilder, n: PNode,
         # add as field to the tagged union:
         tu.addField(IntVal(0), env.newType(x))
 
-    let x = rec.close(env, tu)
-    rec.addField(env.toIntVal(n[0].sym.offset), env.newType(x))
+    let x = str.close(env, tu)
+    str.addField(env.toIntVal(n[0].sym.offset), env.newType(x))
   else:
     unreachable(n.kind)
 
@@ -757,7 +757,7 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
   of tyCstring: simple(CstringType)
   of tyPointer, tyNil: simple(PointerType)
   of tyTuple:
-    var tup = openRecord(env.toIntVal(t.size), t.align)
+    var tup = openStruct(env.toIntVal(t.size), t.align)
     if t.len == 0:
       tup.addField(IntVal 0, CharType)
     elif t.size < 0:
@@ -778,7 +778,7 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
     let
       size = env.toIntVal(t.size)
     var
-      rec: RecordBuilder
+      rec: StructBuilder
       isEmpty = false
 
     if tfUnion in t.flags:
@@ -787,28 +787,28 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
     elif t[0] != nil:
       # object has a super type
       let b = objectBase(t)
-      rec = openRecord(size, t.align, b.nextFieldPosition, typeref(b))
+      rec = openStruct(size, t.align, b.nextFieldPosition, typeref(b))
     elif lacksMTypeField(t):
       # no super type and no type header
-      rec = openRecord(size, t.align)
+      rec = openStruct(size, t.align)
       isEmpty = t.n.len == 0
     elif (let rtti = env.graph.getCompilerProc("TNimTypeV2"); rtti != nil):
       # the object has a field for the RTTI
       let ptrTyp = env.newType(single(tkPtr, rtti.typ))
       # the type field is at position -1
-      rec = openRecord(size, t.align, -1)
+      rec = openStruct(size, t.align, -1)
       rec.addField(env, IntVal 0, ptrTyp, "m_type")
     else:
       # legacy support for backends not yet using RTTI fields
-      rec = openRecord(size, t.align)
+      rec = openStruct(size, t.align)
 
-    if rec.header.kind == tkRecord and tfPacked in t.flags:
+    if rec.header.kind == tkStruct and tfPacked in t.flags:
       rec.fields[0].extra = 1 # mark as packed
 
     recordToMir(env, rec, t.n, tfPacked in t.flags, canon)
 
     if isEmpty:
-      # record-like types must always have at least *one* field
+      # struct-like types must always have at least *one* field
       rec.addField(IntVal 0, CharType)
 
     # object/union types are not de-duplicated
@@ -952,10 +952,10 @@ template buildProc*(env: var TypeEnv, kind: TypeKind, conv: TCallingConvention,
     body
     env.newType(env.close(builder))
 
-template buildRecord(env: var TypeEnv, size: IntVal, align: int16,
+template buildStruct(env: var TypeEnv, size: IntVal, align: int16,
                      builder, body: untyped): HeaderId =
   block:
-    var builder = openRecord(size, align)
+    var builder = openStruct(size, align)
     body
     builder.close(env)
 
@@ -978,7 +978,7 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
       for _, typ, flags in params(env, h):
         bu.addParam(flags, typ)
 
-    env.buildRecord(h.size, h.align, bu):
+    env.buildStruct(h.size, h.align, bu):
       bu.addField(env, IntVal 0, prc, "ClP_0", mangle=false)
       # XXX: the type of the environment pointer should be a ``RootRef``
       bu.addField(env, IntVal graph.config.target.ptrSize,
@@ -987,7 +987,7 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
     # -> (ptr UncheckedArray[T], int)
     let ptrTyp = env.newPtrTy(env.newUncheckedArrayTy(h.elem))
 
-    env.buildRecord(h.size, h.align, bu):
+    env.buildStruct(h.size, h.align, bu):
       bu.addField(env, IntVal 0, ptrTyp)
       bu.addField(env, IntVal graph.config.target.ptrSize, env.sizeType)
   of tkSeq:
@@ -995,12 +995,12 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
     let
       dataType = env.newUncheckedArrayTy(h.elem)
       # the payload type's name is inferred from the body
-      payload = env.buildRecord(h.size, h.align, bu):
+      payload = env.buildStruct(h.size, h.align, bu):
         bu.addField(env, IntVal 0, env.sizeType, "cap")
         bu.addField(env, IntVal graph.config.target.intSize, dataType, "data")
       ppTyp = env.newPtrTy(env.newType(payload))
 
-    env.buildRecord(h.size, h.align, bu):
+    env.buildStruct(h.size, h.align, bu):
       bu.addField(env, IntVal 0, env.sizeType, "len")
       bu.addField(env, IntVal graph.config.target.intSize, ppTyp, "p")
   else:
@@ -1117,7 +1117,7 @@ func get*(env: TypeEnv, id: TypeId): lent TypeSym =
   ## Returns the symbol for `id`.
   env.symbols[id]
 
-template `[]`*(env: TypeEnv, id: FieldId): RecField =
+template `[]`*(env: TypeEnv, id: FieldId): StructField =
   env.fields[ord(id)]
 
 template `[]`*(env: TypeEnv, t: PType): TypeId =
