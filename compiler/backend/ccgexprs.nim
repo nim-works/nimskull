@@ -531,12 +531,6 @@ proc genBoundsCheck(p: BProc; arr, a, b: TLoc, exit: CgNode) =
         "if ($2-$1 != -1 && " &
         "((NU)($1) >= (NU)($3Len_0) || (NU)($2) >= (NU)($3Len_0))){ #raiseIndexError(); $4}$n",
         [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p, exit)])
-  of tyArray:
-    let first = intLiteral(firstOrd(p.config, ty))
-    linefmt(p, cpsStmts,
-      "if ($2-$1 != -1 && " &
-      "($2-$1 < -1 || $1 < $3 || $1 > $4 || $2 < $3 || $2 > $4)){ #raiseIndexError(); $5}$n",
-      [rdCharLoc(a), rdCharLoc(b), first, intLiteral(lastOrd(p.config, ty)), raiseInstr(p, exit)])
   of tySequence, tyString:
     linefmt(p, cpsStmts,
       "if ($2-$1 != -1 && " &
