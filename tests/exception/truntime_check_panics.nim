@@ -9,7 +9,6 @@ discard """
   nimout: '''
 --expandArc: test
 scope:
-  def a: array[0..0, int]
   chckIndex(arg a, arg i)
   discard a[i]
   chckBounds(arg a, arg 0, arg i)
@@ -46,8 +45,7 @@ type
       discard
 
 # export the procedure so that it's not omitted
-proc test(i: int, f: float, o: Object, r: ref RootObj) {.exportc.} =
-  var a: array[1, int]
+proc test(i: int, f: float, a: seq[int], o: Object, r: ref RootObj) {.exportc.} =
   discard a[i]                 # index check
   discard toOpenArray(a, 0, i) # bound check
   discard i + i                # overflow check for binary arithmetic
