@@ -3022,10 +3022,10 @@ when not defined(js):
     proc toOpenArrayByte*(x: cstring; first, last: int): openArray[byte] {.
       magic: "Slice".}
 
-proc toOpenArray*[T](x: seq[T]; first, last: int): openArray[T] {.
+proc toOpenArray*[T](x: openArray[T]|seq[T]; first, last: int): openArray[T] {.
   magic: "Slice".}
-proc toOpenArray*[T](x: openArray[T]; first, last: int): openArray[T] {.
-  magic: "Slice".}
+# note: using a single overload for seq/openArray makes sure, via the
+# typeclass, that arrays are never implicitly converted to openArray here
 proc toOpenArray*[I, T](x: array[I, T]; first, last: I): openArray[T] {.
   magic: "Slice".}
 proc toOpenArray*(x: string; first, last: int): openArray[char] {.

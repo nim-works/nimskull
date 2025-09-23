@@ -34,8 +34,7 @@ block from_negative_range_based_array:
   var arr: array[-3 .. -1, int] = [1, 2, 3]
   # knownIssue: the bounds are not properly offset
   test toSeq(toOpenArray(arr, -3, -1)), [1, 2, 3]
-  doAssert toSeq(toOpenArray(arr, 0, -1)) == []
-  doAssert toSeq(toOpenArray(arr, -3, -4)) == []
+  doAssert toSeq(toOpenArray(arr, -1, -2)) == []
 
 block from_seq:
   var s = @[1, 2, 3, 4, 5]

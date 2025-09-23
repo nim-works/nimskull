@@ -758,10 +758,7 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
       wantValue(n[1])
       node pirTupleAccess, pos, 1'u32
     of mSlice:
-      # XXX: a HiddenStdConv erroneously ends up in the array position
-      #      sometimes, which would, if kept, lead to index errors when the
-      #      array doesn't start at index 0
-      wantLvalue(skipConv(n[1]))
+      wantLvalue(n[1])
       # the other operands are translated separately when needed
       node pirToSubSlice
     else:
