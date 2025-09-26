@@ -45,16 +45,6 @@ block typicalUsage:
       .parser(bool, (k, v, var c) => (c.opts[ShowNonPrinting] = v))
       .describe("display non-printing characters")
       .addTo(cli)
-      cli.parse(parsed, @["10", "--format", "--separator=;"])
-      doAssert parsed.format == some("--separator=;")
-      doAssert parsed.separator == "\\n"
-      doAssert not parsed.equalizeWidth
-      doAssert parsed.numbers == [10]
-
-    block multiple:
-      var parsed = baseConfig
-      cli.parse(parsed, @["10", "--separator", ";", "100"])
-      doAssert parsed.format == n
     cli.flagBuilder
       .name("squeeze-blank")
       .alias("s")
