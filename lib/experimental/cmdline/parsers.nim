@@ -61,6 +61,7 @@ runnableExamples:
 
 import std/strutils
 import std/typetraits
+import std/math
 
 proc parseCli*(T: typedesc[SomeInteger], value: string): T =
   ## Implements `parseCli` for all integers.
@@ -80,7 +81,7 @@ proc parseCli*(T: typedesc[SomeFloat], value: string): T =
   ## Implements `parseCli` for all floats.
   let parsed = parseFloat(value)
 
-  if parsed notin low(T)..high(T):
+  if not (parsed in low(T)..high(T) or parsed.isNaN):
     raise newException(ValueError):
       $parsed & " is not in the range of " & $low(T) & ".." & $high(T)
 
@@ -96,7 +97,7 @@ proc parseCli*(T: typedesc[bool], value: string): T =
 
 proc parseCli*(T: typedesc[enum], value: string): T =
   ## Implements `parseCli` for enum types.
-  parseEnum(value)
+  parseEnum[T](value)
 
 proc parseCli*(T: typedesc[range], value: string): T =
   ## Implements `parseCli` for range types.
