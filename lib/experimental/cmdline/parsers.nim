@@ -78,7 +78,7 @@ proc parseCli*(T: typedesc[SomeInteger], value: string): T =
 
 proc parseCli*(T: typedesc[SomeFloat], value: string): T =
   ## Implements `parseCli` for all floats.
-  parseFloat(value)
+  T(parseFloat(value))
 
 proc parseCli*(T: typedesc[string], value: string): T =
   ## Implements `parseCli` for `string`.
