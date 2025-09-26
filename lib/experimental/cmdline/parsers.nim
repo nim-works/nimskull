@@ -61,7 +61,6 @@ runnableExamples:
 
 import std/strutils
 import std/typetraits
-import std/math
 
 proc parseCli*(T: typedesc[SomeInteger], value: string): T =
   ## Implements `parseCli` for all integers.
@@ -79,13 +78,7 @@ proc parseCli*(T: typedesc[SomeInteger], value: string): T =
 
 proc parseCli*(T: typedesc[SomeFloat], value: string): T =
   ## Implements `parseCli` for all floats.
-  let parsed = parseFloat(value)
-
-  if not (parsed in low(T)..high(T) or parsed.isNaN):
-    raise newException(ValueError):
-      $parsed & " is not in the range of " & $low(T) & ".." & $high(T)
-
-  result = T(parsed)
+  parseFloat(value)
 
 proc parseCli*(T: typedesc[string], value: string): T =
   ## Implements `parseCli` for `string`.
