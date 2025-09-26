@@ -161,7 +161,7 @@ func isNaN*(x: SomeFloat): bool {.inline, since: (1,5,1).} =
   template fn: untyped = result = x != x
   when nimvm: fn()
   else:
-    when defined(js): fn()
+    when defined(js) or defined(vm): fn()
     else: result = c_isnan(x)
 
 when defined(js):
