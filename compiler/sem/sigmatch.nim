@@ -2783,6 +2783,444 @@ proc matchesGenericParams*(c: PContext, args: PNode, m: var TCandidate) =
   # the responsibility of the callsite
   m.state = csMatch
 
+
+type
+  ## These enums are used to track various aspects of a formal parameter, and
+  ## allowed argument passing style (named vs positional). Together these
+  ## inform `matchesAux` how to handle each argument.
+
+  FormalPlurality = enum
+    formalSingular
+    formalVarargs
+  FormalTypeKind = enum
+    formalTypeKindNonAst
+    formalTypeKindTypedAst
+    formalTypeKindUntypedAst
+  ArgPassingSyntax = enum
+    argPassSynPositional
+    argPassSynNamed
+    argPassSynPositionalOnly
+
+proc matchesAux2(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet) =
+  ## used to match a call `n` with a candidate `m`, noting matched formal
+  ## params in `marker` by position. `m` and `marker` are out parameters and
+  ## updated with the produced results.
+
+  template noMatchAux() =
+    m.state = csNoMatch
+    m.error.firstMismatch.pos = a
+    m.error.firstMismatch.arg = operand
+    m.error.firstMismatch.formal = formal
+    return
+
+  template noMatch() =
+    c.mergeShadowScope #merge so that we don't have to resem for later overloads
+    noMatchAux()
+
+  template noMatchDueToError() =
+    {.line.}:
+      ## found an nkError along the way so wrap the call in an error, do not use
+      ## if the legacy `localReport`s etc are being used.
+      c.closeShadowScope # don't merge changes
+      m.call = wrapError(c.config, m.call)
+      noMatchAux()
+
+  template checkConstraint(n: untyped) {.dirty.} =
+    if not formal.constraint.isNil:
+      if matchNodeKinds(formal.constraint, n):
+        # better match over other routines with no such restriction:
+        inc(m.genericMatches, 100)
+      else:
+        noMatch()
+
+    if formal.typ.kind in {tyVar}:
+      let argConverter = if arg.kind == nkHiddenDeref: arg[0] else: arg
+      if argConverter.kind == nkHiddenCallConv:
+        if argConverter.typ.kind notin {tyVar}:
+          m.error.firstMismatch.kind = kVarNeeded
+          noMatch()
+      elif not isLValue(c, n):
+        m.error.firstMismatch.kind = kVarNeeded
+        noMatch()
+
+  m.state = csMatch # default match in case it's a zero-arg call
+  m.error.firstMismatch = MismatchInfo()
+  m.call = newNodeIT(n.kind, n.info, m.callee.base)
+  m.call.add n[0]
+
+  if n[0].kind == nkBracketExpr and n[0].typ == nil:
+    # the ``nkBracketExpr`` doesn't necessarily imply explicit generic
+    # arguments, call expressions where the callee is an array access also
+    # end up here, hence the ``typ == nil`` check
+    if m.calleeSym.isGenericRoutineStrict:
+      matchesGenericParams(c, n[0], m)
+    else:
+      # the call has explicit generic arguments, but the callee is not
+      # generic -> no match is possible
+      m.state = csNoMatch
+      m.error.firstMismatch.kind = kNotGeneric
+
+    if m.state == csNoMatch:
+      # don't use ``noMatch``. The error is already set and there also
+      # doesn't exist a shadow scope yet
+      return
+
+  var
+    a = 1
+      ## index to iterate over the actual given arguments
+    f = if m.callee.kind != tyGenericBody: 1
+        else: 0
+      ## index to iterate over formal parameters
+    operand: PNode
+      ## current prepared operand/argument 
+    arg: PNode
+      ## current prepared and param type matched argument
+    formalLen = m.callee.n.len
+    formal = if formalLen > 1: m.callee.n[1].sym else: nil
+      ## current routine parameter
+    container: PNode = nil
+      ## container (arg list, bracket, ...) to store intermediaries
+    formalPlurality: FormalPlurality = formalSingular
+      ## track singular vs vararg
+    formalTypeKind: FormalTypeKind = formalTypeKindNonAst
+      ## track ast vs non ast params
+    argPassingSyntax: ArgPassingSyntax = argPassSynPositional
+      ## track how the arg is passed, positionally, keyword, etc
+
+  template getOrCreateContainer(): PNode =
+    if container.isNil:
+      container = newNodeIT(nkArgList, n[a].info, arrayConstr(c, n.info))
+    container
+
+  template getOrCreateContainer(arg: PNode): PNode =
+    if container.isNil:
+      container = newNodeIT(nkBracket, n[a].info, arrayConstr(c, arg))
+    container
+
+  while a < n.len:
+    c.openShadowScope
+
+    operand = n[a] # initialize to current arg in case of early `noMatch`
+
+    formal = m.callee.n[f].sym # grab the current formal param
+
+    if f >= formalLen:
+      if tfVarargs in m.callee.flags: # varargs pragma
+        # is ok... but don't increment any counters...
+        case n[a].kind
+        of nkError:
+          # xxx: maybe this should be an internal error?
+          noMatch()
+        else:
+          # we have no formal here to snoop at:
+          operand = prepareOperand(c, n[a])
+
+          m.call.add:
+            case skipTypes(operand.typ, abstractVar-{tyTypeDesc}).kind
+            of tyString:
+              # implicit conversion string -> cstring
+              implicitConv(nkHiddenStdConv,
+                            getSysType(c.graph, n[a].info, tyCstring),
+                            copyTree(operand), m, c)
+            of tyError:
+              operand
+            else:
+              copyTree(operand)
+          
+          if operand.isError:
+            noMatchDueToError()
+          elif operand.typ != nil:
+            n[a] = operand
+      else:
+        noMatch()
+    else:
+      formal = m.callee.n[f].sym
+
+      # depending upon the formal position we handle the arguments differently,
+      # this includes how named params are handled, which are ignored for AST
+      # positions, since they're ambiguous `foo = 10` could either be the AST
+      # for an assignment passed to the current parameter position or set the
+      # parameter `foo` to the int literal `10`, and this can break in
+      # unexpected ways based on either input or renames of formal parameter,
+      # so we simply disallow it for all AST (`typed` or `untyped`) formal
+      # parameter positions.
+      #
+      # here we're going to figure out how to handle the argument based on the
+      # formal parameter.
+      case formal.typ.skipTypes({tyAlias}).kind
+      of tyVarargs:
+        formalPlurality = formalVarargs
+        case formal.typ.skipTypes({tyAlias}).base.kind
+        of tyUntyped:
+          formalTypeKind = formalTypeKindUntypedAst
+          argPassingSyntax = argPassSynPositionalOnly
+        of tyTyped:
+          formalTypeKind = formalTypeKindTypedAst
+          # xxx: due to the way we store semantically analysed nodes in `n`,
+          #      that point to `typed` ast, we don't restrict to using
+          #      positional only passing.
+          # argPassingSyntax = argPassSynPositionalOnly
+          argPassingSyntax =
+            if n[a].kind == nkExprEqExpr:
+              argPassSynNamed
+            else:
+              argPassSynPositional
+        of tyError:
+          internalError c.config, "got a tyError inside a tyVarargs"
+        else:
+          formalTypeKind = formalTypeKindNonAst
+      of tyError:
+        noMatch()
+      of tyUntyped:
+        formalTypeKind = formalTypeKindUntypedAst
+        formalPlurality = formalSingular
+        argPassingSyntax = argPassSynPositionalOnly
+      of tyTyped:
+        formalTypeKind = formalTypeKindTypedAst
+        formalPlurality = formalSingular
+        # xxx: due to the way we store semantically analysed nodes in `n`, that
+        #      point to `typed` ast, we don't restrict to using positional only
+        #      passing.
+        # argPassingSyntax = argPassSynPositionalOnly
+        argPassingSyntax =
+          if n[a].kind == nkExprEqExpr:
+            argPassSynNamed
+          else:
+            argPassSynPositional
+      else:
+        formalTypeKind = formalTypeKindNonAst
+        formalPlurality = formalSingular
+        argPassingSyntax =
+          if n[a].kind == nkExprEqExpr:
+            argPassSynNamed
+          else:
+            argPassSynPositional
+
+      # handle named vs positional arguments and determine the `formal` param
+      case argPassingSyntax
+      of argPassSynNamed:
+        # assume we didn't match the param
+        m.error.firstMismatch.kind = kUnknownNamedParam
+
+        # check if m.callee has such a param:
+        prepareNamedParam(n[a], c)
+
+        if n[a].kind == nkError or n[a][0].kind != nkIdent:
+          localReport(c.config, n[a].info, reportAst(
+            rsemExpectedIdentifier, n[a],
+            str = "named parameter has to be an identifier"
+          ))
+          noMatch()
+
+        formal = getNamedParamFromList(m.callee.n, n[a][0].ident)
+
+        if formal.isNil or formal.isError:
+          # no error message!
+          noMatch()
+
+        if containsOrIncl(marker, formal.position):
+          m.error.firstMismatch.kind = kAlreadyGiven
+          # already in namedParams, so no match
+          # we used to produce 'errCannotBindXTwice' here but see
+          # bug https://github.com/nim-lang/nim/issues/3836 for why that is not
+          # sound (other overload with different parameter names could match
+          # later on)
+          noMatch()
+      of argPassSynPositional, argPassSynPositionalOnly:
+        m.error.firstMismatch.kind = kTypeMismatch # assume wrong until correct
+        formal = m.callee.n[f].sym
+
+      m.baseTypeMatch = false
+      m.typedescMatched = false
+      incl(marker, formal.position)
+
+      # set the operand based on named vs positional param
+      operand =
+        case argPassingSyntax
+        of argPassSynNamed:
+          # TODO: the following comment is out of date, confirm if it's still
+          #       valid:
+          #          beware of the side-effects in 'prepareOperand'! So only do
+          #          it for varargs matching. See
+          #          tests/metatype/tstatic_overloading.
+          prepareOperand(c, formal.typ, n[a][1], nOrig[a][1])
+        of argPassSynPositional, argPassSynPositionalOnly:
+          prepareOperand(c, formal.typ, n[a], nOrig[a])
+
+      # keep semmed operands in `n`, as that's our semmed operand storage
+      # across candidate matching
+      case formalTypeKind
+      of formalTypeKindNonAst, formalTypeKindTypedAst:
+        case argPassingSyntax
+        of argPassSynNamed:
+          n[a][1] = operand
+        of argPassSynPositional, argPassSynPositionalOnly:
+          n[a] = operand
+
+        n[a].typ = operand.typ
+      of formalTypeKindUntypedAst:
+        discard "do not set `n[a]`, as `n` is semmed operand storage"
+
+      # match param types
+      m.baseTypeMatch = false   # reset so we can test later
+      m.typedescMatched = false # reset so we can test later
+      arg = paramTypesMatch(m, formal.typ, operand.typ, operand)
+
+      # setup the container, or tear it down if we're not in a varargs
+      container = 
+        case formalPlurality
+        of formalVarargs:
+          case formalTypeKind
+          of formalTypeKindTypedAst, formalTypeKindUntypedAst:
+            getOrCreateContainer()
+          of formalTypeKindNonAst:
+            getOrCreateContainer(arg)
+        of formalSingular:
+          nil
+
+      # check and advance the argument match
+      case formalTypeKind
+      of formalTypeKindUntypedAst:
+        c.config.internalAssert(arg.isNil, operand.info, "should never happen")
+
+        # TODO: handle trailing singular params requiring args with a
+        #       `trailingFormalCount` etc
+
+        case formalPlurality
+        of formalVarargs:
+          container.add arg
+          incrIndexType(container.typ)
+          setSon(m.call, formal.position + 1, container)
+        of formalSingular:
+          setSon(m.call, formal.position + 1, arg)
+          inc f
+
+        if arg.kind == nkError:
+          noMatchDueToError()
+
+        checkConstraint(operand)
+        inc a
+      of formalTypeKindTypedAst:
+        case formalPlurality
+        of formalVarargs:
+          let trailingFormalCount = formalLen - f - 1
+          if a >= n.len - trailingFormalCount:
+            # only increment `f` if we're down to enough args for the
+            # remaining params, this limits the greediness of
+            # `varargs[typed]` matching
+            inc f
+          else:
+            if arg.isNil:
+              noMatch()
+            else:
+              # we don't check for nkError because typed args can take errors,
+              # for now
+              container.add arg
+              incrIndexType(container.typ)
+              setSon(m.call, formal.position + 1, container)
+            checkConstraint(operand)
+            inc a
+        of formalSingular:
+          case argPassingSyntax
+          of argPassSynPositional, argPassSynPositionalOnly:
+            if arg.isNil:
+              noMatch()
+            else:
+              # we don't check for nkError because typed args can take errors,
+              # for now
+              setSon(m.call, formal.position + 1, arg)
+          of argPassSynNamed:
+            # xxx: can this happen earlier?
+            m.error.firstMismatch.kind = kTypeMismatch
+
+            if arg.isNil():
+              # these are legacy errors where we sometimes return nil
+              noMatch()
+            elif (arg.kind == nkSym and arg.sym.isError):
+              # somewhere the sym went sideways, not sure if this happens
+              # xxx: eventually track down if/when this happens and fix
+              arg = arg.sym.ast
+            else:
+              discard "check constraints down below"
+
+            setSon(m.call, formal.position + 1, arg)
+
+            if operand.kind == nkError:
+              discard "typed params accept errors, rejected in evalTemplateArgs"
+
+          checkConstraint(operand)  # will update `m` with info
+          inc a
+          inc f
+      of formalTypeKindNonAst:
+        case formalPlurality
+        of formalVarargs:
+          let trailingFormalCount = formalLen - f - 1
+          if a >= n.len - trailingFormalCount:
+            # only increment `f` if we're down to enough args for the remaining
+            # params, this limits the greediness of `varargs[...]` matching
+            inc f
+          else:
+            if arg.isNil:
+              noMatch()
+            else:
+              container.add arg
+              incrIndexType(container.typ)
+              setSon(m.call, formal.position + 1, container)
+            if arg.kind == nkError:
+              noMatchDueToError()
+            checkConstraint(operand)
+            inc a
+        of formalSingular:
+          case argPassingSyntax
+          of argPassSynPositional, argPassSynPositionalOnly:
+            if arg.isNil:
+              noMatch()
+            else:
+              setSon(m.call, formal.position + 1, arg)
+          of argPassSynNamed:
+            # xxx: can this happen earlier?
+            m.error.firstMismatch.kind = kTypeMismatch
+
+            if arg.isNil:
+              # these are legacy errors where we somtimes return nil
+              noMatch()
+            elif (arg.kind == nkSym and arg.sym.isError):
+              # somewhere the sym went sideways, not sure if this happens
+              # xxx: eventually track down if/when this happens and fix
+              arg = arg.sym.ast
+            else:
+              discard "check for error and constraints below"
+
+            setSon(m.call, formal.position + 1, arg)
+
+          if arg.kind == nkError:
+            noMatchDueToError()
+
+          checkConstraint(operand) # will update `m` with info
+          inc a
+          inc f
+
+      # advanced the formal parameter
+      case formalPlurality
+      of formalVarargs:
+        case formalTypeKind
+        of formalTypeKindUntypedAst:
+          # `varargs[untyped]` consumes all remaining arguments for this
+          # formal, so we don't increment `f`
+          discard
+        of formalTypeKindTypedAst:
+          let trailingFormalCount = formalLen - f - 1
+          if a >= n.len - trailingFormalCount:
+            # only increment `f` if we're down to enough args for the
+            # remaining params, this limits the greediness of
+            # `varargs[typed]` matching
+            inc f
+        of formalTypeKindNonAst:
+          discard "TODO: implement me"
+      of formalSingular:
+        inc f
+
+
 proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet) =
   ## used to match a call `n` with a candidate `m`, noting matched formal
   ## params in `marker` by position. `m` and `marker` are out parameters and
