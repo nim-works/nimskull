@@ -296,11 +296,12 @@ proc getOptionalStrLit(c: PContext, n: PNode, defaultStr: string): PNode =
   if n.kind in nkPragmaCallKinds: result = getStrLitNode(c, n)
   else: result = newStrNode(defaultStr, n.info)
 
-proc processCodegenDecl(c: PContext, n: PNode, sym: PSym): PNode =
+proc processCodegenDecl(c: PContext, n: PNode, sym: PSym) =
   ## produces (mutates) sym using the `TSym.constraint` field (xxx) to store
   ## the string literal from `n`
-  result = getStrLitNode(c, n)
-  sym.constraint = result
+  result = n
+  let r = getStrLitNode(c, n)
+  sym.constraint = r
   # issue a deprecation warning:
   c.config.localReport(n.info, reportSem(rsemCodegenDeclDeprecated))
 
@@ -1382,7 +1383,8 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         result = noVal(c, it)
         incl(sym.flags, sfNoInit)
       of wCodegenDecl:
-        result = processCodegenDecl(c, it, sym)
+        processCodegenDecl(c, it, sym)
+        result = it
       of wStackTrace, wLineTrace:
         result = processOption(c, it, sym.options)
       of FirstCallConv..LastCallConv:
