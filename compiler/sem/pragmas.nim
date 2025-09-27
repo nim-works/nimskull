@@ -296,14 +296,6 @@ proc getOptionalStrLit(c: PContext, n: PNode, defaultStr: string): PNode =
   if n.kind in nkPragmaCallKinds: result = getStrLitNode(c, n)
   else: result = newStrNode(defaultStr, n.info)
 
-proc processCodegenDecl(c: PContext, n: PNode, sym: PSym): PNode =
-  ## produces (mutates) sym using the `TSym.constraint` field (xxx) to store
-  ## the string literal from `n`
-  result = getStrLitNode(c, n)
-  sym.constraint = result
-  # issue a deprecation warning:
-  c.config.localReport(n.info, reportSem(rsemCodegenDeclDeprecated))
-
 proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
   ## produces an error if `n` is not a pragmacall kinds, otherwise `n` is
   ## returned as is and production (mutation) is carried out on `s`, updating
@@ -1382,7 +1374,16 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         result = noVal(c, it)
         incl(sym.flags, sfNoInit)
       of wCodegenDecl:
-        result = processCodegenDecl(c, it, sym)
+        ## produces (mutates) sym using the `TSym.constraint` field (xxx) to store
+        ## the string literal from `n`
+        sym.constraint = getStrLitNode(c, it)
+        # issue a deprecation warning:
+        c.config.localReport(it.info, reportSem(rsemCodegenDeclDeprecated))
+        result =
+          case sym.constraint.kind
+          of nkStrLiterals: it
+          of nkError: sym.constraint
+          else: unreachable()
       of wStackTrace, wLineTrace:
         result = processOption(c, it, sym.options)
       of FirstCallConv..LastCallConv:
