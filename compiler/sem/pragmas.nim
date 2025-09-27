@@ -299,7 +299,6 @@ proc getOptionalStrLit(c: PContext, n: PNode, defaultStr: string): PNode =
 proc processCodegenDecl(c: PContext, n: PNode, sym: PSym) =
   ## produces (mutates) sym using the `TSym.constraint` field (xxx) to store
   ## the string literal from `n`
-  result = n
   let r = getStrLitNode(c, n)
   sym.constraint = r
   # issue a deprecation warning:
