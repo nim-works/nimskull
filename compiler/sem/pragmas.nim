@@ -1381,7 +1381,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         c.config.localReport(it.info, reportSem(rsemCodegenDeclDeprecated))
         result =
           case sym.constraint.kind
-          of {nkStrLit, nkRStrLit, nkTripleStrLit}: it
+          of nkStrLiterals: it
           of nkError: sym.constraint
           else: unreachable()
       of wStackTrace, wLineTrace:
