@@ -96,7 +96,7 @@ proc parseCli*(T: typedesc[bool], value: string): T =
 
 proc parseCli*(T: typedesc[enum], value: string): T =
   ## Implements `parseCli` for enum types.
-  parseEnum(value)
+  parseEnum[T](value)
 
 proc parseCli*(T: typedesc[range], value: string): T =
   ## Implements `parseCli` for range types.
