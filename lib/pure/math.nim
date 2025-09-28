@@ -60,6 +60,8 @@ import std/private/since
 
 import std/[bitops, fenv]
 
+const windowsCC89 = defined(windows) and defined(bcc)
+
 when defined(c):
   proc c_isnan(x: float): bool {.importc: "isnan", header: "<math.h>".}
     # a generic like `x: SomeFloat` might work too if this is implemented via a C macro.
@@ -161,7 +163,7 @@ func isNaN*(x: SomeFloat): bool {.inline, since: (1,5,1).} =
   template fn: untyped = result = x != x
   when nimvm: fn()
   else:
-    when defined(js) or defined(vm): fn()
+    when defined(js) or defined(vm) or defined(nimscript): fn()
     else: result = c_isnan(x)
 
 when defined(js):
@@ -208,7 +210,7 @@ proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
     when defined(js):
       let uintBuffer = toBitsImpl(x)
       result = (uintBuffer[1] shr 31) != 0
-    elif defined(vm):
+    elif defined(vm) or defined(nimscript):
       result = signbitCastImpl()
     else:
       result = c_signbit(x) != 0
@@ -240,7 +242,7 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
       let uintBuffer = toBitsImpl(y)
       let sgn = (uintBuffer[1] shr 31) != 0
       result = jsSetSign(x, sgn)
-    elif defined(vm):
+    elif defined(vm) or defined(nimscript):
       copySignImpl()
     else:
       result = c_copysign(x, y)
@@ -654,8 +656,6 @@ func arcsech*[T: float32|float64](x: T): T = arccosh(1.0 / x)
 func arccsch*[T: float32|float64](x: T): T = arcsinh(1.0 / x)
   ## Computes the inverse hyperbolic cosecant of `x` (`arcsinh(1/x)`).
 
-const windowsCC89 = defined(windows) and defined(bcc)
-
 when not defined(js): # C
   func hypot*(x, y: float32): float32 {.importc: "hypotf", header: "<math.h>".}
   func hypot*(x, y: float64): float64 {.importc: "hypot", header: "<math.h>".} =
@@ -1015,7 +1015,7 @@ template pureLog2Impl[T: SomeFloat](x: T): T =
   if frac == 0.5: return T(exp - 1)
   log10(frac) * (1 / ln2) + T(exp)
 
-when windowsCC89 or defined(vm):
+when windowsCC89 or defined(vm) or defined(nimscript):
   func log2*(x: float32): float32 = pureLog2Impl(x)
   func log2*(x: float64): float64 = pureLog2Impl(x)
 elif defined(c):
@@ -1076,7 +1076,7 @@ func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.} =
   when nimvm:
     frexpImpl()
   else:
-    when defined(js) or defined(vm):
+    when defined(js) or defined(vm) or defined(nimscript):
       frexpImpl()
     else:
       var exp: cint
