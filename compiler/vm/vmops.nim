@@ -47,14 +47,7 @@ from compiler/ast/report_enums import ReportKind
 from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
-  lgamma
-when declared(math.copySign):
-  # pending bug #18762, avoid renaming math
-  from std/math as math2 import copySign
-
-when declared(math.signbit):
-
-  from std/math as math3 import signbit
+  lgamma, signbit, copySign
 
 from std/os import getEnv, existsEnv, delEnv, putEnv, envPairs,
   dirExists, fileExists, walkDir, getAppFilename, getCurrentDir,
@@ -341,11 +334,8 @@ iterator basicOps*(): Override =
   override "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
     setResult(a, `mod`(getFloat(a, 0), getFloat(a, 1)))
 
-  when declared(copySign):
-    wrap2f_math(copySign)
-
-  when declared(signbit):
-    wrap1f_math(signbit)
+  wrap1f_math(signbit)
+  wrap2f_math(copySign)
 
   override "stdlib.math.round", proc (a: VmArgs) {.nimcall.} =
     let n = a.numArgs
