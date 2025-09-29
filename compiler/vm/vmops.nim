@@ -44,10 +44,10 @@ from compiler/front/msgs import localReport
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
-from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
+from std/math import sqrt, ln, log10, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
-  lgamma, signbit, copySign
+  lgamma
 
 from std/os import getEnv, existsEnv, delEnv, putEnv, envPairs,
   dirExists, fileExists, walkDir, getAppFilename, getCurrentDir,
@@ -304,7 +304,6 @@ iterator basicOps*(): Override =
   wrap1f_math(cbrt)
   wrap1f_math(ln)
   wrap1f_math(log10)
-  wrap1f_math(log2)
   wrap1f_math(exp)
   wrap1f_math(arccos)
   wrap1f_math(arcsin)
@@ -333,9 +332,6 @@ iterator basicOps*(): Override =
   #      identifier construction, so the above can't be used here
   override "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
     setResult(a, `mod`(getFloat(a, 0), getFloat(a, 1)))
-
-  wrap1f_math(signbit)
-  wrap2f_math(copySign)
 
   override "stdlib.math.round", proc (a: VmArgs) {.nimcall.} =
     let n = a.numArgs

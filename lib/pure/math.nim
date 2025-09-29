@@ -1008,12 +1008,12 @@ func ceilDiv*[T: SomeInteger](x, y: T): T {.inline, since: (1, 5, 1).} =
 func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.}
 
 template pureLog2Impl[T: SomeFloat](x: T): T =
-  const ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
-  var (frac, exp) = frexp(x)
-  # Make sure exact powers of two give an exact answer.
-  # Don't depend on Log(0.5)*(1/Ln2)+exp being exactly exp-1.
-  if frac == 0.5: return T(exp - 1)
-  log10(frac) * (1 / ln2) + T(exp)
+  # ln(2)
+  const Ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
+  if x == 0.0 or x == -0.0: -Inf
+  elif x < 0: NaN
+  elif x >= Inf or x.isNan: x
+  else: ln(x) / Ln2
 
 when windowsCC89 or defined(vm) or defined(nimscript):
   func log2*(x: float32): float32 = pureLog2Impl(x)
