@@ -200,12 +200,12 @@ proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
 
   template signbitCastImpl: bool =
     when x is float32:
-      (cast[uint32](x) and (1'u32 shl 31)) != 0
+      (cast[uint32](x) shr 31) != 0
     else:
-      (cast[uint64](x) and (1'u64 shl 63)) != 0
+      (cast[uint64](x) shr 63) != 0
 
   when nimvm:
-    signbitCastImpl()
+    result = signbitCastImpl()
   else:
     when defined(js):
       let uintBuffer = toBitsImpl(x)
@@ -1012,7 +1012,7 @@ template pureLog2Impl[T: SomeFloat](x: T): T =
   const Ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
   if x == 0.0 or x == -0.0: -Inf
   elif x < 0: NaN
-  elif x >= Inf or x.isNan: x
+  elif x >= Inf or x.isNaN: x
   else: ln(x) / Ln2
 
 when windowsCC89 or defined(vm) or defined(nimscript):
