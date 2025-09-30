@@ -253,7 +253,18 @@ template main() =
 
     doAssert not signbit(Inf)
     doAssert signbit(-Inf)
+    doAssert not signbit(NaN)
 
+    let x1 = NaN
+    let x2 = -NaN
+    let x3 = -x1
+
+    doAssert isNaN(x1)
+    doAssert isNaN(x2)
+    doAssert isNaN(x3)
+    doAssert not signbit(x1)
+    doAssert signbit(x2)
+    doAssert signbit(x3)
 
   block: # copySign
     doAssert copySign(10.0, 1.0) == 10.0
@@ -286,6 +297,21 @@ template main() =
     doAssert copySign(0.0, -0.0) == -0.0
     doAssert copySign(-1.0, 0.0) == 1.0
     doAssert copySign(10.0, 0.0) == 10.0
+    doAssert copySign(-1.0, NaN) == 1.0
+    doAssert copySign(10.0, NaN) == 10.0
+
+    doAssert copySign(NaN, NaN).isNaN
+    doAssert copySign(-NaN, NaN).isNaN
+    doAssert copySign(NaN, -NaN).isNaN
+    doAssert copySign(-NaN, -NaN).isNaN
+    doAssert copySign(NaN, 0.0).isNaN
+    doAssert copySign(NaN, -0.0).isNaN
+    doAssert copySign(-NaN, 0.0).isNaN
+    doAssert copySign(-NaN, -0.0).isNaN
+
+    doAssert copySign(-1.0, NaN) == 1.0
+    doAssert copySign(-1.0, -NaN) == -1.0
+    doAssert copySign(1.0, copySign(NaN, -1.0)) == -1.0
 
   block: # almostEqual
     doAssert almostEqual(3.141592653589793, 3.1415926535897936)
