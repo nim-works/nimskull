@@ -161,7 +161,7 @@ func isNaN*(x: SomeFloat): bool {.inline, since: (1,5,1).} =
   template fn: untyped = result = x != x
   when nimvm: fn()
   else:
-    when defined(js) or defined(vm) and defined(nimscript): fn()
+    when defined(js) or defined(vm) or defined(nimscript): fn()
     else: result = c_isnan(x)
 
 when defined(js):
@@ -198,9 +198,9 @@ proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
 
   template signbitCastImpl: bool =
     when x is float32:
-      (cast[uint32](x) and (1'u32 shl 31)) != 0
+      (cast[uint32](x) shr 31) != 0
     else:
-      (cast[uint64](x) and (1'u64 shl 63)) != 0
+      (cast[uint64](x) shr 63) != 0
 
   when nimvm:
     result = signbitCastImpl()
@@ -208,7 +208,7 @@ proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
     when defined(js):
       let uintBuffer = toBitsImpl(x)
       result = (uintBuffer[1] shr 31) != 0
-    elif defined(vm) and defined(nimscript):
+    elif defined(vm) or defined(nimscript):
       result = signbitCastImpl()
     else:
       result = c_signbit(x) != 0
@@ -240,7 +240,7 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
       let uintBuffer = toBitsImpl(y)
       let sgn = (uintBuffer[1] shr 31) != 0
       result = jsSetSign(x, sgn)
-    elif defined(vm) and defined(nimscript):
+    elif defined(vm) or defined(nimscript):
       result = copySignImpl()
     else:
       result = c_copysign(x, y)
@@ -1077,7 +1077,7 @@ func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.} =
   when nimvm:
     frexpImpl()
   else:
-    when defined(js) or defined(vm) and defined(nimscript):
+    when defined(js) or defined(vm) or defined(nimscript):
       frexpImpl()
     else:
       var exp: cint
