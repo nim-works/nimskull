@@ -44,7 +44,7 @@ from compiler/front/msgs import localReport
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
-from std/math import sqrt, ln, log10, exp, round, arccos, arcsin,
+from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
   lgamma
@@ -304,6 +304,7 @@ iterator basicOps*(): Override =
   wrap1f_math(cbrt)
   wrap1f_math(ln)
   wrap1f_math(log10)
+  wrap1f_math(log2)
   wrap1f_math(exp)
   wrap1f_math(arccos)
   wrap1f_math(arcsin)
