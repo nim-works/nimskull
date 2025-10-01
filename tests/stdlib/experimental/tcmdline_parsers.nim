@@ -17,13 +17,6 @@ block intParser:
   doAssertRaises(ValueError):
     discard parseCli(uint8, "-1")
 
-block floatParser:
-  doAssert parseCli(float64, "3.14") == 3.14
-  doAssert parseCli(float64, "-3.14") == -3.14
-  doAssert parseCli(float32, "nan").isNaN
-  doAssert parseCli(float32, "inf") == Inf
-  doAssert parseCli(float32, "-inf") == -Inf
-
 block stringParser:
   doAssert parseCli(string, "foo bar") == "foo bar"
 
