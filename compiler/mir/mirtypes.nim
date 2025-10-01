@@ -508,6 +508,58 @@ proc lookupDiscr*(env: TypeEnv, desc: TypeHeader, id: FieldId): FieldId =
       unreachable("type environment is invalid")
   unreachable("given field is not part of type")
 
+proc getBranch*(env: TypeEnv, outer, typ: TypeId, id: FieldId,
+                val: Int128): FieldId =
+  ## For the tagged union field identified by `id`, returns the union's field
+  ## storing the variant for discriminator value `val`.
+  # fairly complex, as the necessary information is not part of the MIR type
+  # representation; the PType has to be inspected
+
+  proc findBranch(n: PNode, val: Int128): int =
+    ## Finds the 0-based index of the branch covering `val`.
+    for (i, branch) in branches(n):
+      case branch.kind
+      of nkOfBranch:
+        for (_, it) in branchLabels(branch):
+          if it.kind == nkRange:
+            if val >= getOrdValue(it[0]) and val <= getOrdValue(it[1]):
+              return i
+          elif getOrdValue(it) == val:
+            return i
+      of nkElse:
+        return i
+      else:
+        unreachable()
+    unreachable()
+
+  proc findCase(n: PNode, name: string): PNode =
+    ## Finds the ``nkRecCase`` node whose discriminator has name `name`.
+    case n.kind
+    of nkRecCase:
+      if n[0].sym.name.s == name:
+        return n
+      for (_, it) in branches(n):
+        result = findCase(it[^1], name)
+        if result != nil: return
+    of nkRecList:
+      for it in n.items:
+        result = findCase(it, name)
+        if result != nil: return
+    of nkSym:
+      result = nil
+    else:
+      unreachable()
+
+  # note: don't canonicalize in order to get the raw object type, as this
+  # would also skip over non-canonical generic instance, which is not desired
+  # in this case
+  let
+    inst  = env.symbols[outer].inst.skipTypes(Skip)
+    discr = env.lookupDiscr(env.headerFor(typ, Lowered), id)
+    n     = findCase(inst.n, env.idents[env.fields[ord discr].ident])
+    pos   = uint32 findBranch(n, val)
+  result = FieldId(env.headerFor(env.fields[ord id].typ, Lowered).a + pos)
+
 # struct/proc builder API
 # -----------------------
 
