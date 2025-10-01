@@ -1026,7 +1026,9 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # register the type symbol *first*. This prevents infinite recursion for
     # cyclic types
     result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
-    env.map[t] = result
+    # don't override mappings pointing to the imported type
+    if sfImportc notin t.sym.flags:
+      env.map[t] = result
 
     let
       orig  = typeToMir(env, t, canon=false)
@@ -1079,8 +1081,11 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
 
 proc handleImported(env: var TypeEnv, t: PType): TypeId =
   if t.sym != nil and sfImportc in t.sym.flags:
-    # an imported type. It's wrapped in a ``tkImported``, referencing the
-    # underlying type
+    # add and register a preliminary symbol first, so that recursion terminates
+    result = env.symbols.add:
+      TypeSym(inst: t, canon: env.symbols.nextId())
+    env.map[t] = result
+
     let base =
       if t.kind in Skip:
         env.add t.lastSon.skipIrrelevant()
@@ -1096,11 +1101,9 @@ proc handleImported(env: var TypeEnv, t: PType): TypeId =
       orig  = env.add makeDesc(tkImported, size, t.align, base)
       canon = env.add makeDesc(tkImported, size, t.align,
                                env.canonical(base))
-    result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId(),
-                                     desc: [orig, canon, canon])
 
-    # doesn't matter if a symbol mapping already exists (happens when
-    # `base` == `t`); override it
+    env.symbols[result].desc = [orig, canon, canon]
+    # when `base` == `t`, the mapping changed; correct it:
     env.map[t] = result
   else:
     result = typeSymToMir(env, t)
