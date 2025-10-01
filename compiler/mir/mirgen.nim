@@ -2002,6 +2002,8 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
         c.use typeLit(c.typeToMir(it.typ.base))
+      elif it.kind in nkStrLiterals:
+        c.use strLiteral(c.env, it.strVal, CstringType)
       else:
         # emit and asm statements support lvalue operands
         genOperand(c, it)
