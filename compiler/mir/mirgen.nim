@@ -184,7 +184,8 @@ const
     ## into assignments-to-temporaries
 
 func isHandleLike(t: PType): bool =
-  t.skipTypes(abstractInst).kind in {tyPtr, tyRef, tyLent, tyVar, tyOpenArray}
+  t.skipTypes(abstractInst).kind in
+    {tyPtr, tyRef, tyLent, tyVar, tyOpenArray, tyVarargs}
 
 # XXX: copied from ``injectdestructors``. Move somewhere common
 proc isCursor(n: PNode): bool =
