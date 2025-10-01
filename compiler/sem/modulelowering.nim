@@ -23,7 +23,9 @@ import
     ast_types,
     ast_query,
     lineinfos,
-    idents
+    idents,
+    trees,
+    wordrecg
   ],
   compiler/front/[
     options
@@ -58,6 +60,8 @@ type
     decls*: PNode
       ## all declarative statements (type, routine, and constant
       ## definitions)
+    emit*: seq[PNode]
+      ## all top-level emit and asm statements
     structs*: ModuleStructs
       ## the contents of the module's structs
 
@@ -166,6 +170,41 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
     # what to do with them, this also includes declarative statements part
     # of nested scopes (those inside ``if``, ``block``, etc. statements)
     imperative.add(n)
+
+proc splitEmitAndAsm(stmts: var seq[PNode]): seq[PNode] =
+  ## Splits all top-level emit and emit statements from `n` into a separate
+  ## list.
+  var i = 0
+  while i < stmts.len:
+    let s = stmts[i]
+    case s.kind
+    of nkAsmStmt:
+      result.add(s)
+      stmts.delete(i)
+    of nkPragma:
+      # a pragma statement may contain multiple emit pragmas
+      var modified = s
+      for at, it in s.pairs:
+        if whichPragma(it) == wEmit:
+          if modified == s:
+            # copy on write
+            modified = newNodeI(nkPragma, s.info)
+            for j in 0..<at:
+              modified.add s[j]
+
+          result.add newTreeI(nkPragma, it.info, it)
+        elif modified != s:
+          modified.add it
+
+      if modified == s:
+        inc i # nothing changed
+      elif modified.len > 0:
+        stmts[i] = modified
+        inc i
+      else:
+        stmts.delete(i)
+    else:
+      inc i # keep the statement
 
 proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, postfix: string,
                     module: PSym, body: PNode, options: TOptions): PSym =
@@ -377,12 +416,12 @@ proc changeOwner(n: PNode, newOwner: PSym) =
       changeOwner(it, newOwner)
 
 proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
-                  decls, imperative: seq[PNode]): Module =
+                  decls, imperative, emit: seq[PNode]): Module =
   ## Creates a ``Module`` instance from `decls` and `imperative`. The module
   ## structs are populated with the initial items (top-level globals defined
   ## in the outermost scope, and threadvars) and the module-bound operators
   ## are set up.
-  result = Module(sym: m, idgen: idgen)
+  result = Module(sym: m, idgen: idgen, emit: emit)
 
   result.decls =
     if decls.len == 0: newNodeI(nkEmpty, m.info)
@@ -464,8 +503,13 @@ proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
     c = CollectPassCtx(b)
     pos = c.module.position.FileIndex
 
+  var emit: seq[PNode]
+  if graph.config.backend == backendC:
+    # top-level emit splitting only makes sense when compiling to C
+    emit = splitEmitAndAsm(c.imperative)
+
   list.modules[pos] = setupModule(graph, c.idgen, c.module, c.decls,
-                                  c.imperative)
+                                  c.imperative, emit)
   list.modulesClosed.add(pos)
 
   # remember the positions of important modules:

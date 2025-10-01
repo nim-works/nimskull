@@ -227,7 +227,13 @@ proc processEvent(g: BModuleList, inl: var InliningData,
        emulatedThreadVars(g.config):
       dependOnCompilerProc(inl, g.env, evt.module, g.graph,
                            "initThreadVarsEmulation")
-
+  of bekEmit:
+    let stmt =  translateTopLevelEmit(g.total, g.env, evt.stmt)
+    case evt.section
+    of secIncludes:   g.modules[evt.module].emits.includes.add stmt
+    of secProcedures: g.modules[evt.module].emits.procs.add stmt
+    of secTypes:      g.modules[evt.module].emits.types.add stmt
+    of secVars:       g.modules[evt.module].emits.globals.add stmt
   of bekConstant:
     # emit the definition now that the body is available
     let s = g.env[evt.cnst]
