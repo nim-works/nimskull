@@ -569,6 +569,12 @@ proc getBranch*(env: TypeEnv, outer, typ: TypeId, id: FieldId,
     pos   = uint32 findBranch(n, val)
   result = FieldId(env.headerFor(env.fields[ord id].typ, Lowered).a + pos)
 
+iterator canonical*(env: TypeEnv): TypeId =
+  ## Returns the canonical version of every type part of `env`.
+  for id, it in env.symbols.pairs:
+    if it.canon == id:
+      yield id
+
 # struct/proc builder API
 # -----------------------
 
