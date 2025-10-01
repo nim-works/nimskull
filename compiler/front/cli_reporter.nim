@@ -2840,6 +2840,12 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   of rbackTargetNotSupported:
     "Compiler '$1' doesn't support the requested target" % r.usedCompiler
 
+  of rbackTlsEmulationNotImplemented:
+    "Thread-local storage emulation is currently not implemented"
+
+  of rbackHeaderGenerationNotImplemented:
+    "C header generation is currently not implemented"
+
   of rbackJsonScriptMismatch:
     (
       "jsonscript command outputFile '$1' must " &

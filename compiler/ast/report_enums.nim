@@ -849,6 +849,8 @@ type
     rbackCannotWriteMappingFile ## Cannot write module compilation mapping
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
+    rbackTlsEmulationNotImplemented
+    rbackHeaderGenerationNotImplemented
     rbackJsTooCaseTooLarge
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
