@@ -126,3 +126,5 @@ proc generateCode*(g: ModuleGraph, mlist: sink ModuleList) =
       moduleToC(m, v, header, optLineDir in g.config.options)
 
     writeModule(g, it.sym, cfile, code)
+
+  writeMapping(g.config, "")
