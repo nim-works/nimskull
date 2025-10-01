@@ -3083,3 +3083,6 @@ type
       next: proc(env: pointer): Continuation[T] {.nimcall.}
     of true:
       result: T
+
+when defined(c) and defined(systemHasMainDef):
+  include system/cboot
