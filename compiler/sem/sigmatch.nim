@@ -2986,8 +2986,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, diags: DiagContext,
       if m.baseTypeMatch or (arg.isError and container.isNil):
         #assert(container.isNil())
         container = newNodeIT(nkBracket, n[a].info, arrayConstr(c, arg))
+        container.typ.flags.incl tfVarargs
         container.add arg
-        setSon(m.call, formal.position + 1, container)
+        setSon(m.call, formal.position + 1,
+          implicitConv(nkHiddenStdConv, formal.typ, container, m, c))
 
         if f != formalLen - 1: # not the last formal param
           container = nil      # xxx: is this more vararg stuff?
