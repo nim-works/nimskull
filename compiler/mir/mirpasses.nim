@@ -963,6 +963,51 @@ proc injectTypeHeaderInit(tree: MirTree; env: var MirEnv,
           walk(tree, env, parent, it, ptype.n, bu)
           typ = env.types.headerFor(typ, Lowered).base(env.types)
 
+proc moveUnscoped(tree: MirTree, changes: var Changeset) =
+  ## Moves defs within `mnkIf` sections without an explicit scope to
+  ## before the if, so that the def is guaranteed to dominate all usages.
+  # TODO: don't emit "mis-scoped" defs in the first place (happens for and/or
+  #       translation) and then remove this pass again
+  var
+    stack: seq[(int, NodePosition, LabelId)]
+    depth = 0
+    it = NodePosition(0)
+  while it < tree.len.NodePosition:
+    case tree[it].kind
+    of mnkIf:
+      if tree[tree.sibling(it)].kind != mnkScope:
+        # found an 'if' with an unscoped body
+        if stack.len == 0 or stack[^1][0] != depth:
+          # make sure to move to the start of the *outermost* unscoped 'if':
+          #   if ...:         # <- move to before here
+          #     if ...:       # <- not before here
+          #       def x = ...
+          stack.add (depth, it, tree[it, 1].label)
+    of mnkDef, mnkDefCursor:
+      if stack.len > 0 and stack[^1][0] == depth:
+        # the def is part of an 'if' and there's no (unclosed) scope start
+        # in-between them -> move
+        changes.insert(tree, stack[^1][1], it, bu):
+          bu.subTree tree[it].kind:
+            bu.add tree[it, 0]
+            bu.add MirNode(kind: mnkNone)
+        # the initialization (if any) needs to stay where it is
+        if tree[it, 1].kind == mnkNone:
+          changes.remove(tree, it)
+        else:
+          changes.changeTree(tree, it, MirNode(kind: mnkInit))
+    of mnkScope:
+      inc depth
+    of mnkEndScope:
+      dec depth
+    of mnkEndStruct:
+      if stack.len > 0 and stack[^1][2] == tree[it, 0].label:
+        stack.shrink(stack.len - 1)
+    else:
+      discard
+
+    it = tree.sibling(it)
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -1023,6 +1068,12 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
     batch:
       injectProfilerCalls(body.code, graph, env, c)
 
-  # eliminate temporaries after all other passes
+  # eliminate temporaries after all other main passes
   batch:
     eliminateTemporaries(body.code, env.types, c)
+
+  # apply the structural fix-ups and passes needed for the CGIR-based code
+  # generators:
+  if target == targetC:
+    batch:
+      moveUnscoped(body.code, c)
