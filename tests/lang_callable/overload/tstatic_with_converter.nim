@@ -8,7 +8,7 @@ output: '''
 
 ### bug #6773
 
-{.emit: """ /*INCLUDESECTION*/
+{.emit: """/*INCLUDESECTION*/
 typedef double cimported;
  
 cimported set1_imported(double x) {
