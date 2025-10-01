@@ -311,6 +311,33 @@ proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator,
   result.ast.sons.setLen(resultPos + 1)
   result.ast[resultPos] = newSymNode(resSym)
 
+proc generateNimMain*(graph: ModuleGraph, idgen: IdGenerator,
+                      modules: ModuleList): PSym =
+  ## Generates the 'NimMain' procedure, which runs the whole program
+  ## (`modules`).
+  let owner = mainModule(modules).sym
+
+  # setup the symbol:
+  result = newSym(skProc, getIdent(graph.cache, "NimMain"), nextSymId idgen,
+                  owner, unknownLineInfo, {})
+  result.flags.incl sfNeverRaises
+  result.flags.incl sfExportc
+  result.extname = "NimMain"
+  result.typ = newProcType(unknownLineInfo, nextTypeId idgen, owner)
+  result.typ.callConv = ccCDecl
+
+  var body = newNode(nkStmtList)
+  generateMain(graph, modules, body)
+  generateTeardown(graph, modules, body)
+
+  result.ast = newProcNode(nkProcDef, owner.info, body,
+    params        = newTree(nkFormalParams, [graph.emptyNode]),
+    name          = newSymNode(result),
+    pattern       = graph.emptyNode,
+    genericParams = graph.emptyNode,
+    pragmas       = graph.emptyNode,
+    exceptions    = graph.emptyNode)
+
 # ----- general queries about MIR fragments and trees -----
 
 func isEmpty*(tree: MirTree): bool =
