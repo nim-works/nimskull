@@ -565,7 +565,7 @@ iterator subNodes*(tree: MirTree, n: NodePosition; start = 0): NodePosition =
   ## `start`.
   let L = tree[n].len
   var n = tree.child(n, start)
-  for _ in 0..<L:
+  for _ in start..<int(L):
     yield n
     n = tree.sibling(n)
 
