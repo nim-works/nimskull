@@ -375,6 +375,12 @@ iterator params*(env: TypeEnv, desc: TypeHeader
     yield (int(i - desc.a - 1), env.params[i].typ,
            cast[set[ParamFlag]](env.params[i].x))
 
+func paramType*(desc: TypeHeader, env: TypeEnv, i: uint32): TypeId =
+  ## Returns the type of the `i`-th parameter for proc/closure type `desc`.
+  assert desc.kind in {tkProc, tkClosure}
+  assert desc.a + 1 + i < desc.b, "invalid parameter index"
+  env.params[desc.a + uint32(i) + 1].typ
+
 func base*(desc: TypeHeader, env: TypeEnv): TypeId =
   ## Returns the node storing the base type (i.e., the parent type) for a
   ## struct type.
