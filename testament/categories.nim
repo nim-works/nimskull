@@ -126,7 +126,8 @@ proc threadTests(r: var TResults, cat: Category, options: string) =
   template test(filename: untyped) =
     testSpec r, makeTest(filename, options, cat)
     testSpec r, makeTest(filename, options & " -d:release", cat)
-    testSpec r, makeTest(filename, options & " --tlsEmulation:on", cat)
+    # XXX: tls emulation is not implemented by the C code generator
+    # testSpec r, makeTest(filename, options & " --tlsEmulation:on", cat)
   for t in os.walkFiles("tests/threads/t*.nim"):
     test(t)
 
