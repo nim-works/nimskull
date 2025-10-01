@@ -564,6 +564,25 @@ proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
       bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseFloatOverflow")):
         bu.emitByVal result
 
+proc emitBoundCheck(tree; call; graph; env; bu) =
+  ## Emits the lowered version of a bound check.
+  case env.types.headerFor(tree[tree.argument(call, 0)].typ, Canonical).kind
+  of tkSeq, tkString, tkOpenArray, tkCstring:
+    let len = bu.wrapTemp env.types.sizeType:
+      # note: lengthOpenArray works for all containers
+      bu.buildMagicCall mLengthOpenArray, env.types.sizeType:
+        bu.subTree mnkArg:
+          bu.emitFrom(tree, NodePosition tree.argument(call, 0))
+
+    bu.emitCall(tree, call, env.addCompilerProc(graph, "chckBounds")):
+      bu.emitByVal len
+      bu.subTree mnkArg:
+        bu.emitFrom(tree, NodePosition tree.argument(call, 1))
+      bu.subTree mnkArg:
+        bu.emitFrom(tree, NodePosition tree.argument(call, 2))
+  else:
+    unreachable()
+
 proc lowerChecks*(body; graph; env; changes: var Changeset) =
   ## Lowers all magic calls implementing the run-time checks.
   template tree: MirTree = body.code
@@ -599,6 +618,10 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
         let call = tree.parent(i)
         changes.replaceMulti(tree, tree.parent(call), bu):
           emitObjectCheck(tree, call, graph, env, bu)
+      of mChckBounds:
+        let call = tree.parent(i)
+        changes.replaceMulti(tree, tree.parent(call), bu):
+          emitBoundCheck(tree, call, graph, env, bu)
 
       of mAddI, mSubI, mMulI, mModI, mDivI:
         let call = tree.parent(i)
