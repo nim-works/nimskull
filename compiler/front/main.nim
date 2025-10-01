@@ -44,7 +44,6 @@ import
   ],
   compiler/backend/[
     extccomp,    # Calling C compiler
-    cgen,        # C code generation
   ],
   compiler/utils/[
     platform,    # Target platform data
@@ -204,20 +203,17 @@ proc commandCompileToC(graph: ModuleGraph) =
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
-    cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
-    cbackend2.generateCode(graph, finalizeModules(graph))
-    cgenWriteModules(graph.backend, conf)
+    cbackend2.generateCode(graph, graph.finalizeModules())
 
-  if graph.backend != nil:
-    extccomp.callCCompiler(conf)
-    extccomp.writeJsonBuildInstructions(conf)
-    if conf.depfile.string.len != 0:
-      writeGccDepfile(conf)
-    if optGenScript in graph.config.globalOptions:
-      writeDepsFile(graph)
+  extccomp.callCCompiler(conf)
+  extccomp.writeJsonBuildInstructions(conf)
+  if conf.depfile.string.len != 0:
+    writeGccDepfile(conf)
+  if optGenScript in graph.config.globalOptions:
+    writeDepsFile(graph)
 
 proc commandJsonScript(graph: ModuleGraph) =
   extccomp.runJsonBuildInstructions(graph.config, graph.config.jsonBuildInstructionsFile)
