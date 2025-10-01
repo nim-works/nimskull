@@ -410,6 +410,13 @@ func isNoMangle*(f: StructField): bool =
 func isNoAlias*(f: StructField): bool =
   (f.extra and NoAliasFlag) != 0
 
+func isEmbedded*(f: StructField): bool =
+  (f.extra and EmbeddedFlag) != 0
+
+func isTagged*(f: StructField): bool =
+  ## Whether the field stores the union part of a tagged union.
+  (f.extra and TaggedFlag) != 0
+
 func bitsize*(f: StructField): int =
   int(f.extra and 0x00FF)
 
@@ -447,11 +454,6 @@ proc canonical*(env: TypeEnv, typ: TypeId): TypeId =
   ## Returns the canonical symbol for `typ`.
   result = env.symbols[typ].canon
 
-proc isEmbedded*(env: TypeEnv, typ: TypeId): bool =
-  ## Whether the `typ` is a struct that's directly embedded where it's used.
-  env.symbols[typ].inst.isNil and
-    env.headerFor(typ, Lowered).kind in {tkStruct, tkUnion}
-
 proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## Returns the ID of the field with position `pos`. Said field *must* exist
   ## in struct-like type `typ`. Imported types are skipped.
@@ -478,7 +480,7 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
     # types are always embedded at the moment, so they are transparently
     # recursed into
     for (id, it) in fields(env, desc):
-      if isEmbedded(env, it.typ):
+      if isEmbedded(it):
         result = searchStruct(env, env.headerFor(it.typ, Lowered), pos, curr)
         if result[0]:
           return
