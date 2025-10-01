@@ -56,3 +56,6 @@ when true:
   proc nimTestErrorFlag() {.compilerRtl.} =
     if nimInErrorMode:
       sysFatal(ReraiseDefect, "exception handling is not available")
+
+  proc nimUnhandledException() {.compilerRtl.} =
+    quitOrDebug()
