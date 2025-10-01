@@ -2643,8 +2643,8 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
     of nkBracket, nkTupleConstr, nkClosure:
       let kind: range[mnkArrayConstr..mnkClosureConstr] =
         case n.typ.skipTypes(abstractInst).kind
-        of tyArray:                 mnkArrayConstr
-        of tyOpenArray, tySequence: mnkSeqConstr
+        of tyOpenArray, tyArray:    mnkArrayConstr
+        of tySequence:              mnkSeqConstr
         of tyTuple:                 mnkTupleConstr
         of tyProc:                  mnkClosureConstr
         else:                       unreachable()
