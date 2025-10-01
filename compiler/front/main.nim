@@ -208,10 +208,9 @@ proc commandCompileToC(graph: ModuleGraph) =
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
-    cbackend.generateCode(graph)
-    # graph.backend can be nil under IC when nothing changed at all:
-    if graph.backend != nil:
-      cgenWriteModules(graph.backend, conf)
+    cbackend2.generateCode(graph, finalizeModules(graph))
+    cgenWriteModules(graph.backend, conf)
+
   if graph.backend != nil:
     extccomp.callCCompiler(conf)
     extccomp.writeJsonBuildInstructions(conf)
