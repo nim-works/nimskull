@@ -186,8 +186,9 @@ proc lowerProcvals*(tree: MirTree, env: var MirEnv, changes: var Changeset) =
   ## creation of the associated application procedure.
   for pos, it in tree.pairs:
     if it.kind == mnkProcVal:
-      let canon = env.types.canonical(it.typ)
-      if env.types.headerFor(canon, Canonical).callConv(env.types) ==
+      let desc = env.types.headerFor(it.typ, Canonical)
+      if desc.kind != tkClosure and
+         env.types.headerFor(desc.elem, Canonical).callConv(env.types) ==
           ccTailcall:
         # the type of the expression must stay the same; the application
         # procedure procval is bitcast to the correct type
