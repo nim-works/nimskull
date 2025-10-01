@@ -462,6 +462,7 @@ proc produceFragmentsForGlobals(
     var map = move body.source
     if bu.front.len > 0:
       bu.setSource(map.add(n))
+      bu.subTree mnkReturn: discard
       bu.subTree mnkEndScope: discard
 
     body = createBody(bu, map)
