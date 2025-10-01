@@ -251,11 +251,22 @@ template singleToStr() =
   singleToStr(treeParam(), i, result, c)
 
 proc fieldToStr(field: int32, typ: TypeId, result: var string, c: RenderCtx) =
-  if c.env.isNil:
+  let s =
+    if c.env.isNil:
+      nil
+    else:
+      # try to still render something, even if the code is bogus
+      let typ = c.env[][typ].skipTypes(abstractInst)
+      if typ.kind == tyObject:
+        lookupInType(typ, field.int)
+      else:
+        nil
+
+  if s.isNil:
     result.add "Field"
     result.addInt field
   else:
-    result.add lookupInType(c.env[][typ], field.int).name.s
+    result.add s.name.s
 
 template valueToStr() =
   mixin valueToStr
