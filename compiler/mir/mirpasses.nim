@@ -397,6 +397,17 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
     changes.replaceMulti(tree, i, bu):
       bu.use toValue(c, tree[i].typ)
 
+proc extractStringLiterals2(tree: MirTree, env: var MirEnv,
+                            changes: var Changeset) =
+  ## Promotes all inline string literals representing string constructions to
+  ## anonymous constants.
+  for i in search(tree, {mnkStrLit}):
+    if env.types.canonical(tree[i].typ) == StringType:
+      let c = toConstId env.data.getOrPut(@[tree[i]])
+      # replace the usage of the literal with the anonymous constant:
+      changes.replaceMulti(tree, i, bu):
+        bu.use toValue(c, tree[i].typ)
+
 proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) =
   ## Injects a default-initialization for the result variable, if deemed
   ## necessary by data-flow analysis.
@@ -1061,6 +1072,7 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
   if target == targetC:
     batch:
       injectTypeHeaderInit(body.code, env, c)
+      extractStringLiterals2(body.code, env, c)
 
   # instrument the body with profiler calls after all lowerings, but before
   # optimization
