@@ -2158,8 +2158,17 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
     c.buildOp mnkStdConv, typ:
       recurse()
   of pirToSlice:
-    c.buildOp viewOp(mnkToSlice, n.typ), typ:
-      recurse()
+    if e[i - 1].typ.skipTypes(abstractInst).kind == tyArray and
+       c.graph.config.lengthOrd(e[i - 1].typ) == Zero:
+      # empty array types are problematic, as they cannot be represented the
+      # MIR level, so don't create an operation that relies on querying one
+      c.buildOp viewOp(mnkToSlice, n.typ), typ:
+        recurse()
+        c.use intLiteral(c.env, 0, c.env.types.sizeType)
+        c.use intLiteral(c.env, -1, c.env.types.sizeType)
+    else:
+      c.buildOp viewOp(mnkToSlice, n.typ), typ:
+        recurse()
   of pirToSubSlice:
     # the array operand is a PMIR expression already, but the operands
     # specifying the bounds are not
