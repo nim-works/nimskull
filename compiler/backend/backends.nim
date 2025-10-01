@@ -338,6 +338,31 @@ proc generateNimMain*(graph: ModuleGraph, idgen: IdGenerator,
     pragmas       = graph.emptyNode,
     exceptions    = graph.emptyNode)
 
+proc generateThreadTeardownProc*(graph: ModuleGraph, idgen: IdGenerator,
+                                 modules: ModuleList): PSym =
+  ## Generates the 'nimTeardownThreadVars' procedure, which runs the
+  ## destructors for all live threadvars part of the program.
+  let owner = mainModule(modules).sym
+
+  # setup the symbol:
+  result = newSym(skProc, getIdent(graph.cache, "nimTeardownThreadVars"),
+                  nextSymId idgen, owner, unknownLineInfo, {})
+  result.flags.incl sfExportc
+  result.extname = "nimTeardownThreadVars"
+  result.typ = newProcType(unknownLineInfo, nextTypeId idgen, owner)
+  result.typ.callConv = ccNoConvention
+
+  var body = newNode(nkStmtList)
+  generateThreadTeardown(graph, modules, body)
+
+  result.ast = newProcNode(nkProcDef, owner.info, body,
+    params        = newTree(nkFormalParams, [graph.emptyNode]),
+    name          = newSymNode(result),
+    pattern       = graph.emptyNode,
+    genericParams = graph.emptyNode,
+    pragmas       = graph.emptyNode,
+    exceptions    = graph.emptyNode)
+
 # ----- general queries about MIR fragments and trees -----
 
 func isEmpty*(tree: MirTree): bool =
