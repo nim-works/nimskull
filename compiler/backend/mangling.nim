@@ -186,8 +186,7 @@ proc computeTypeName*(g: ModuleGraph, env: TypeEnv, typ: TypeId): string =
       # use the mangled/decorated name
       "_" & mangle(g, env, typ)
   of tkImported:
-    # use the specified external name as-is
-    env.get(typ).inst.sym.extname
+    mangle(g, env.get(typ).inst)
   of tkString:
     "NimStringV2"
   else:
