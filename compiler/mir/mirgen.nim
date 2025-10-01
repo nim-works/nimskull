@@ -2002,11 +2002,6 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
         c.use typeLit(c.typeToMir(it.typ.base))
-      elif it.kind == nkSym and it.sym.kind == skField:
-        # emit and asm support using raw field symbols. For pushing them
-        # through to the code generators, they're quoted (i.e., boxed into
-        # an AST literal)
-        c.use astLiteral(c.env, it, it.sym.typ)
       else:
         # emit and asm statements support lvalue operands
         genOperand(c, it)
