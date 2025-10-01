@@ -639,6 +639,7 @@ type
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
     rsemCannotCodegenCompiletimeProc
+    rsemNameCollision
 
     # Pragma
     rsemInvalidPragma

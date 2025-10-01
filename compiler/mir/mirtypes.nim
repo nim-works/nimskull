@@ -1259,3 +1259,47 @@ func usizeType*(env: TypeEnv): TypeId {.inline.} =
   ## Returns the type to use for values representing some size. This is an
   ## unsigned integer type of target-dependent bit-width.
   env.usizeType
+
+# ---- convenience type constructors
+
+func newArray*(env: var TypeEnv, count: Positive, typ: TypeId): TypeId =
+  ## Generates a array type with `count` elements of type `typ`.
+  let desc = env.headerFor(typ, Original)
+  env.newType(env.add(makeDesc(tkArray,
+    env.toIntVal(count * size(desc, env)),
+    desc.align,
+    typ,
+    uint32 env.toIntVal(count))))
+
+func newTuple*(env: var TypeEnv, elems: varargs[TypeId]): TypeId =
+  ## Generates a tuple (i.e., struct) type with elements `elems`.
+  var size = 0
+  var align = 0'i16
+  for it in elems.items:
+    let desc = env.headerFor(it, Original)
+    if align > 0:
+      if desc.align < 0:
+        align = szUnknownSize
+      else:
+        align = max(align, desc.align)
+
+    if align > 0 and size(desc, env) >= 0:
+      let mask = desc.align - 1
+      size = (size + mask) and not mask
+    else:
+      size = szUnknownSize
+
+  let header = env.buildStruct(env.toIntVal(size), align, bu):
+    for it in elems.items:
+      bu.addField(env, it)
+
+  result = env.newType(header)
+
+func newPtr*(env: var TypeEnv, elem: TypeId): TypeId =
+  ## Generates a pointer type with target `elem`.
+  newPtrTy(env, elem)
+
+func newPtrToArray*(env: var TypeEnv, elem: TypeId): TypeId =
+  ## Generates a type representing a pointer to an unbounded array with
+  ## element `elem`.
+  newPtrTy(env, newUncheckedArrayTy(env, elem))
