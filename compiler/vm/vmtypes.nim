@@ -17,7 +17,7 @@ type VmTypeRel* = enum
 
 func elemType*(typ: PVmType): PVmType =
   case typ.kind
-  of akSeq:
+  of akSeq, akOpenArray:
     typ.seqElemType
   of akArray:
     typ.elementType
