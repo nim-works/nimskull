@@ -468,7 +468,7 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## in struct-like type `typ`. Imported types are skipped.
 
   # skip imported types:
-  var typ = env.symbols[typ].canon
+  var typ = typ
   while env.headerFor(typ, Canonical).kind == tkImported:
     typ = env.headerFor(typ, Canonical).elem
 
