@@ -168,6 +168,7 @@ proc createStateField(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
 
 proc createEnvObj(g: ModuleGraph; idgen: IdGenerator; owner: PSym; info: TLineInfo): PType =
   result = createObj(g, idgen, owner, info, final=false)
+  result.flags.incl tfFinal
 
 proc getClosureIterResult*(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
   if resultPos < iter.ast.len:
