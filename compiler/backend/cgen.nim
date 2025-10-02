@@ -1160,12 +1160,17 @@ proc moduleToC*(m: CgModule, desc: ModuleDesc, preamble: string,
   r.add "#include <nimbase.h>"
 
   for it in desc.headers.items:
-    r.add "\n#include "
     let hdr = m.get(it)
-    if hdr[0] in {'<', '"'}:
+    if hdr[0] == '#':
+      # custom include
+      r.add "\n"
+      r.add hdr.replace('`', '"')
+    elif hdr[0] in {'<', '"'}:
+      r.add "\n#include "
       r.add hdr
     else:
       # put the header name in quotes
+      r.add "\n#include "
       r.add "\""
       r.add hdr
       r.add "\""
