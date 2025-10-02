@@ -657,13 +657,16 @@ proc atomicClosureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of attachedAsgn:
     let yenv = genBuiltin(c, mAccessEnv, "accessEnv", y)
     yenv.typ = getSysType(c.g, c.info, tyPointer)
+    var nilCheck = genBuiltin(c, mIsNil, "isNil", yenv)
+    nilCheck.typ = cond.typ
+    nilCheck = genBuiltin(c, mNot, "not", nilCheck)
+    nilCheck.typ = cond.typ
     if isCyclic:
-      body.add genIf(c, yenv, callCodegenProc(c.g, "nimIncRefCyclic", c.info, yenv, getCycleParam(c)))
+      body.add genIf(c, nilCheck, callCodegenProc(c.g, "nimIncRefCyclic", c.info, yenv, getCycleParam(c)))
       body.add newAsgnStmt(x, y)
       body.add genIf(c, cond, actions)
     else:
-      body.add genIf(c, yenv, callCodegenProc(c.g, "nimIncRef", c.info, yenv))
-
+      body.add genIf(c, nilCheck, callCodegenProc(c.g, "nimIncRef", c.info, yenv))
       body.add genIf(c, cond, actions)
       body.add newAsgnStmt(x, y)
   of attachedDestructor:
