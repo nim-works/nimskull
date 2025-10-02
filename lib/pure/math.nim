@@ -1010,10 +1010,11 @@ func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.}
 template pureLog2Impl[T: SomeFloat](x: T): T =
   # ln(2)
   const Ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
-  if x == 0.0 or x == -0.0: -Inf
-  elif x < 0: NaN
-  elif x >= Inf or x.isNaN: x
-  else: ln(x) / Ln2
+  var (frac, exp) = frexp(x)
+  # Make sure exact powers of two give an exact answer.
+  # Don't depend on Log(0.5)*(1/Ln2)+exp being exactly exp-1.
+  if frac == 0.5: return T(exp - 1)
+  log10(frac) * (1 / Ln2) + T(exp)
 
 when not defined(js):
   when windowsCC89:
