@@ -31,7 +31,6 @@ import
     strutils,
     osproc,
     sha1,
-    streams,
     sequtils,
     times,
     strtabs,
@@ -296,10 +295,10 @@ const
 
   hExt* = ".h"
 
-template writePrettyCmdsStderr(cmd) =
-  if cmd.len > 0:
-    flushDot(conf)
-    stderr.writeLine(cmd)
+template writePrettyCmds(cmd: CmdReport) =
+  if cmd.msg.len > 0:
+    # TODO: don't use `localReport`. Log the message/diagnostic directly
+    conf.localReport(cmd)
 
 proc nameToCC*(name: string): TSystemCC =
   ## Returns the kind of compiler referred to by `name`, or ccNone
@@ -813,12 +812,19 @@ proc linkViaResponseFile(conf: ConfigRef; cmd: string) =
   finally:
     removeFile(linkerArgs)
 
-proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): string =
+proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): CmdReport =
   if conf.hasHint(rcmdCompiling):
-    conf.localReport CmdReport(
+    CmdReport(
       kind: rcmdCompiling,
-      cmd: compileCmd,
-      msg: demanglePackageName(path.splitFile.name))
+      msg: demanglePackageName(path.splitFile.name),
+      cmd:
+        (if optListCmd in conf.globalOptions or
+            conf.verbosity > compVerbosityDefault:
+          compileCmd
+        else:
+          ""))
+  else:
+    CmdReport(kind: rcmdCompiling) # empty report
 
 proc callCCompiler*(conf: ConfigRef) =
   var
@@ -830,8 +836,8 @@ proc callCCompiler*(conf: ConfigRef) =
   #var c = cCompiler
   var script = ""
   var cmds: TStringSeq
-  var prettyCmds: TStringSeq
-  let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
+  var prettyCmds: seq[CmdReport]
+  let prettyCb = proc (idx: int) = writePrettyCmds(prettyCmds[idx])
 
   for idx, it in conf.toCompile:
     # call the C compiler for the .c file:
@@ -969,8 +975,9 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
       kind: rbackJsonScriptMismatch,
       jsonScriptParams: (outputCurrent, output, jsonFile.string))
 
-  var cmds, prettyCmds: TStringSeq
-  let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
+  var cmds: TStringSeq
+  var prettyCmds: seq[CmdReport]
+  let prettyCb = proc (idx: int) = writePrettyCmds(prettyCmds[idx])
   for (name, cmd) in bcache.compile:
     cmds.add cmd
     prettyCmds.add displayProgressCC(conf, name, cmd)
