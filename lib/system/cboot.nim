@@ -12,8 +12,8 @@ proc nimMain() {.cdecl, importc: "NimMain".}
 # TODO: use proper NimSkull-level-exported globals instead of this
 #       exportc/importc workaround
 var
-  cmdCount {.exportc.}: cint
-  cmdLine {.exportc.}: cstringArray
+  cmdCount {.exportc, noinit.}: cint
+  cmdLine {.exportc, noinit.}: cstringArray
 
 when defined(windows) and (appType == "gui" or appType == "lib"):
   type
