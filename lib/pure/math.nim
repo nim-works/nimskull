@@ -222,6 +222,7 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
     doAssert copySign(-Inf, -0.0) == -Inf
     doAssert copySign(NaN, 1.0).isNaN
     doAssert copySign(1.0, copySign(NaN, -1.0)) == -1.0
+  # TODO: use signbit for examples
 
   template copySignImpl: T =
     when T is float32:
@@ -232,7 +233,6 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
       type U = uint64
 
     cast[T]((cast[U](x) and not signMask) or (cast[U](y) and signMask))
-  # TODO: use signbit for examples
   when nimvm:
     result = copySignImpl()
   else:
