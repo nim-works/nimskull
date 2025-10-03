@@ -237,9 +237,7 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
     result = copySignImpl()
   else:
     when defined(js):
-      let uintBuffer = toBitsImpl(y)
-      let sgn = (uintBuffer[1] shr 31) != 0
-      result = jsSetSign(x, sgn)
+      result = jsSetSign(x, sgn = (toBitsImpl(y)[1] shr 31) != 0)
     elif defined(vm) or defined(nimscript):
       result = copySignImpl()
     else:
