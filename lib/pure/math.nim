@@ -231,7 +231,7 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
       const signMask = 1'u64 shl 63
       type U = uint64
 
-    cast[T]((cast[U](x) and not (signMask) )or (cast[U](y) and (signMask)))
+    cast[T]((cast[U](x) and not signMask) or (cast[U](y) and signMask))
   # TODO: use signbit for examples
   when nimvm:
     result = copySignImpl()
@@ -1056,8 +1056,7 @@ func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.} =
   template frexpImpl: untyped =
     if x == 0.0:
       # reuse signbit implementation
-      let sign = x.signbit
-      if sign:
+      if x.signbit:
         # x is -0.0
         result = (T(-0.0), 0)
       else:
