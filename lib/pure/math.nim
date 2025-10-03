@@ -231,8 +231,8 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
     else:
       const signMask = 1'u64 shl 63
       type U = uint64
-
     cast[T]((cast[U](x) and not signMask) or (cast[U](y) and signMask))
+
   when nimvm:
     result = copySignImpl()
   else:
