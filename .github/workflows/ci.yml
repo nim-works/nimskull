@@ -81,7 +81,7 @@ jobs:
             },
             {
               "name": "macOS",
-              "runner": "macos-13"
+              "runner": "macos-15-intel"
             },
             {
               "name": "macOS (M1)",
