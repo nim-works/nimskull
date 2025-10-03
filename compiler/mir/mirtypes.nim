@@ -87,7 +87,6 @@ type
   StructField* = object
     ## Struct/union field description.
     ident: LitId
-    offset: IntVal
     align*: int16
     extra: uint16
     typ*: TypeId
@@ -542,24 +541,24 @@ proc open(b: var StructBuilder, kind: TypeKind): StructBuilder =
   swap(result.fields, b.fields) # temporarily take over the buffer
   result.header = TypeHeader(kind: kind)
 
-proc addField(b: var StructBuilder, env: var TypeEnv, offset: IntVal,
+proc addField(b: var StructBuilder, env: var TypeEnv,
               typ: TypeId; name = ""; mangle = true) =
   ## Adds a field declaration. `typ` is the type, `name` the name, and `mangle`
   ## indicates whether the name should be mangled.
   inc b.header.b
   if name.len > 0:
-    b.fields.add StructField(typ: typ, offset: offset,
-                          ident: env.idents.getOrIncl(name),
-                          extra: (if mangle: MangleFlag else: 0))
+    b.fields.add StructField(typ: typ,
+                             ident: env.idents.getOrIncl(name),
+                             extra: (if mangle: MangleFlag else: 0))
   else:
-    b.fields.add StructField(typ: typ, offset: offset)
+    b.fields.add StructField(typ: typ)
 
-proc addField(b: var StructBuilder, offset: IntVal, typ: TypeId) =
+proc addField(b: var StructBuilder, typ: TypeId) =
   inc b.header.b
-  b.fields.add StructField(typ: typ, offset: offset)
+  b.fields.add StructField(typ: typ)
 
 proc addField(b: var StructBuilder, env: var TypeEnv, s: PSym, typ: TypeId) =
-  var field = StructField(typ: typ, offset: env.toIntVal(s.offset),
+  var field = StructField(typ: typ,
                           align: s.alignment.int16)
   if {sfImportc, sfExportc} * s.flags == {}:
     field.ident = env.idents.getOrIncl(s.name.s)
@@ -670,10 +669,10 @@ proc recordToMir(env: var TypeEnv, str: var StructBuilder, n: PNode,
         recurse(sub, child)
         let x = tu.close(env, sub)
         # add as field to the tagged union:
-        tu.addField(IntVal(0), env.newType(x))
+        tu.addField(env.newType(x))
 
     let x = str.close(env, tu)
-    str.addField(env.toIntVal(n[0].sym.offset), env.newType(x))
+    str.addField(env.newType(x))
   else:
     unreachable(n.kind)
 
@@ -759,19 +758,10 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
   of tyTuple:
     var tup = openStruct(env.toIntVal(t.size), t.align)
     if t.len == 0:
-      tup.addField(IntVal 0, CharType)
-    elif t.size < 0:
-      # the size contains some incomplete imported types; no offsets can be
-      # computed
-      for i in 0..<t.len:
-        tup.addField(env, IntVal 0, typeref t[i])
+      tup.addField(CharType)
     else:
-      var offset: BiggestInt = 0
       for i in 0..<t.len:
-        let mask = t[i].align - 1
-        offset = (offset + mask) and not(mask) # align the offset
-        tup.addField(env, env.toIntVal(offset), typeref t[i])
-        offset += t[i].size
+        tup.addField(env, typeref t[i])
 
     tup.close(env)
   of tyObject:
@@ -797,7 +787,7 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
       let ptrTyp = env.newType(single(tkPtr, rtti.typ))
       # the type field is at position -1
       rec = openStruct(size, t.align, -1)
-      rec.addField(env, IntVal 0, ptrTyp, "m_type")
+      rec.addField(env, ptrTyp, "m_type")
     else:
       # legacy support for backends not yet using RTTI fields
       rec = openStruct(size, t.align)
@@ -809,7 +799,7 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
 
     if isEmpty:
       # struct-like types must always have at least *one* field
-      rec.addField(IntVal 0, CharType)
+      rec.addField(CharType)
 
     # object/union types are not de-duplicated
     rec.close(env, unique)
@@ -979,30 +969,29 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
         bu.addParam(flags, typ)
 
     env.buildStruct(h.size, h.align, bu):
-      bu.addField(env, IntVal 0, prc, "ClP_0", mangle=false)
+      bu.addField(env, prc, "ClP_0", mangle=false)
       # XXX: the type of the environment pointer should be a ``RootRef``
-      bu.addField(env, IntVal graph.config.target.ptrSize,
-                  PointerType, "ClE_0", mangle=false)
+      bu.addField(env, PointerType, "ClE_0", mangle=false)
   of tkOpenArray:
     # -> (ptr UncheckedArray[T], int)
     let ptrTyp = env.newPtrTy(env.newUncheckedArrayTy(h.elem))
 
     env.buildStruct(h.size, h.align, bu):
-      bu.addField(env, IntVal 0, ptrTyp)
-      bu.addField(env, IntVal graph.config.target.ptrSize, env.sizeType)
+      bu.addField(env, ptrTyp)
+      bu.addField(env, env.sizeType)
   of tkSeq:
     # -> (cap: int, data: ptr (int, UncheckedArray[T]))
     let
       dataType = env.newUncheckedArrayTy(h.elem)
       # the payload type's name is inferred from the body
       payload = env.buildStruct(h.size, h.align, bu):
-        bu.addField(env, IntVal 0, env.sizeType, "cap")
-        bu.addField(env, IntVal graph.config.target.intSize, dataType, "data")
+        bu.addField(env, env.sizeType, "cap")
+        bu.addField(env, dataType, "data")
       ppTyp = env.newPtrTy(env.newType(payload))
 
     env.buildStruct(h.size, h.align, bu):
-      bu.addField(env, IntVal 0, env.sizeType, "len")
-      bu.addField(env, IntVal graph.config.target.intSize, ppTyp, "p")
+      bu.addField(env, env.sizeType, "len")
+      bu.addField(env, ppTyp, "p")
   else:
     id
 
