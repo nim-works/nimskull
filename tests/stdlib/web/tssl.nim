@@ -69,7 +69,7 @@ proc main() =
       while true:
         # Send data until we get EPIPE.
         peer.send(DummyData, {})
-    except OSError:
+    except OSError, SslError:
       discard
     finally:
       peer.close()
