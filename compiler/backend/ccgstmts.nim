@@ -360,6 +360,25 @@ proc genEmit(p: BProc, t: CgNode) =
     genLineDir(p, t)
     line(p, cpsStmts, s)
 
+proc genTopLevelEmit*(m: BModule, section: TCFileSection, n: CgNode) =
+  # the emit/asm statements cannot refer to any routine-local entities, so
+  # using a pseudo-proc context is fine
+  let p = newProc(nil, m)
+  case n.kind
+  of cnkEmitStmt:
+    let s = genAsmOrEmitStmt(p, n)
+    genCLineDir(m.s[section], n.info, m.config)
+    m.s[section].add s
+  of cnkAsmStmt:
+    # @Araq: see bug #2362, "top level asm statements" seem to be a mis-feature
+    # but even if we don't do this, the example in #2362 cannot possibly
+    # work:
+    let s = genAsmOrEmitStmt(p, n, isAsmStmt=true)
+    genCLineDir(m.s[section], n.info, m.config)
+    m.s[section].add runtimeFormat(CC[m.config.cCompiler].asmStmtFrmt, [s])
+  else:
+    unreachable()
+
 when false:
   proc genCaseObjDiscMapping(p: BProc, e: PNode, t: PType, field: PSym; d: var TLoc) =
     const ObjDiscMappingProcSlot = -5
