@@ -127,6 +127,15 @@ func hash(n: PNode): Hash =
 
 func hash(t: PType): Hash =
   # ``hash(a)`` must be ``== hash(b)`` if ``cmp(a, b)`` is true
+  proc hashProc(t: PType): Hash =
+    if isEmptyType(t[0]):
+      result = 0
+    else:
+      result = hash(t[0])
+    for i in 1..<t.len:
+      result = result !& hash(t[i])
+    result = !$result
+
   if t.sym != nil:
     # for types with symbols, only the symbol matters
     result = !$(hash(true) !& hash(t.sym.id))
@@ -148,7 +157,7 @@ func hash(t: PType): Hash =
       result = result !& hash(t.n[0]) !& hash(t.n[1])
     of tyProc:
       # only hash the number of parameters
-      result = result !& hash(t.flags) !& hash(t.callConv) !& hash(t.len)
+      result = result !& hash(t.flags) !& hash(t.callConv) !& hashProc(t)
     of tyAnd, tyOr:
       result = result !& hash(t[0]) !& hash(t[1])
     of tyBuiltInTypeClass:
