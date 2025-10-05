@@ -92,6 +92,8 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
 
   of bekImported:
     discard "ignored for now"
+  of bekEmit:
+    unreachable()
 
 proc writeModules(graph: ModuleGraph, globals: PGlobals) =
   let
