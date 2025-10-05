@@ -7045,9 +7045,17 @@ Example:
   is a single string literal, Nim symbols can be referred to via backticks.
   This usage is however deprecated.
 
-For a top-level emit statement, the section where in the generated C file
-the code should be emitted can be influenced via the prefixes
-`/*TYPESECTION*/`:c: or `/*VARSECTION*/`:c: or `/*INCLUDESECTION*/`:c:\:
+
+Top-Level Emit
+~~~~~~~~~~~~~~
+
+When using the C backend, emit statements appearing at module scope (after
+expansion of templates, macros, and `when` statements) and outside of any
+expression are *top-level emit statements*.
+
+By default, they're emitted into the *procedure* section of the generated
+C file, but the section can be influenced via the prefixes `/*TYPESECTION*/`:c:
+or `/*VARSECTION*/`:c: or `/*INCLUDESECTION*/`:c:\:
 
 .. code-block:: Nim
   # TODO: Complete this example

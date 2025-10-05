@@ -5,11 +5,13 @@ Emit pragma outputs code directly through the back, these are C examples.
 '''
 """
 
-block emit_type:
-  {.emit: """/*TYPESECTION*/
+## emitting into a top-level section requires to be at the module's top-level
+## scope, outside of any expression
+{.emit: """/*TYPESECTION*/
 struct CStruct { int field; };
 """.}
 
+block emit_type:
   type
     CStruct {.importc: "struct CStruct".} = object
       field: cint
