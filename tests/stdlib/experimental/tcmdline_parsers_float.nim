@@ -1,9 +1,6 @@
 discard """
   description: "Tests for the cmdline float parser"
   targets: "c js vm"
-  knownIssue.vm: '''
-    Error: undeclared identifier: 'c_isnan'
-  '''
 """
 import std/math
 import experimental/cmdline/parsers
