@@ -332,33 +332,12 @@ proc genAsmStmt(p: BProc, t: CgNode) =
   assert(t.kind == cnkAsmStmt)
   genLineDir(p, t)
   var s = genAsmOrEmitStmt(p, t, isAsmStmt=true)
-  # see bug #2362, "top level asm statements" seem to be a mis-feature
-  # but even if we don't do this, the example in #2362 cannot possibly
-  # work:
-  if sfTopLevel in p.prc.flags:
-    # top level asm statement?
-    p.module.s[cfsProcHeaders].add runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s])
-  else:
-    p.s(cpsStmts).add indentLine(p, runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s]))
-
-proc determineSection(env: MirEnv, n: CgNode): TCFileSection =
-  result = cfsProcHeaders
-  if n.len >= 1 and n[0].kind == cnkStrLit:
-    let sec = env[n[0].strVal]
-    if sec.startsWith("/*TYPESECTION*/"): result = cfsTypes
-    elif sec.startsWith("/*VARSECTION*/"): result = cfsVars
-    elif sec.startsWith("/*INCLUDESECTION*/"): result = cfsHeaders
+  p.s(cpsStmts).add indentLine(p, runtimeFormat(CC[p.config.cCompiler].asmStmtFrmt, [s]))
 
 proc genEmit(p: BProc, t: CgNode) =
-  var s = genAsmOrEmitStmt(p, t)
-  if sfTopLevel in p.prc.flags:
-    # top level emit pragma?
-    let section = determineSection(p.env, t)
-    genCLineDir(p.module.s[section], t.info, p.config)
-    p.module.s[section].add(s)
-  else:
-    genLineDir(p, t)
-    line(p, cpsStmts, s)
+  let s = genAsmOrEmitStmt(p, t)
+  genLineDir(p, t)
+  line(p, cpsStmts, s)
 
 proc genTopLevelEmit*(m: BModule, section: TCFileSection, n: CgNode) =
   # the emit/asm statements cannot refer to any routine-local entities, so
