@@ -104,7 +104,7 @@ import std/options as std_options
 when defined(nimCompilerStacktraceHints):
   import compiler/utils/debugutils
 
-from compiler/front/msgs import unquotedFilename, toLinenumber
+from compiler/front/msgs import unquotedFilename, toLinenumber, internalAssert
 
 type
   DestFlag = enum
@@ -2695,3 +2695,28 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
   # the staging buffer, which is necessary for after-the-fact type patching
   bu.pop(bu.push(constToMirAux(bu, env, n)))
   bu.finish()[0]
+
+proc topLevelEmitToMir*(graph: ModuleGraph, env: var MirEnv, n: PNode): MirBody =
+  ## Translate a top-level emit or asm statement to a MIR tree.
+  # create a pseudo context that's enough to do the translation with
+  var c = initCtx(graph, TranslationConfig(), nil, move env)
+  c.sp.active = (n, c.sp.map.add(n))
+
+  case n.kind
+  of nkAsmStmt:
+    c.genAsmOrEmitStmt(mnkAsm, n)
+  of nkPragma:
+    assert n.len == 1 and whichPragma(n[0]) == wEmit
+    c.genAsmOrEmitStmt(mnkEmit, n[0][1])
+  else:
+    unreachable()
+
+  let body = createBody(move c.builder, move c.sp.map)
+
+  # report at least some error when the emit/asm statement is nonsense (e.g.,
+  # interpolating complex expressions)
+  graph.config.internalAssert(body.locals.nextId == LocalId(0), n.info)
+  graph.config.internalAssert(body.code[0].kind in {mnkEmit, mnkAsm}, n.info)
+
+  env = move c.env
+  result = body
