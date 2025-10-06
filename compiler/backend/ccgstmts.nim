@@ -95,14 +95,6 @@ proc genIf(p: BProc, n: CgNode) =
   lineF(p, cpsStmts, "if ($1)$n", [rdLoc(a)])
   startBlock(p)
 
-proc exit(n: CgNode): CgNode =
-  # XXX: exists as a convenience for overflow check, index check, etc.
-  #      code gen. Should be removed once those are fully lowered prior
-  #      to code generation
-  case n.kind
-  of cnkCheckedCall: n[^1]
-  else:              nil
-
 proc raiseInstr(p: BProc, n: CgNode): Rope =
   if n != nil:
     case n.kind

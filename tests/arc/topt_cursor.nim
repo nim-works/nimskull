@@ -4,14 +4,14 @@ discard """
   nimout: '''--expandArc: main
 
 scope:
-  def_cursor x: (string, int) = <D0>
+  def_cursor x: (string, int) = <const> ("hi", 5)
   scope:
     if cond:
       scope:
-        x = <D1>
+        x = <const> ("different", 54)
         goto [L1]
   scope:
-    x = <D2>
+    x = <const> ("string here", 80)
   L1:
   def_cursor _3: (string, int) = x
   def _4: string = $(arg _3) -> [Unwind]
