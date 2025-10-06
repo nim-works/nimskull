@@ -515,32 +515,6 @@ proc genCStringElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   putIntoDest(p, d, n,
               ropecg(p.module, "$1[$2]", [rdLoc(a), rdCharLoc(b)]), a.storage)
 
-proc genBoundsCheck(p: BProc; arr, a, b: TLoc, exit: CgNode) =
-  # types that map to C pointers need to be skipped here too, since no
-  # dereference is generated for ``ptr array`` and the like
-  let ty = skipTypes(arr.t, abstractVarRange + {tyPtr, tyRef, tyLent})
-  case ty.kind
-  of tyOpenArray, tyVarargs:
-    if reifiedOpenArray(p, arr.lode):
-      linefmt(p, cpsStmts,
-        "if ($2-$1 != -1 && " &
-        "((NU)($1) >= (NU)($3.Field1) || (NU)($2) >= (NU)($3.Field1))){ #raiseIndexError(); $4}$n",
-        [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p, exit)])
-    else:
-      linefmt(p, cpsStmts,
-        "if ($2-$1 != -1 && " &
-        "((NU)($1) >= (NU)($3Len_0) || (NU)($2) >= (NU)($3Len_0))){ #raiseIndexError(); $4}$n",
-        [rdLoc(a), rdLoc(b), rdLoc(arr), raiseInstr(p, exit)])
-  of tySequence, tyString:
-    linefmt(p, cpsStmts,
-      "if ($2-$1 != -1 && " &
-      "((NU)($1) >= (NU)$3 || (NU)($2) >= (NU)$3)){ #raiseIndexError(); $4}$n",
-      [rdLoc(a), rdLoc(b), lenExpr(p, arr), raiseInstr(p, exit)])
-  of tyUncheckedArray, tyCstring:
-    discard "no checks are used"
-  else:
-    unreachable(ty.kind)
-
 proc genOpenArrayElem(p: BProc, n, x, y: CgNode, d: var TLoc) =
   var a, b: TLoc
   initLocExpr(p, x, a)
@@ -1416,12 +1390,6 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
       typ.add "*"
 
     linefmt(p, cpsStmts, "$1 = ($2)($3);$n", [a.r, typ, rdLoc(b)])
-  of mChckBounds:
-    var arr, a, b: TLoc
-    initLocExpr(p, e[1], arr)
-    initLocExpr(p, e[2], a)
-    initLocExpr(p, e[3], b)
-    genBoundsCheck(p, arr, a, b, e.exit)
   of mSamePayload:
     var a, b: TLoc
     initLocExpr(p, e[1], a)
