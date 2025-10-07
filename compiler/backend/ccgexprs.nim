@@ -1324,19 +1324,15 @@ proc genMagicExpr(p: BProc, e: CgNode, d: var TLoc, op: TMagic) =
     let t = e[1].typ.skipTypes({tyTypeDesc})
     putIntoDest(p, d, e, "((NI)NIM_ALIGNOF($1))" % [getTypeDesc(p.module, t)])
   of mOffsetOf:
-    var dotExpr: CgNode
-    case e[1].kind
-    of cnkFieldAccess, cnkTupleAccess:
-      dotExpr = e[1]
+    let tname = getTypeDesc(p.module, e[1].typ)
+    let field = lookupField(p.module.types, p.module.types[e[1].typ],
+                            e[2].intVal.int32)
+    if field in p.module.fields:
+      putIntoDest(p, d, e, "((NI)offsetof($1, $2))" %
+                  [tname, p.module.fields[field]])
     else:
-      internalError(p.config, e.info, "unknown ast")
-    let t = dotExpr[0].typ.skipTypes({tyTypeDesc})
-    let tname = getTypeDesc(p.module, t)
-    let member =
-      if dotExpr.kind == cnkTupleAccess:
-        "Field" & rope(dotExpr[1].intVal)
-      else: p.fieldName(dotExpr[0].typ, dotExpr[1].field)
-    putIntoDest(p,d,e, "((NI)offsetof($1, $2))" % [tname, member])
+      putIntoDest(p, d, e, "((NI)offsetof($1, Field$2))" %
+                  [tname, $e[2].intVal])
   of mChr: genSomeCast(p, e, d)
   of mOrd: genOrd(p, e, d)
   of mLengthArray, mHigh, mLengthStr, mLengthSeq, mLengthOpenArray:
