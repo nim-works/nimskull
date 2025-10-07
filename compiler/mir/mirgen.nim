@@ -1007,16 +1007,15 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         arg it
   of mOffsetOf:
     # an offsetOf call that has to be evaluated by the backend
+    let dotExpr =
+      case n[1].kind
+      of nkDotExpr:          n[1]
+      of nkCheckedFieldExpr: n[1][0]
+      else:                  unreachable()
+
     c.buildMagicCall mOffsetOf, rtyp:
-      c.builder.emitByName ekNone:
-        # prevent all checks and make sure that the original lvalue
-        # expression reaches the code generators
-        # XXX: this is a brittle and problematic hack. The type plus field
-        #      index should be passed as the arguments instead
-        let orig = c.userOptions
-        c.userOptions = {}
-        genx(c, n[1])
-        c.userOptions = orig
+      c.emitByVal typeLit(c.typeToMir(dotExpr[0].typ))
+      c.emitByVal intLiteral(c.env, dotExpr[1].sym.position, Int32Type)
   of mHigh:
     # custom translation in order to skip both explicit and implicit to-slice
     # conversions; those are unnecessary
