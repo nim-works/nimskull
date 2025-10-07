@@ -103,7 +103,7 @@ proc mangle(g: ModuleGraph, env: TypeEnv, desc: TypeHeader): string =
   of tkUnion:
     # no name specified, derive one from the structure
     result = mangleStruct(g, env, "U", desc)
-  of tkImported, tkTaggedUnion:
+  of tkImported:
     # requires the original type name
     unreachable()
   of tkInt:
