@@ -75,6 +75,8 @@ import
 
 import std/options as std_options
 
+from compiler/backend/cgirgen import topLevelEmitToIr
+
 from compiler/ast/ast import id, newNode, newTree, newSymNode
 
 # XXX: reports are a legacy facility that is going to be phased out. A
@@ -227,7 +229,15 @@ proc processEvent(g: BModuleList, inl: var InliningData,
        emulatedThreadVars(g.config):
       dependOnCompilerProc(inl, g.env, evt.module, g.graph,
                            "initThreadVarsEmulation")
-
+  of bekEmit:
+    let section = [
+        secIncludes: cfsHeaders,
+        secTypes: cfsTypes,
+        secVars: cfsVars,
+        secProcedures: cfsProcHeaders
+      ][evt.section]
+    genTopLevelEmit(bmod, section,
+      topLevelEmitToIr(g.graph, bmod.idgen, g.env, bmod.module, evt.stmt))
   of bekConstant:
     # emit the definition now that the body is available
     let s = g.env[evt.cnst]

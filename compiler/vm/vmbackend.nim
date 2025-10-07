@@ -193,6 +193,8 @@ proc processEvent(c: var GenCtx, mlist: ModuleList, discovery: var DiscoveryData
     # not supported at the moment; ``vmgen`` is going to raise an
     # error when generating a call to a dynlib procedure
     discard "ignore"
+  of bekEmit:
+    unreachable()
 
 proc generateAliveProcs(c: var GenCtx, config: BackendConfig,
                         discovery: var DiscoveryData, mlist: var ModuleList) =

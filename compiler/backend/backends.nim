@@ -4,6 +4,7 @@ import
   std/[
     deques,
     dynlib, # for computing possible candidate names
+    strutils,
     strtabs,
     tables
   ],
@@ -66,6 +67,14 @@ type
       ## if ``true``, indicates that a procedure with a body should not be
       ## treated as imported, even if it's marked as such
 
+  EmitSection* = enum
+    ## The code-generator-specific section where top-level emit/asm statements
+    ## should be placed.
+    secIncludes
+    secTypes
+    secVars
+    secProcedures
+
   DiscoveryData* = object
     ## Bundles all data needed during the disovery of alive, backend-relevant
     ## entities.
@@ -93,6 +102,7 @@ type
                  ## became available
     bekProcedure ## a complete procedure was processed and transformed
     bekImported  ## an alive runtime-imported procedure finished processing
+    bekEmit      ## a top-level emit or asm statement was discovered
 
   BackendEvent* = object
     ## Progress event returned by the ``process`` iterator.
@@ -117,6 +127,10 @@ type
         ## the symbol of the procedure the event is about
         ## XXX: only here for convenience, remove it once feasible
       body*: MirBody
+    of bekEmit:
+      stmt*: MirBody
+        ## a single emit or asm statement
+      section*: EmitSection
 
   WorkItemKind = enum
     wikPreprocess
@@ -180,6 +194,24 @@ func moduleId*(o: PIdObj): int32 {.inline.} =
   ## case of generic instantiations, this is not the necessarily the same
   ## module as the one indicated via the owner.
   o.itemId.module
+
+func determineSection(n: PNode): EmitSection =
+  ## Determines the section a top-level emit/asm statement belongs to.
+  if n.kind == nkPragma:
+    let it = n[0][1]
+    if it.len >= 1 and it[0].kind in nkStrKinds:
+      if it[0].strVal.startsWith("/*TYPESECTION*/"):
+        secTypes
+      elif it[0].strVal.startsWith("/*VARSECTION*/"):
+        secVars
+      elif it[0].strVal.startsWith("/*INCLUDESECTION*/"):
+        secIncludes
+      else:
+        secProcedures
+    else:
+      secProcedures
+  else:
+    secProcedures
 
 # ---- main procedure generation -----
 
@@ -772,6 +804,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
       yield evt
     yield BackendEvent(module: id, kind: bekModule)
     postActions(queue, discovery, env, id)
+
+    # translate and report the emit sections:
+    for it in m.emit:
+      yield BackendEvent(kind: bekEmit, module: id,
+                         stmt: topLevelEmitToMir(graph, env, it),
+                         section: determineSection(it))
 
   template reportBody(prc: ProcedureId, m: FileIndex, evt: BackendEventKind,
                       frag: MirBody) =

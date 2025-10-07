@@ -99,7 +99,7 @@ const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
 const
   sfTopLevel* = sfMainModule
     ## the procedure contains top-level code, which currently affects how
-    ## emit, asm, and error handling works
+    ## error handling works
 
 template types(m: BModule): TypeEnv =
   m.g.env.types
