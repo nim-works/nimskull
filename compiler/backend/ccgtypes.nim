@@ -653,9 +653,13 @@ proc emitTypeDef(m: BModule, id: TypeId, desc: TypeHeader) =
   of tkProc:
     let locs = prepareParameters(m, desc)
     var rettype, params: string
+    var cc = desc.callConv(m.types)
+    if cc in {ccInline, ccNoInline}:
+      # inline and noinline are not calling conventions in C
+      cc = ccNoConvention
     genProcParams(m, desc, rettype, params, locs, weakDep=true)
-    m.s[cfsTypes].addf("typedef $1_PTR($2, $3)$4;$n",
-                       [rope(CallingConvToStr[desc.callConv(m.types)]),
+    m.s[cfsTypes].addf("typedef $1($2, $3)$4;$n",
+                       [rope(CallingConvToStr[cc]),
                         rettype, name, params])
   of tkStruct, tkUnion:
     if id notin m.forwTypeCache:
