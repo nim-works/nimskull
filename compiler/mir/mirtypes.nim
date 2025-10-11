@@ -118,6 +118,9 @@ type
     map: TypeTable[TypeId]
     symbols {.requiresInit.}: Store[TypeId, TypeSym]
 
+    signatures: TypeTable[TypeId]
+      ## maps `tyProc` (treated as a signature) to MIR signature types
+
     headers: Store[HeaderId, TypeHeader]
       ## all type headers
     fields: seq[StructField]
@@ -635,6 +638,7 @@ proc close(env: var TypeEnv, b: sink ProcBuilder): uint32 =
 # -------------------------
 
 proc add*(env: var TypeEnv, t: PType): TypeId
+proc addSignature*(env: var TypeEnv, t: PType): TypeId
 
 proc recordToMir(env: var TypeEnv, str: var StructBuilder, n: PNode,
                  packed, canon: bool) =
@@ -720,6 +724,34 @@ proc makeDesc(kind: TypeKind, size: IntVal, align: int16,
               typ: TypeId; other = 0'u32): TypeHeader {.inline.} =
   TypeHeader(kind: kind, size: size, align: align, a: typ.uint32, b: other)
 
+proc procTypeToMir(env: var TypeEnv, kind: TypeKind, t: PType,
+                   canon=false): HeaderId =
+  ## Translates the ``tyProc`` type `t` to a MIR signature type.
+  template typeref(typ: PType): TypeId =
+    let t = env.add(typ)
+    if canon: canonical(env, t)
+    else:     t
+
+  var prc: ProcBuilder
+  let ret =
+    if isEmptyType(t[0]):
+      VoidType
+    else:
+      typeref(t[0])
+  prc = env.openProc(kind, t.callConv, ret, tfVarargs in t.flags)
+
+  # future direction: static parameters need to be filtered out here.
+  # Typedesc parameters only need to be removed in non-compile-time
+  # execution contexts
+  for i in 1..<t.len:
+    var s: set[ParamFlag]
+    if isPassByRef(env.config, t.n[i].sym, t[0]):
+      s.incl pfByRef
+
+    prc.addParam(s, typeref t[i])
+
+  env.close(prc)
+
 proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId =
   ## Translates `t` to its MIR representation. All structural types are
   ## deduplicated, meaning that two structural types with the same structure
@@ -804,24 +836,15 @@ proc typeToMir(env: var TypeEnv, t: PType; canon = false, unique=true): HeaderId
     # object/union types are not de-duplicated
     rec.close(env, unique)
   of tyProc:
-    var prc: ProcBuilder
-    let ret = if t[0].isNil: VoidType else: typeref(t[0])
+    # important: a `tyProc` type used as the type for values refers to a
+    # *pointer-to-procedure* (or closure), not a mere *procedure signature*
     if t.callConv == ccClosure:
-      prc = env.openProc(tkClosure, t.callConv, ret, tfVarargs in t.flags)
+      procTypeToMir(env, tkClosure, t, canon)
     else:
-      prc = env.openProc(tkProc, t.callConv, ret, tfVarargs in t.flags)
-
-    # future direction: static parameters need to be filtered out here.
-    # Typedesc parameters only need to be removed in non-compile-time
-    # execution contexts
-    for i in 1..<t.len:
-      var s: set[ParamFlag]
-      if isPassByRef(env.config, t.n[i].sym, t[0]):
-        s.incl pfByRef
-
-      prc.addParam(s, typeref t[i])
-
-    env.close(prc)
+      var sig = env.addSignature(t)
+      if canon:
+        sig = env.canonical(sig)
+      env.add makeDesc(tkPtr, env.toIntVal(t.size), t.align, sig)
   of tyVar:
     # a ``var openArray`` is just an ``openArray``
     if classifyBackendView(t) == bvcSequence:
@@ -964,9 +987,10 @@ proc lowerType(env: var TypeEnv, graph: ModuleGraph, id: HeaderId): HeaderId =
       env.add makeDesc(tkArray, h.size, h.align, UInt8Type, h.size.uint32)
   of tkClosure:
     # -> (ClP_0: proc, ClE_0: pointer)
-    let prc = env.buildProc(tkProc, ccClosure, h.retType(env), bu):
+    var prc = env.buildProc(tkProc, ccClosure, h.retType(env), bu):
       for _, typ, flags in params(env, h):
         bu.addParam(flags, typ)
+    prc = env.newPtrTy(prc)
 
     env.buildStruct(h.size, h.align, bu):
       bu.addField(env, prc, "ClP_0", mangle=false)
@@ -1101,6 +1125,26 @@ proc add*(env: var TypeEnv, t: PType): TypeId =
   if result == env.symbols.nextId(): # not seen yet?
     result = handleImported(env, t)
     # translation of the type registered the mapping for us
+
+proc addSignature*(env: var TypeEnv, t: PType): TypeId =
+  ## Adds the proc type `t` to `env`, treating it as the type of a *procedure*,
+  ## not as the type of a *value*.
+  result = env.signatures.getOrDefault(t, env.symbols.nextId())
+  if result == env.symbols.nextId():
+    # create the type description preserving the original type symbols:
+    let
+      orig  = procTypeToMir(env, tkProc, t, canon=false)
+      canon = procTypeToMir(env, tkProc, t, canon=true)
+
+    var prev = env.canon.getOrDefault(canon, env.symbols.nextId())
+    if prev == env.symbols.nextId():
+      # the new type symbol is the *canonical* one
+      env.canon[canon] = prev
+
+    # now add the symbol and mapping:
+    result = env.symbols.add TypeSym(inst: t, canon: prev,
+                                     desc: [orig, canon, canon])
+    env.signatures[t] = result
 
 func get*(env: TypeEnv, id: TypeId): lent TypeSym =
   ## Returns the symbol for `id`.
