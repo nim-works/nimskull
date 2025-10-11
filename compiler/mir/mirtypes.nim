@@ -1170,3 +1170,10 @@ func usizeType*(env: TypeEnv): TypeId {.inline.} =
   ## Returns the type to use for values representing some size. This is an
   ## unsigned integer type of target-dependent bit-width.
   env.usizeType
+
+# type creation routines
+# ----------------------
+
+func newPtr*(env: var TypeEnv, target: TypeId): TypeId =
+  ## Creates and returns a pointer type with target type `target`.
+  env.newPtrTy(target)

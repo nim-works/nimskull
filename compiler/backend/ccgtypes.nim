@@ -747,9 +747,10 @@ proc getClosureType(m: BModule, t: PType, kind: TClosureTypeKind): Rope =
     let canon {.cursor.} =
       m.types.headerFor(m.types.canonical(m.types[t]), Canonical)
 
-    let pt = m.types.buildProc(tkProc, ccNimCall, canon.retType(m.types), bu):
+    var pt = m.types.buildProc(tkProc, ccNimCall, canon.retType(m.types), bu):
       for (_, typ, flags) in params(m.types, canon):
         bu.addParam(flags, typ)
+    pt = m.types.newPtr(pt)
 
     result = useType(m, pt)
   of clHalfWithEnv:
