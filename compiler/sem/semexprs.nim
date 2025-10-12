@@ -692,8 +692,13 @@ proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
     return    # return an error
   else:
     discard
-  
-  n.typ = newType # `n` is either the wrongNode in an error or same as `result`
+
+  if newType.kind in {tyVar, tyLent} and n.kind != nkHiddenAddr:
+    n.typ = newType[0]
+    result = newTreeIT(nkHiddenAddr, n.info, newType, n)
+  else:
+    n.typ = newType # `n` is either the wrongNode in an error or same as `result`
+
   if hasError and result.kind != nkError:
     result = c.config.wrapError(result)
 
