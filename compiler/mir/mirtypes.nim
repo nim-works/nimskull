@@ -72,7 +72,6 @@ type
     # struct-like types:
     tkStruct
     tkUnion
-    tkTaggedUnion
 
   ParamFlag* = enum
     pfByRef
@@ -181,8 +180,10 @@ const
           tyRange, tyInferred} + tyUserTypeClasses
     ## types not relevant to the MIR type description
 
-  MangleFlag = 0x4000'u16
-  NoAliasFlag = 0x8000'u16
+  EmbeddedFlag = 0x1000'u16 ## indicates the record/union being embedded
+  TaggedFlag   = 0x2000'u16 ## indicates the union having a separate tag
+  MangleFlag   = 0x4000'u16
+  NoAliasFlag  = 0x8000'u16
 
   VarargsFlag = 0x8000_0000'u32
 
@@ -200,7 +201,7 @@ func hash(env: TypeEnv, t: TypeHeader): Hash =
     result = result !& hash(t.a)
   of tkArray:
     result = result !& hash(t.a) !& hash(t.b)
-  of tkStruct, tkUnion, tkTaggedUnion:
+  of tkStruct, tkUnion:
     # size and alignment doesn't need to be part of the hash. Two structural
     # types with the same content cannot have different size or alignment,
     # and two nominal types are always distinct
@@ -234,7 +235,7 @@ func isEqual(env: TypeEnv, a, b: TypeHeader): bool =
     a.a == b.a
   of tkArray:
     a.a == b.a and a.b == b.b
-  of tkStruct, tkUnion, tkTaggedUnion:
+  of tkStruct, tkUnion:
     if fieldCount(a) == fieldCount(b): # same number of fields?
       isEqual(env.fields, a.a, b.a, fieldCount(a))
     else:
@@ -353,11 +354,6 @@ proc arrayLen*(desc: TypeHeader, env: TypeEnv): BiggestInt {.inline.} =
   assert desc.kind == tkArray
   env.getInt(IntVal desc.b)
 
-func discr*(desc: TypeHeader, env: TypeEnv): FieldId =
-  ## Returns the discriminator field for the given tagged union.
-  assert desc.kind == tkTaggedUnion
-  FieldId desc.a
-
 func numParams*(desc: TypeHeader): int =
   int(desc.b - desc.a) - 1
 
@@ -414,6 +410,13 @@ func isNoMangle*(f: StructField): bool =
 func isNoAlias*(f: StructField): bool =
   (f.extra and NoAliasFlag) != 0
 
+func isEmbedded*(f: StructField): bool =
+  (f.extra and EmbeddedFlag) != 0
+
+func isTagged*(f: StructField): bool =
+  ## Whether the field stores the union part of a tagged union.
+  (f.extra and TaggedFlag) != 0
+
 func bitsize*(f: StructField): int =
   int(f.extra and 0x00FF)
 
@@ -423,7 +426,7 @@ iterator fields*(env: TypeEnv, desc: TypeHeader;
                  offset = 0): (FieldId, StructField) =
   ## Returns all fields directly part of `desc`. Super types are not
   ## considered.
-  assert desc.kind in {tkStruct, tkUnion, tkTaggedUnion}
+  assert desc.kind in {tkStruct, tkUnion}
   # note: the field storing the super type is not included
   let offset = ord(desc.kind == tkStruct) + offset
   for it in (desc.a + uint32(offset))..<desc.b:
@@ -451,11 +454,6 @@ proc canonical*(env: TypeEnv, typ: TypeId): TypeId =
   ## Returns the canonical symbol for `typ`.
   result = env.symbols[typ].canon
 
-proc isEmbedded*(env: TypeEnv, typ: TypeId): bool =
-  ## Whether the `typ` is a struct that's directly embedded where it's used.
-  env.symbols[typ].inst.isNil and
-    env.headerFor(typ, Lowered).kind in {tkStruct, tkTaggedUnion}
-
 proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## Returns the ID of the field with position `pos`. Said field *must* exist
   ## in struct-like type `typ`. Imported types are skipped.
@@ -482,7 +480,7 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
     # types are always embedded at the moment, so they are transparently
     # recursed into
     for (id, it) in fields(env, desc):
-      if isEmbedded(env, it.typ):
+      if isEmbedded(it):
         result = searchStruct(env, env.headerFor(it.typ, Lowered), pos, curr)
         if result[0]:
           return
@@ -496,6 +494,71 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   let r = searchStruct(env, env.headerFor(typ, Lowered), pos, curr)
   assert r[0], "field not in type"
   result = r[1]
+
+proc lookupTag*(env: TypeEnv, desc: TypeHeader, id: FieldId): FieldId =
+  ## Returns the discriminator/tag field for the union stored by the field
+  ## with `id`.
+  assert desc.kind == tkStruct
+  assert (env.fields[ord id].extra and TaggedFlag) != 0, "not a tagged field"
+  for f, _ in fields(env, desc):
+    if f == id:
+      for x, strf in fields(env, desc):
+        if x != f and strf.ident == env.fields[ord id].ident:
+          return x # found the tag field
+      unreachable("type environment is invalid")
+  unreachable("given field is not part of type")
+
+proc getBranch*(env: TypeEnv, outer, typ: TypeId, id: FieldId,
+                val: Int128): FieldId =
+  ## For the tagged union field identified by `id`, returns the union's field
+  ## storing the variant for discriminator value `val`.
+  # fairly complex, as the necessary information is not part of the MIR type
+  # representation; the PType has to be inspected
+
+  proc findBranch(n: PNode, val: Int128): int =
+    ## Finds the 0-based index of the branch covering `val`.
+    for (i, branch) in branches(n):
+      case branch.kind
+      of nkOfBranch:
+        for (_, it) in branchLabels(branch):
+          if it.kind == nkRange:
+            if val >= getOrdValue(it[0]) and val <= getOrdValue(it[1]):
+              return i
+          elif getOrdValue(it) == val:
+            return i
+      of nkElse:
+        return i
+      else:
+        unreachable()
+    unreachable()
+
+  proc findCase(n: PNode, name: string): PNode =
+    ## Finds the ``nkRecCase`` node whose discriminator has name `name`.
+    case n.kind
+    of nkRecCase:
+      if n[0].sym.name.s == name:
+        return n
+      for (_, it) in branches(n):
+        result = findCase(it[^1], name)
+        if result != nil: return
+    of nkRecList:
+      for it in n.items:
+        result = findCase(it, name)
+        if result != nil: return
+    of nkSym:
+      result = nil
+    else:
+      unreachable()
+
+  # note: don't canonicalize in order to get the raw object type, as this
+  # would also skip over non-canonical generic instance, which is not desired
+  # in this case
+  let
+    inst  = env.symbols[outer].inst.skipTypes(Skip)
+    tag   = env.lookupTag(env.headerFor(typ, Lowered), id)
+    n     = findCase(inst.n, env.idents[env.fields[ord tag].ident])
+    pos   = uint32 findBranch(n, val)
+  result = FieldId(env.headerFor(env.fields[ord id].typ, Lowered).a + pos)
 
 # struct/proc builder API
 # -----------------------
@@ -513,7 +576,7 @@ proc openStruct(size: IntVal, align: int16; offset = 0;
   result.fields.add StructField(typ: base, align: offset.int16)
 
 proc open(kind: TypeKind; size: IntVal, align: int16): StructBuilder =
-  assert kind in {tkUnion, tkTaggedUnion}
+  assert kind == tkUnion
   result.header = TypeHeader(kind: kind, size: size, align: align)
 
 proc openProc(env: TypeEnv, kind: TypeKind, conv: TCallingConvention,
@@ -536,7 +599,7 @@ proc openStruct(b: var StructBuilder): StructBuilder =
   result.fields.add StructField(typ: VoidType, align: 0)
 
 proc open(b: var StructBuilder, kind: TypeKind): StructBuilder =
-  assert kind in {tkUnion, tkTaggedUnion}
+  assert kind == tkUnion
   result = StructBuilder(start: b.fields.len)
   swap(result.fields, b.fields) # temporarily take over the buffer
   result.header = TypeHeader(kind: kind)
@@ -576,6 +639,20 @@ proc addField(b: var StructBuilder, env: var TypeEnv, s: PSym, typ: TypeId) =
 
   inc b.header.b
   b.fields.add field
+
+proc addTaggedField(b: var StructBuilder, env: var TypeEnv, s: PSym,
+                    typ: TypeId) =
+  ## Adds a field of union type whose discriminator is stored by field `s`.
+  inc b.header.b
+  b.fields.add StructField(
+    ident: env.idents.getOrIncl(s.name.s),
+    extra: EmbeddedFlag or TaggedFlag,
+    typ: typ)
+
+proc addEmbedded(b: var StructBuilder, typ: TypeId) =
+  ## Adds an embedded struct/union to the struct/union.
+  inc b.header.b
+  b.fields.add StructField(extra: EmbeddedFlag, typ: typ)
 
 proc addParam*(b: var ProcBuilder, s: set[ParamFlag], typ: TypeId) =
   ## Adds a parameter to the proc type.
@@ -653,26 +730,25 @@ proc recordToMir(env: var TypeEnv, str: var StructBuilder, n: PNode,
     for it in n.items:
       recurse(str, it)
   of nkRecCase:
-    # at the moment, tagged union description are directly embedded into
-    # their parent struct
-    var tu = str.open(tkTaggedUnion)
-    recurse(tu, n[0]) # discriminator
+    # the union is embedded directly into the parent struct
+    recurse(str, n[0]) # discriminator
+    var union = str.open(tkUnion)
     for i in 1..<n.len:
       let child = n[i][^1]
       if child.kind == nkSym:
-        recurse(tu, child)
+        recurse(union, child)
       else:
         # start a new struct
-        var sub = tu.openStruct()
+        var sub = union.openStruct()
         if packed:
           sub.fields[^1].extra = 1 # mark as packed
         recurse(sub, child)
-        let x = tu.close(env, sub)
-        # add as field to the tagged union:
-        tu.addField(env.newType(x))
+        let x = union.close(env, sub)
+        # add as field to the union:
+        union.addEmbedded(env.newType(x))
 
-    let x = str.close(env, tu)
-    str.addField(env.newType(x))
+    let x = str.close(env, union)
+    str.addTaggedField(env, n[0].sym, env.newType(x))
   else:
     unreachable(n.kind)
 
