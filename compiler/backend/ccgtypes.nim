@@ -150,8 +150,6 @@ proc mapType(types: TypeEnv; desc: TypeHeader): TCTypeKind =
   of tkSeq:       ctNimSeq
   of tkString:    ctNimStr
   of tkClosure:   ctStruct
-  else:
-    unreachable(desc.kind)
 
 proc mapType(types: TypeEnv, typ: TypeId): TCTypeKind =
   mapType(types, types.headerFor(typ, Original))
@@ -527,8 +525,8 @@ proc genFieldDesc(m: BModule, id: FieldId, field: StructField, pos: int,
           field.isNoAlias)
   result.add ";\n"
 
-proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
-                        accessor: string)
+proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, discr: StructField,
+                        result: var Rope, accessor: string)
 
 proc genStructDesc(m: BModule, desc: TypeHeader, result: var Rope,
                    accessor: string) =
@@ -541,24 +539,20 @@ proc genStructDesc(m: BModule, desc: TypeHeader, result: var Rope,
 
   var pos = 0
   for (id, it) in m.types.fields(desc):
-    if m.types.isEmbedded(it.typ):
+    if it.isTagged:
       # embedded tagged union
-      getTaggedUnionDesc(m, m.types.headerFor(it.typ, Lowered), result,
-                         accessor)
+      getTaggedUnionDesc(m, m.types.headerFor(it.typ, Lowered),
+                         m.types[m.types.lookupTag(desc, id)],
+                         result, accessor)
     else:
       genFieldDesc(m, id, it, pos, result, accessor)
     inc pos
 
   result.add "}"
 
-proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
-                        accessor: string) =
+proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, discr: StructField,
+                        result: var Rope, accessor: string) =
   # the discriminator is directly embedded into the surrounding struct
-  let
-    id    = desc.discr(m.types)
-    discr = m.types[id]
-  genFieldDesc(m, id, discr, 0, result, accessor)
-
   let
     name = m.types.name(discr)
     # all ``struct`` union fields use the mangled discriminator field name
@@ -571,8 +565,8 @@ proc getTaggedUnionDesc(m: BModule, desc: TypeHeader, result: var Rope,
 
   result.add "union {\n"
   var i = 1
-  for (id, it) in m.types.fields(desc, 1):
-    if m.types.isEmbedded(it.typ):
+  for (id, it) in m.types.fields(desc):
+    if it.isEmbedded:
       # embedded struct description. The accessor combined with the union
       # field name is passed along
       genStructDesc(m, m.types.headerFor(it.typ, Lowered), result,
@@ -614,9 +608,11 @@ proc genStructDesc(m: BModule, desc: TypeHeader, name: Rope, result: var Rope) =
 
   var pos = 0
   for (id, it) in m.g.env.types.fields(desc):
-    if m.types.isEmbedded(it.typ):
+    if it.isTagged:
       # embedded tagged union
-      getTaggedUnionDesc(m, m.types.headerFor(it.typ, Lowered), result, "")
+      getTaggedUnionDesc(m, m.types.headerFor(it.typ, Lowered),
+                         m.types[m.types.lookupTag(desc, id)],
+                         result, "")
     else:
       genFieldDesc(m, id, it, pos, result, "")
     inc pos
