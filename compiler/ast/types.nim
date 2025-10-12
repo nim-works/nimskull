@@ -1506,7 +1506,10 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
   of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
      tyString, tyCstring, tyVoid:
     result = false
-  of tyDistinct, tyGenericInst, tyAlias, tyUserTypeClassInst, tyInferred:
+  of tyDistinct, tyGenericInst, tyAlias, tyInferred:
+    result = productReachable(marker, g, t.lastSon, search, isInd)
+  of tyUserTypeClasses:
+    assert t.isResolvedUserTypeClass
     result = productReachable(marker, g, t.lastSon, search, isInd)
   of tyError:
     # ``productReachable`` returning true usually means more work for the
@@ -1517,7 +1520,7 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
     unreachable("handled by check")
   of tyNone, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
      tyGenericParam, tyForward, tySink, tyBuiltInTypeClass,
-     tyCompositeTypeClass, tyUserTypeClass, tyAnd, tyOr, tyNot, tyAnything,
+     tyCompositeTypeClass, tyAnd, tyOr, tyNot, tyAnything,
      tyStatic, tyFromExpr:
     unreachable("not a concrete type")
 
