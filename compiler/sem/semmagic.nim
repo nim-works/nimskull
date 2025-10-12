@@ -293,11 +293,23 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
                                     PAstDiag(kind: adSemExpectedRangeType))
       result = c.config.wrapError(result)
   of "isCyclical":
-    let r =
-      if operand.skipTypes(abstractInst).kind in ConcreteTypes:
-        isCyclePossible(operand, c.graph)
+    proc findConcrete(typ: PType): PType =
+      let t = typ.skipTypes(abstractInst)
+      case t.kind
+      of ConcreteTypes:
+        typ
+      of tyUserTypeClasses:
+        if isResolvedUserTypeClass(t):
+          findConcrete(t.lastSon)
+        else:
+          nil
       else:
-        false
+        nil
+
+    let con = findConcrete(operand)
+    let r =
+      if con != nil: isCyclePossible(con, c.graph)
+      else:          false
 
     result = newIntNodeT(toInt128(ord(r)), traitCall, c.idgen, c.graph)
   else:
