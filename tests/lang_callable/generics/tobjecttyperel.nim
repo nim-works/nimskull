@@ -1,8 +1,4 @@
 discard """
-  knownIssue.vm: '''
-    Fails for the VM target because ``cgirgen`` emits the incorrect conversion
-    operator for ``ref`` types involving generics.
-  '''
   output: '''(peel: 0, color: 15)
 (color: 15)
 17

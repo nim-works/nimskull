@@ -140,27 +140,3 @@ iterator scanSSLCertificates*(useEnvVars = false): string =
         defer: free(paths)
         for i in 0 ..< size:
           yield $paths[i]
-
-# Certificates management on windows
-# when defined(windows) or defined(nimdoc):
-#
-#   import std/openssl
-#
-#   type
-#     PCCertContext {.final, pure.} = pointer
-#     X509 {.final, pure.} = pointer
-#     CertStore {.final, pure.} = pointer
-#
-#   # OpenSSL cert store
-#
-#   {.push stdcall, dynlib: "kernel32", importc.}
-#
-#   proc CertOpenSystemStore*(hprov: pointer=nil, szSubsystemProtocol: cstring): CertStore
-#
-#   proc CertEnumCertificatesInStore*(hCertStore: CertStore, pPrevCertContext: PCCertContext): pointer
-#
-#   proc CertFreeCertificateContext*(pContext: PCCertContext): bool
-#
-#   proc CertCloseStore*(hCertStore:CertStore, flags:cint): bool
-#
-#   {.pop.}

@@ -278,3 +278,31 @@ block ref_construction_argument:
 
   for i in iter(RefObj(i: 1)):
     doAssert i == 3
+
+block while_loop_in_closure_iterator_expression:
+  # a ``while`` loop with a yield inside and part of an expression was
+  # not transformed properly, leading to an internal compiler error
+  iterator iter() {.closure.} =
+    var val = block:
+      while true: # while loop part of a block expression
+        yield
+      1
+    doAssert val == 1
+
+  let it = iter
+  it()
+  it()
+
+block yield_in_obj_down_conversion:
+  # an object down-conversion containing a yield wasn't processed properly,
+  # leading to an internal compiler error
+  type Obj = ref object of RootObj
+
+  iterator iter() {.closure.} =
+    var x: ref RootObj
+    var val = Obj((;yield; x))
+    doAssert val.isNil
+
+  let it = iter
+  it()
+  it()

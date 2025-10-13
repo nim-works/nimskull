@@ -15,8 +15,7 @@ macro f*(a: untyped): untyped =
   let call = quote:
     echo 0
   result.body.add(call)
-  for child in a.body:
-    result.body.add(child)
+  result.body.add(a.body)
   #echo result.body.repr
 
 proc t* {.async, f.} =

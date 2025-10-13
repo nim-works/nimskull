@@ -1,0 +1,159 @@
+name: Build release package
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The runner to run the workflow with
+        required: true
+        type: string
+
+      source-archive:
+        description: The artifact containing the source archive. If not set, build from Git instead.
+        required: false
+        type: string
+
+      output-name-format:
+        description: The format string for the output artifact name. {0} and {1} are mapped to OS and architecture respectively.
+        required: false
+        default: release binaries {0} {1}
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  package:
+    name: Build release artifacts
+    runs-on: ${{ inputs.runner }}
+
+    steps:
+      - name: Checkout (for Git build)
+        if: inputs.source-archive == ''
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Extract actions to separate folder (for Git build)
+        if: inputs.source-archive == ''
+        run: |
+          mkdir -p git-src/.github
+          cp -r .github/actions git-src/.github/actions
+
+      - name: Get actions (for source-archive builds)
+        if: inputs.source-archive != ''
+        uses: actions/checkout@v5
+        with:
+          path: git-src
+          sparse-checkout: .github/actions
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./git-src/.github/actions/setup-mingw
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
+      - name: Download source archive
+        if: inputs.source-archive != ''
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ inputs.source-archive }}
+          path: ${{ runner.temp }}/source-archive
+
+      - name: Unpack source archive
+        if: inputs.source-archive != ''
+        run: |
+          archive_base=$RUNNER_TEMP/source-archive
+          archive=$archive_base/$(jq -r .name $archive_base/source.json)
+          # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
+          zstd -c -d "$archive" | tar -xf - --strip-components 1
+
+      # the mingw PCRE library requires CMake 2.8.5 to built, and the last
+      # CMake version to have compatibility with the old version is 3.31.6,
+      # so make sure that version is installed
+      - name: Pin CMake
+        if: runner.os == 'Windows'
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.31.6'
+
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: ./git-src/.github/actions/setup-vcpkg
+        with:
+          triplet: x64-mingw-dynamic-release
+          host-triplet: x64-mingw-dynamic-release
+          revision: 2025.07.25
+          overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg install pcre sqlite3
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Install DLLs to package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+          Copy-Item (Join-Path $binPath "libpcre.dll") -Destination bin
+        shell: pwsh
+
+      - name: Build release binaries
+        run: ./koch.py all
+
+      - name: Build docs
+        run: |
+          ./koch.py doc \
+            --git.url:"https://github.com/$GITHUB_REPOSITORY" \
+            --git.commit:"$GITHUB_SHA" \
+            --git.devel:devel
+
+          # Remove leftover nimskullcache
+          rm -rf doc/html/nimskullcache
+
+      - id: package
+        name: Create release package
+        run: |
+          releasecmd=unixrelease
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            releasecmd=winrelease
+          fi
+          ./koch.py "$releasecmd"
+
+          archive=build/archive/$(jq -r .name build/archive/archive.json)
+          # Rename the archive manifest to avoid collision with other artifacts
+          os=$(jq -r .os build/archive/archive.json)
+          cpu=$(jq -r .cpu build/archive/archive.json)
+          metadata=build/archive/${os}_${cpu}.json
+          mv build/archive/archive.json "$metadata"
+
+          # Let the uploader know what to upload
+          echo "archive=$archive" >> $GITHUB_OUTPUT
+          echo "metadata=$metadata" >> $GITHUB_OUTPUT
+
+      - name: Upload release package to artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ format(inputs.output-name-format, runner.os, runner.arch) }}
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.metadata }}
+          if-no-files-found: error

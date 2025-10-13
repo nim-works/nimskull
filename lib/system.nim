@@ -52,6 +52,15 @@ type
   typed* {.magic: Stmt.}         ## Meta type to denote an expression that
                                  ## is resolved (for templates).
 
+# XXX: the ``EnumToStr`` magic has to be defined here so that the ``bool``
+#      definition can compile
+proc `$`*[Enum: enum](x: Enum): string {.magic: "EnumToStr", noSideEffect.}
+  ## The stringify operator for an enumeration argument. This works for
+  ## any enumeration type thanks to compiler magic.
+  ##
+  ## If a `$` operator for a concrete enumeration is provided, this is
+  ## used instead. (In other words: *Overwriting* is possible.)
+
 include "system/basic_types"
 
 
@@ -114,11 +123,20 @@ proc compileOption*(option, arg: string): bool {.
 {.push warning[GcMem]: off, warning[Uninit]: off.}
 # {.push hints: off.}
 
-proc `or`*(a, b: typedesc): typedesc {.magic: "TypeTrait", noSideEffect.}
+template `or`*(a, b: typedesc): typedesc =
   ## Constructs an `or` meta class.
+  mixin `or`
+  a or b
 
-proc `and`*(a, b: typedesc): typedesc {.magic: "TypeTrait", noSideEffect.}
+template `|`*(a, b: typedesc): typedesc =
+  ## An alias for `or <#or,typedesc,typdesc>`_. Constructs an `or` meta class.
+  mixin `or`
+  a or b
+
+template `and`*(a, b: typedesc): typedesc =
   ## Constructs an `and` meta class.
+  mixin `and`
+  a and b
 
 proc `not`*(a: typedesc): typedesc {.magic: "TypeTrait", noSideEffect.}
   ## Constructs an `not` meta class.
@@ -1469,10 +1487,6 @@ const
 
 
 include "system/memalloc"
-
-
-proc `|`*(a, b: typedesc): typedesc = discard
-
 include "system/iterators_1"
 
 
@@ -1819,6 +1833,22 @@ proc `<`*[T: tuple](x, y: T): bool =
     if c > 0: return false
   return false
 
+{.push stackTrace: off.}
+func abs*(x: int): int {.magic: "AbsI", inline.} =
+  if x < 0: -x else: x
+func abs*(x: int8): int8 {.magic: "AbsI", inline.} =
+  if x < 0: -x else: x
+func abs*(x: int16): int16 {.magic: "AbsI", inline.} =
+  if x < 0: -x else: x
+func abs*(x: int32): int32 {.magic: "AbsI", inline.} =
+  if x < 0: -x else: x
+func abs*(x: int64): int64 {.magic: "AbsI", inline.} =
+  ## Returns the absolute value of `x`.
+  ##
+  ## If `x` is `low(x)` (that is -MININT for its type),
+  ## an overflow exception is thrown (if overflow checking is turned on).
+  result = if x < 0: -x else: x
+{.pop.}
 
 include "system/gc_interface"
 
@@ -1954,6 +1984,7 @@ template newException*(exceptn: typedesc, message: string;
                        parentException: ref Exception = nil): untyped =
   ## Creates an exception object of type `exceptn`, initializes it's `name`
   ## and sets its `msg` field to `message`. Returns the new exception object.
+  mixin `$`
   (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
 
 proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
@@ -1961,23 +1992,6 @@ proc getTypeInfo*[T](x: T): pointer {.magic: "GetTypeInfo", benign.}
   ##
   ## Ordinary code should not use this, but the `typeinfo module
   ## <typeinfo.html>`_ instead.
-
-{.push stackTrace: off.}
-func abs*(x: int): int {.magic: "AbsI", inline.} =
-  if x < 0: -x else: x
-func abs*(x: int8): int8 {.magic: "AbsI", inline.} =
-  if x < 0: -x else: x
-func abs*(x: int16): int16 {.magic: "AbsI", inline.} =
-  if x < 0: -x else: x
-func abs*(x: int32): int32 {.magic: "AbsI", inline.} =
-  if x < 0: -x else: x
-func abs*(x: int64): int64 {.magic: "AbsI", inline.} =
-  ## Returns the absolute value of `x`.
-  ##
-  ## If `x` is `low(x)` (that is -MININT for its type),
-  ## an overflow exception is thrown (if overflow checking is turned on).
-  result = if x < 0: -x else: x
-{.pop.}
 
 when not defined(js):
 
@@ -2335,6 +2349,27 @@ when notJSnotNims and hostOS != "standalone":
     currException = exc
 elif isNimVmTarget:
   proc getCurrentException*(): ref Exception {.compilerRtl.} = discard
+
+  type ExceptionFrame {.compilerproc.} = object
+
+  proc nimCatchException(f: ptr ExceptionFrame) {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc nimAbortException(viaRaise: bool) {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc nimLeaveExcept() {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc raiseExceptionEx(e: sink(ref Exception), ename, prc, file: cstring,
+                        line: int) {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc reraiseException() {.compilerproc.} =
+    discard "implemented in vmops.nim"
+
+  proc nimUnhandledException() {.compilerproc.} =
+    discard
 
   proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
     ## Used by the closure transformation pass for preparing for exception
@@ -2987,10 +3022,10 @@ when not defined(js):
     proc toOpenArrayByte*(x: cstring; first, last: int): openArray[byte] {.
       magic: "Slice".}
 
-proc toOpenArray*[T](x: seq[T]; first, last: int): openArray[T] {.
+proc toOpenArray*[T](x: openArray[T]|seq[T]; first, last: int): openArray[T] {.
   magic: "Slice".}
-proc toOpenArray*[T](x: openArray[T]; first, last: int): openArray[T] {.
-  magic: "Slice".}
+# note: using a single overload for seq/openArray makes sure, via the
+# typeclass, that arrays are never implicitly converted to openArray here
 proc toOpenArray*[I, T](x: array[I, T]; first, last: I): openArray[T] {.
   magic: "Slice".}
 proc toOpenArray*(x: string; first, last: int): openArray[char] {.
@@ -3031,3 +3066,20 @@ when defined(nimDebugUtils):
     {.define(nimCompilerDebug).}
     n
     {.undef(nimCompilerDebug).}
+
+proc `not`*[T: ref or ptr](a: typedesc[T], b: typeof(nil)): typedesc {.magic: "TypeTrait", noSideEffect.}
+  ## Constructs a `not nil` type.
+
+type
+  ParamBlob = object
+    ## The type to use for the storage of parameters.
+    data: array[256, byte]
+
+  Continuation[T] = object
+    ## Internal type only meant to be used by the compiling compiler. Needed by
+    ## tail-call elimination.
+    case done: bool
+    of false:
+      next: proc(env: pointer): Continuation[T] {.nimcall.}
+    of true:
+      result: T

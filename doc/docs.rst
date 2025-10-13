@@ -1,6 +1,6 @@
 The documentation consists of several documents:
 
-For developers and contributors
+For Developers and Contributors
 ===============================
 
 - | `Internal documentation <intern.html>`_
@@ -9,6 +9,9 @@ For developers and contributors
 
 - | `Debugging guide <debug.html>`_
   | Description of the built-in tools for debugging the compiler
+
+- | `Tail-call elimination <tailcallelim.html>`_
+  | High-level description of how tail call elimination works.
 
 - | `Contribution guide <contributing.html>`_
   | Contribution guide for |nimskull| projects
@@ -22,20 +25,11 @@ For developers and contributors
 - | `Continuous integration internals <ci.html>`_
   | Describes how CI is implemented and steps for troubleshooting common failures. Required reading for those looking to work on the CI infrastructure.
 
-For users
+For Users
 =========
 
 - | `Language specification <spec.html>`_
   | Description of the language specification purpose and structure.
-
-- | `Tutorial (part I) <tut1.html>`_
-  | The Nim tutorial part one deals with the basics.
-
-- | `Tutorial (part II) <tut2.html>`_
-  | The Nim tutorial part two deals with the advanced language constructs.
-
-- | `Tutorial (part III) <tut3.html>`_
-  | The Nim tutorial part three about Nim's macro system.
 
 - | `Language Manual <manual.html>`_
   | The Nim manual is a draft that will evolve into a proper specification.
@@ -60,3 +54,20 @@ For users
 
 - | `Index <theindex.html>`_
   | The generated index.
+
+For Users (Legacy)
+==================
+
+.. warning::
+   These documents are not maintained and might not correspond to the
+   current language semantics. Consult the `manual <manual.html>`_ and
+   `standard library <lib.html>`_ for the most up-to-date information.
+
+- | `Tutorial (part I) <tut1.html>`_
+  | The Nim tutorial part one deals with the basics.
+
+- | `Tutorial (part II) <tut2.html>`_
+  | The Nim tutorial part two deals with the advanced language constructs.
+
+- | `Tutorial (part III) <tut3.html>`_
+  | The Nim tutorial part three about Nim's macro system.

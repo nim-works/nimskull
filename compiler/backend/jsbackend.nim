@@ -8,6 +8,9 @@ import
     json,
     tables
   ],
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     lineinfos
@@ -23,39 +26,34 @@ import
   compiler/modules/[
     modulegraphs
   ],
+  compiler/mir/[
+    mirenv,
+    mirtrees
+  ],
   compiler/sem/[
     modulelowering,
     sourcemap
   ],
   compiler/utils/[
-    containers,
-    idioms,
     ropes
   ]
 
-from compiler/mir/mirbridge import canonicalize
+from compiler/mir/mirbridge import canonicalize, GenOption
 
 type
   BModuleList = SeqMap[FileIndex, BModule]
   PartialTable = Table[int, PProc]
 
-proc prepare(globals: PGlobals, modules: BModuleList, s: PSym) =
-  ## Responds to the discovery of entity `s`.
-  case s.kind
-  of skProcKinds, skConst:
+proc prepare(globals: PGlobals, modules: BModuleList, n: MirNode) =
+  ## Responds to the discovery of entity `n`.
+  case n.kind
+  of mnkProc, mnkConst:
     discard "nothing to forward declare or register"
-  of skVar, skLet, skForVar:
-    defineGlobal(globals, modules[moduleId(s).FileIndex], s)
+  of mnkGlobal:
+    let s = globals.env[n.global]
+    defineGlobal(globals, modules[moduleId(s).FileIndex], n.global)
   else:
-    unreachable(s.kind)
-
-proc processLate(globals: PGlobals, discovery: var DiscoveryData) =
-  # queue the late dependencies:
-  for it in globals.extra.items:
-    register(discovery, it)
-
-  # we processed/consumed all elements
-  globals.extra.setLen(0)
+    unreachable()
 
 proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
                   discovery: var DiscoveryData, partial: var PartialTable,
@@ -69,22 +67,21 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
   of bekModule:
     discard "nothing to do"
   of bekConstant:
-    let s = evt.cnst
-    genConstant(g, modules[moduleId(s).FileIndex], s)
+    let s = g.env[evt.cnst]
+    genConstant(g, modules[moduleId(s).FileIndex], evt.cnst)
   of bekPartial:
+    let body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
     var p = partial.getOrDefault(evt.sym.id)
     if p == nil:
-      p = startProc(g, bmod, evt.sym, Body())
+      p = startProc(g, bmod, evt.id, body)
+      genPartial(p, p.fullBody.code)
       partial[evt.sym.id] = p
-
-    let body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
-    genPartial(p, merge(p.fullBody, body))
-
-    processLate(g, discovery)
+    else:
+      genPartial(p, merge(p.fullBody, body))
   of bekProcedure:
     let
-      body = generateIR(graph, bmod.idgen, evt.sym, evt.body)
-      r = genProc(g, bmod, evt.sym, body)
+      body = generateIR(graph, bmod.idgen, g.env, evt.sym, evt.body)
+      r = genProc(g, bmod, evt.id, body)
 
     if sfCompilerProc in evt.sym.flags:
       # compilerprocs go into the constants section ...
@@ -93,9 +90,10 @@ proc processEvent(g: PGlobals, graph: ModuleGraph, modules: BModuleList,
       # ... other procedures into the normal code section
       g.code.add(r)
 
-    processLate(g, discovery)
   of bekImported:
     discard "ignored for now"
+  of bekEmit:
+    unreachable()
 
 proc writeModules(graph: ModuleGraph, globals: PGlobals) =
   let
@@ -121,14 +119,18 @@ proc generateCodeForMain(globals: PGlobals, graph: ModuleGraph, m: BModule,
 
   let owner = m.module
   genTopLevelStmt(globals, m):
-    canonicalize(graph, m.idgen, owner, body, TranslationConfig())
+    canonicalize(graph, m.idgen, globals.env, owner, body, TranslationConfig())
 
 proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
   ## Entry point into the JS backend. Generates the code for all modules and
   ## writes it to the output file.
   let
-    globals = newGlobals()
-    bconf = BackendConfig(tconfig: TranslationConfig(magicsToKeep: NonMagics))
+    globals = newGlobals(graph)
+    bconf = BackendConfig(
+      tconfig: TranslationConfig(
+        magicsToKeep: NonMagics
+      )
+    )
 
   var
     modules: BModuleList
@@ -148,7 +150,7 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList) =
 
     modules[m.sym.position.FileIndex] = bmod
 
-  for evt in process(graph, mlist, discovery, bconf):
+  for evt in process(graph, mlist, globals.env, discovery, bconf):
     processEvent(globals, graph, modules, discovery, partial, evt)
 
   # finish the partial procedures:

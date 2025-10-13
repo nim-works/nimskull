@@ -4,10 +4,6 @@ asdf
 231
 231
 '''
-  knownIssue: '''
-    Assignments to ``openArray`` lvalues with side-effects (e.g.,
-    ``x[y] = ...``) are currently not supported by the C code generator
-  '''
 """
 
 {.experimental: "views".}

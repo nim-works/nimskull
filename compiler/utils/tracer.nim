@@ -19,7 +19,6 @@ type
     ## Used to loosely group events together (the kind is used as the event name
     ## in the output). This likely needs a complete redesign - the only goal so
     ## far was to make the output readable
-    tikNimScript   = "NimScript" # an event related to NimScript processing
     tikParser      = "Parser"
     tikModule      = "Module"  # a module is imported
     tikInclude     = "Include" # a module is included
@@ -31,6 +30,8 @@ type
     tikTransform   = "Transform" # ``transf`` is invoked
     tikCodegen     = "Codegen" # an event related to code-generation for the
                                # target language
+    tikMirgen      = "Mir"     # mirgen is invoked
+    tikPasses      = "Passes"  # all MIR passes are run for a procedure
     tikInjectDestr = "InjectDestructors"
     tikBackend     = "Backend" # the backend is invoked (e.g. the C compiler or
                                # linker)
@@ -128,6 +129,13 @@ template traceLoc*(t: var Tracer, k: TracedItemKind, l: TLineInfo) =
 
   t.record(true, p)
   defer: t.record(false, p)
+
+template traceLoc*(t: var Tracer, k: TracedItemKind, l: TLineInfo, body) =
+  bind addPayload, record
+  let p = t.addPayload EventPayload(kind: k, loc: l)
+  t.record(true, p)
+  body
+  t.record(false, p)
 
 template traceSym*(t: var Tracer, k: TracedItemKind, s: PSym) =
   bind addPayload, record

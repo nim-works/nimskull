@@ -47,7 +47,7 @@ import
   compiler/utils/[
     pathutils,
     astrepr,
-    idioms,
+    tracer
   ]
 
 type
@@ -134,7 +134,7 @@ proc getTok(p: var Parser) =
   p.lex.rawGetTok(p.tok)
 
   if p.tok.tokType == tkError:
-    p.lex.config.handleLexerDiag(p.tok.error, instLoc(-1), doAbort)
+    p.lex.config.handleLexerDiag(p.tok.error, instLoc(-1), isFatal=true)
 
   for d in p.lex.errorsHintsAndWarnings(lexDiagOffset):
     p.lex.config.handleLexerDiag(d, instLoc(-1))
@@ -2318,6 +2318,7 @@ proc parseAll(p: var Parser): ParsedNode =
 proc parseTopLevelStmt(p: var Parser): ParsedNode =
   ## Implements an iterator which, when called repeatedly, returns the next
   ## top-level statement or emptyNode if end of stream.
+  p.lex.config.timeTracer.traceLoc(tikParser, p.lex.getLineInfo(p.tok))
   result = p.emptyNode
   # progress guaranteed
   while true:

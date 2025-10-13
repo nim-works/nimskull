@@ -181,12 +181,6 @@ when emulatedThreadVars:
 const nimTlsSize {.intdefine.} = 16000
 type
   ThreadLocalStorage = array[0..(nimTlsSize div sizeof(float)), float]
-  PGcThread = ptr GcThread
-  GcThread {.pure, inheritable.} = object
-    when emulatedThreadVars:
-      tls: ThreadLocalStorage
-    else:
-      nil
 
 when emulatedThreadVars:
   var globalsSlot {.noInit.}: ThreadVarSlot
@@ -195,10 +189,11 @@ when emulatedThreadVars:
   # here
 
   when not defined(useNimRtl):
-    var mainThread: GcThread
+    var mainThread: ThreadLocalStorage
+      ## the thread-local storage of the main thread
 
   proc GetThreadLocalVars(): pointer {.compilerRtl, inl.} =
-    result = addr(cast[PGcThread](threadVarGetValue(globalsSlot)).tls)
+    result = cast[ptr ThreadLocalStorage](threadVarGetValue(globalsSlot))
 
   proc initThreadVarsEmulation() {.compilerproc, inline.} =
     when not defined(useNimRtl):

@@ -1,5 +1,4 @@
 discard """
-  targets: "c js vm"
   description: '''
     Ensure that the in-place aggregate construction optimization doesn't affect
     observable semantics

@@ -51,7 +51,6 @@ import
   ],
   compiler/utils/[
     nversion,
-    idioms,
   ]
 
 # xxx: legacy reports cruft
@@ -508,7 +507,7 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigR
   if pass == passCmd2:
     if {optRun, optWasNimscript} * config.globalOptions == {} and
         config.arguments.len > 0 and config.cmd notin {
-          cmdTcc, cmdNimscript, cmdCrun}:
+          cmdNimscript, cmdCrun}:
       config.cliEventLogger:
         CliEvent(kind: cliEvtErrUnexpectedRunOpt,
                   cmd: config.command,

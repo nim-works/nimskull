@@ -224,9 +224,9 @@ doAssert: xx == false
 
 macro checkSym(s: typed{nkSym}): untyped =
   let body = s.getImpl.body
-  doAssert body[1].kind == nnkPragmaBlock
-  doAssert body[1][0].kind == nnkPragma
-  doAssert body[1][0][0] == bindSym"thingy"
+  doAssert body[0][1].kind == nnkPragmaBlock
+  doAssert body[0][1][0].kind == nnkPragma
+  doAssert body[0][1][0][0] == bindSym"thingy"
 
 checkSym(myproc)
 

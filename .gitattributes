@@ -1,9 +1,10 @@
+# Enforce LF line endings on all text files.
+#
+# This prevents issues caused by line-ending conversions by Git on Windows.
+* text=auto eol=lf
+
 # Avoids changelog conflicts by assuming additions-only, which is by far the common case.
 # In the rare case where branch b1 rebases against branch b2 and both branches
 # modified the same changelog entry, you'll end up with that changelog entry
 # duplicated, which is easily identifiable and fixable.
 /changelog.md merge=union
-
-# bug https://github.com/dom96/choosenim/issues/256 for WSL CRLF
-*.sh text eol=lf
-/config/build_config.txt text eol=lf

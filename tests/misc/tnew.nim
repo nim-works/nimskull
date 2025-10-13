@@ -20,8 +20,7 @@ type
   TStressTest = ref array[0..45, array[1..45, TNode]]
 
 proc `=destroy`(n: var TNode) =
-  write(stdout, n.data)
-  write(stdout, " is now freed\n")
+  debugEcho n.data, " is now freed"
 
 proc newNode(data: int, le, ri: PNode): PNode =
   new(result)

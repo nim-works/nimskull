@@ -22,7 +22,8 @@ import
 
 type
   PIdent* = ref TIdent
-  TIdent*{.acyclic.} = object
+  TIdent* {.acyclic.} = object
+    ## Identifiers only form a chain, cycles are disallowed.
     id*: int ## unique id; use this for comparisons and not the pointers
     s*: string
     next*: PIdent ## for hash-table chaining

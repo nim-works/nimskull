@@ -1,6 +1,6 @@
 discard """
   exitCode: 1
- outputsub: "Error: unhandled exception: foobar: 13"
+ outputsub: "foobar: 13"
 """
 
 # note: this needs `--unhandled-rejections=strict`, see D20210217T215950

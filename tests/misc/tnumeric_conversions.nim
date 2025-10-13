@@ -4,23 +4,27 @@ discard """
   knownIssue.js: "full-range integers aren't supported yet"
 """
 
-block negative_float64_to_uint:
-  # has the same result as converting to a signed int of the same width first,
-  # and then to the unsigned one
-  var f = -1.5
-  doAssert uint64(f) == uint64(int64(f))
-  doAssert uint32(f) == uint32(int32(f))
-  doAssert uint16(f) == uint16(int16(f))
-  doAssert uint8(f) == uint8(int8(f))
+when defined(amd64) or defined(i386) or defined(js) or defined(vm):
+  # FIXME: This test right now depends on architecture-specific behavior on x86
+  #
+  # This bug is tracked at https://github.com/nim-works/nimskull/issues/1155
+  block negative_float64_to_uint:
+    # has the same result as converting to a signed int of the same width first,
+    # and then to the unsigned one
+    var f = -1.5
+    doAssert uint64(f) == uint64(int64(f))
+    doAssert uint32(f) == uint32(int32(f))
+    doAssert uint16(f) == uint16(int16(f))
+    doAssert uint8(f) == uint8(int8(f))
 
-block negative_float32_to_uint:
-  # has the same result as converting to a signed int of the same width first,
-  # and then to the unsigned one
-  var f = -1.5'f32
-  doAssert uint64(f) == uint64(int64(f))
-  doAssert uint32(f) == uint32(int32(f))
-  doAssert uint16(f) == uint16(int16(f))
-  doAssert uint8(f) == uint8(int8(f))
+  block negative_float32_to_uint:
+    # has the same result as converting to a signed int of the same width first,
+    # and then to the unsigned one
+    var f = -1.5'f32
+    doAssert uint64(f) == uint64(int64(f))
+    doAssert uint32(f) == uint32(int32(f))
+    doAssert uint16(f) == uint16(int16(f))
+    doAssert uint8(f) == uint8(int8(f))
 
 block bool_to_float:
   var b = true

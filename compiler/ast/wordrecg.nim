@@ -45,7 +45,7 @@ type
     wCompleteStruct = "completeStruct", wRequiresInit = "requiresInit", wAlign = "align",
     wNodecl = "nodecl", wPure = "pure", wSideEffect = "sideEffect", wHeader = "header",
     wNoSideEffect = "noSideEffect", wGcSafe = "gcsafe", wNoreturn = "noreturn",
-    wNosinks = "nosinks", wLib = "lib", wDynlib = "dynlib",
+    wLib = "lib", wDynlib = "dynlib",
     wCompilerProc = "compilerproc", wCore = "core", wProcVar = "procvar",
     wBase = "base", wUsed = "used", wFatal = "fatal", wError = "error", wWarning = "warning",
     wHint = "hint",
@@ -57,14 +57,14 @@ type
     wLinksys = "linksys", wDeprecated = "deprecated", wVarargs = "varargs", wCallconv = "callconv",
     wDebugger = "debugger", wNimcall = "nimcall", wStdcall = "stdcall", wCdecl = "cdecl",
     wSafecall = "safecall", wSyscall = "syscall", wInline = "inline", wNoInline = "noinline",
-    wFastcall = "fastcall", wClosure = "closure", wNoconv = "noconv",
+    wFastcall = "fastcall", wClosure = "closure", wNoconv = "noconv", wTailcall = "tailcall"
     wOn = "on", wOff = "off", wChecks = "checks", wRangeChecks = "rangeChecks",
     wBoundChecks = "boundChecks", wOverflowChecks = "overflowChecks", wNilChecks = "nilChecks",
     wFloatChecks = "floatChecks", wNanChecks = "nanChecks", wInfChecks = "infChecks",
     wStyleChecks = "styleChecks", wStaticBoundchecks = "staticBoundChecks"
 
     wAssertions = "assertions", wTrMacros = "trmacros",
-    wSinkInference = "sinkInference", wWarnings = "warnings",
+    wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",
     wSafecode = "safecode", wPackage = "package",

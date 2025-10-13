@@ -29,7 +29,8 @@ elif defined(nimPanics) and not defined(nimscript) and not defined(vm):
       # TODO when doAssertRaises works in CT, add a test for it
       raise (ref exceptn)(msg: message & arg)
     else:
-      writeStackTrace()
+      {.cast(noSideEffect).}:
+        writeStackTrace()
       var buf = newStringOfCap(200)
       add(buf, "Error: unhandled exception: ")
       add(buf, message)
@@ -37,14 +38,15 @@ elif defined(nimPanics) and not defined(nimscript) and not defined(vm):
       add(buf, " [")
       add(buf, name exceptn)
       add(buf, "]\n")
-      cstderr.rawWrite buf
+      {.cast(noSideEffect).}:
+        cstderr.rawWrite buf
       quit 1
 
   proc sysFatal(exceptn: typedesc, message: string) {.inline, noreturn.} =
     sysFatal(exceptn, message, "")
 
 else:
-  proc sysFatal(exceptn: typedesc, message: string) {.inline, noreturn.} =
+  proc sysFatal(exceptn: typedesc, message: sink string) {.inline, noreturn.} =
     raise (ref exceptn)(msg: message)
 
   proc sysFatal(exceptn: typedesc, message, arg: string) {.inline, noreturn.} =

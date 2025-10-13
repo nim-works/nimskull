@@ -9,7 +9,7 @@
 
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
-  compiler/utils/[prefixmatches, pathutils, platform],
+  compiler/utils/[prefixmatches, pathutils, platform, tracer],
   compiler/ast/[lineinfos],
   compiler/modules/nimpaths
 
@@ -41,7 +41,6 @@ from compiler/ast/reports import
   ReportTypes
 
 const
-  hasTinyCBackend* = defined(tinyc)
   useEffectSystem* = true
   useWriteTracking* = false
   copyrightYear* = "2022"
@@ -80,11 +79,6 @@ type
                             ## some close token.
 
     errorOutputs*: TErrorOutputs ## Allowed output streams for messages.
-    # REFACTOR this field is mostly touched in sem for 'performance'
-    # reasons - don't write out error messages when compilation failed,
-    # don't generate list of call candidates when `compiles()` fails and so
-    # on. This should be replaced with `.inTryExpr` or something similar,
-    # and let the reporting hook deal with all the associated heuristics.
 
     msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
     ## information about instantiation stack - "template/generic
@@ -179,7 +173,6 @@ type
               ## reaction.
     doNothing ## Don't do anything
     doAbort   ## Immediately abort compilation
-    doRaise   ## Raise recoverable error
 
   ProjectInputMode* = enum
     pimStdin ## the contents of the main module are provided by stdin
@@ -187,7 +180,17 @@ type
              ## argument
     pimFile  ## the main module is a file
 
+  IrName* = enum
+    ## Names of the IRs that can be rendered to the standard output for
+    ## debugging purposes.
+    irTransf = "transf"
+    irMirIn  = "mir_in"
+    irMirOut = "mir_out"
+    irCgir   = "cgir"
+    irVm     = "vm"
+
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  DiagHandler* = proc(conf: ConfigRef, report: sink Report) {.closure.}
 
   HackController* = object
     ## additional configuration switches to control the behavior of the
@@ -206,7 +209,7 @@ type
     ## This is useful for environments such as nimsuggest, which discard
     ## the output.
 
-  ConfigRef* {.acyclic.} = ref object
+  ConfigRef* = ref object
     ## every global configuration fields marked with '*' are subject to the
     ## incremental compilation mechanisms (+) means "part of the dependency"
 
@@ -300,6 +303,9 @@ type
       ## callback that is invoked when an enabled report is passed to report
       ## handling. The callback is meant to handle rendering/displaying of
       ## the report
+    diagHandler*: DiagHandler
+      ## a callback that receives all emitted diagnostics and is responsible
+      ## for handling them
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to
@@ -309,8 +315,15 @@ type
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
 
-    when defined(nimDebugUnreportedErrors):
-      unreportedErrors*: OrderedTable[NodeId, PNode]
+    toDebugProc*: StringTableRef
+      ## maps identifiers to the name of the IR to print to the standard
+      ## output
+    toDebugIr*: set[IrName]
+      ## the IRs which should always be always printed to the standard
+      ## output
+    timeTracer*: Tracer
+      ## global instance of the time tracer, for creating an execution time
+      ## trace
 
 const 
   IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
@@ -393,6 +406,23 @@ passStrTableField symbols
 passStrTableField macrosToExpand
 passStrTableField arcToExpand
 
+proc getCompileOptionsStr*(conf: ConfigRef): string =
+  ## Returns the combination of the current C compile options and the
+  ## global `--passC` options (combined in that exact order).
+  ##
+  ## Global `--passC` options already present in the current C compile
+  ## options are *not* include again.
+  result = conf.compileOptions
+
+  for option in conf.compileOptionsCmd:
+    if strutils.find(result, option, 0) < 0:
+      if result.len == 0 or result[^1] != ' ': result.add " "
+      result.add option
+
+proc getLinkOptionsStr*(conf: ConfigRef): string =
+  ## Returns the combination of the current C linker options and the global
+  ## `--passL` options (combined in that exact order).
+  conf.linkOptions & " " & conf.linkOptionsCmd.join(" ")
 
 proc defineSymbol*(conf: ConfigRef, symbol: string, value: string = "true") =
   conf.symbolsSet(symbol, value)
@@ -552,6 +582,10 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
   ## Get active report hook
   conf.structuredReportHook
 
+proc setDiagHandler*(conf: ConfigRef, handler: sink DiagHandler) {.inline.} =
+  ## Sets the active diagnostic handler.
+  conf.diagHandler = handler
+
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
@@ -583,16 +617,6 @@ template report*[R: ReportTypes](
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
-
-# REFACTOR: we shouldn't need to dig into the internalReport and query severity
-#           directly
-from compiler/ast/reports_internal import severity
-
-func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
-  ## Check if report stores fatal compilation error
-  report.category == repInternal and
-  report.internalReport.severity() == rsevFatal or
-  report.kind == rextCmdRequiresFile
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
   # style checking is a hint by default, but can be globally overriden to
@@ -705,29 +729,6 @@ func isEnabled*(conf: ConfigRef, report: Report): bool =
   report.kind == rsemExpandMacro and
     conf.macrosToExpand.hasKey(report.semReport.sym.name.s) or
     conf.isEnabled(report.kind)
-
-type
-  ReportWritabilityKind* = enum
-    writeEnabled
-    writeDisabled
-    writeForceEnabled
-
-func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
-  let compTimeCtx = conf.m.errorOutputs == {}
-    ## indicates whether we're in a `compiles` or `constant expression
-    ## evaluation` context. `sem` and `semexprs` in particular will clear
-    ## `conf.m.errorOutputs` as a signal for this. For more details see the
-    ## comment for `MsgConfig.errorOutputs`.
-  if r.category == repDebug and compTimeCtx:
-    # Force write of the report messages using regular stdout if compTimeCtx
-    # is enabled
-    writeForceEnabled
-  elif compTimeCtx:
-    # Or we are in the special hack mode for `compiles()` processing
-    # Return without writing
-    writeDisabled
-  else:
-    writeEnabled
 
 const
   oldExperimentalFeatures* = {dotOperators, callOperator}
@@ -888,6 +889,7 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.notes = NotesVerbosity.main[conf.verbosity]
   conf.hack = defaultHackController
   conf.mainPackageNotes = NotesVerbosity.main[conf.verbosity]
+  conf.toDebugProc = newStringTable(modeStyleInsensitive)
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
     # access the `system.nimCompilerDebugRegion` template
@@ -1285,6 +1287,19 @@ proc completeGeneratedFilePath*(conf: ConfigRef; f: AbsoluteFile,
   result = subdir / RelativeFile f.string.splitPath.tail
   #echo "completeGeneratedFilePath(", f, ") = ", result
 
+proc completeGeneratedExtFilePath*(conf: ConfigRef, f: AbsoluteFile
+                                  ): AbsoluteFile =
+  ## Returns the absolute file path within the cache directory for file `f`.
+  ## This procedure is meant to be used for external files with names not
+  ## controlled by the compiler -- a sub-directory is used to prevent
+  ## collisions.
+  let subdir = getNimcacheDir(conf.active) / RelativeDir("external")
+  try:
+    createDir(subdir.string)
+  except OSError:
+    conf.quitOrRaise "cannot create directory: " & subdir.string
+  result = subdir / RelativeFile(f.string.splitPath.tail)
+
 proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
   result = changeFileExt(completeGeneratedFilePath(conf,
     withPackageName(conf, f)), ext)
@@ -1561,3 +1576,8 @@ func inDebug*(conf: ConfigRef): bool {.
   noSideEffect.} =
   ## Check whether 'nim compiler debug' is defined right now.
   return conf.isDefined("nimCompilerDebug")
+
+template isDebugEnabled*(c: ConfigRef, ir: IrName, name: string): bool =
+  ## Whether printing the `ir` IR is enabled specifically for the given `name`.
+  # a template is used so that `$ir` can be folded when `ir` is constant
+  c.toDebugProc.getOrDefault(name) == $ir

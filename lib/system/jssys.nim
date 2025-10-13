@@ -29,10 +29,12 @@ type
 
   JSRef = ref RootObj # Fake type.
 
+  ExceptionFrame {.compilerproc.} = object
+
 var
   framePtr {.importc, nodecl, volatile.}: PCallFrame
-  excHandler {.importc, nodecl, volatile.}: int = 0
   lastJSError {.importc, nodecl, volatile.}: PJSError = nil
+  exceptionStack: seq[tuple[ex: PJSError, caught: bool]]
 
 {.push stacktrace: off, profiler:off.}
 proc nimBoolToStr(x: bool): string {.compilerproc.} =
@@ -116,8 +118,7 @@ proc writeStackTrace() =
 proc getStackTrace*(): string = rawWriteStackTrace()
 proc getStackTrace*(e: ref Exception): string = e.trace
 
-proc unhandledException(e: ref Exception) {.
-    compilerproc, asmNoStackFrame.} =
+proc unhandledExceptionString(e: ref Exception): string =
   var buf = ""
   if e.msg.len != 0:
     add(buf, "Error: unhandled exception: ")
@@ -129,7 +130,11 @@ proc unhandledException(e: ref Exception) {.
   add(buf, "]\n")
   when NimStackTrace:
     add(buf, rawWriteStackTrace())
-  let cbuf = cstring(buf)
+  result = buf
+
+proc unhandledException(e: ref Exception) {.
+    compilerproc, asmNoStackFrame.} =
+  let cbuf = cstring(unhandledExceptionString(e))
   framePtr = nil
   {.emit: """
   if (typeof(Error) !== "undefined") {
@@ -140,25 +145,83 @@ proc unhandledException(e: ref Exception) {.
   }
   """.}
 
-proc raiseException(e: ref Exception, ename: cstring) {.
-    compilerproc, asmNoStackFrame.} =
+# ---- exception runtime implementation
+
+proc nimUnhandledException() {.compilerproc, asmNoStackFrame.} =
+  # |NimSkull| exceptions are turned into JavaScript errors for the purpose
+  # of better error messages
+  when defined(nodejs):
+    {.emit: """
+      if (lastJSError.m_type !== undefined) {
+        console.log(`toJSStr`(`unhandledExceptionString`(`lastJSError`)));
+      } else {
+        console.log('Error: unhandled exception: ', `lastJSError`)
+      }
+      process.exit(1);
+    """.}
+  else:
+    # it's currently not possible to truly panic (abort excution) for non-
+    # node.js JavaScript
+    {.emit: """
+      if (lastJSError.m_type !== undefined) {
+        `unhandledException`(lastJSError);
+      } else {
+        throw lastJSError;
+      }
+    """.}
+
+proc updateJsError() {.asmNoStackFrame} =
+  if exceptionStack.len > 0:
+    lastJSError = exceptionStack[exceptionStack.len - 1].ex
+  else:
+    lastJSError = nil
+
+proc nimCatchException(e: ptr ExceptionFrame) {.compilerproc.} =
+  var isJsError: bool
+  {.emit: """
+    `isJsError` = `lastJSError`.m_type === undefined;
+  """.}
+  if isJsError:
+    exceptionStack.add (lastJsError, true)
+  else:
+    # mark the previously raised exception as caught
+    exceptionStack[exceptionStack.len - 1].caught = true
+
+proc nimAbortException(viaError: bool) {.compilerproc.} =
+  if viaError:
+    exceptionStack.delete(exceptionStack.len - 2)
+  else:
+    exceptionStack.setLen(exceptionStack.len - 1)
+    updateJsError()
+
+proc nimLeaveExcept() {.compilerproc.} =
+  if exceptionStack[exceptionStack.len - 1].caught:
+    exceptionStack.setLen(exceptionStack.len - 1)
+    updateJsError()
+  else:
+    # the ``except`` is exited via a raised exception
+    exceptionStack.delete(exceptionStack.len - 2)
+
+proc raiseExceptionEx(e: sink(ref Exception), ename, prc, file: cstring,
+                      line: int) {.compilerproc, asmNoStackFrame.} =
   if e.name.isNil:
     e.name = ename
-  if excHandler == 0:
-    unhandledException(e)
   when NimStackTrace:
     e.trace = rawWriteStackTrace()
+
+  lastJSError = cast[PJSError](e)
+  exceptionStack.add (lastJSError, false)
+
+proc raiseException(e: ref Exception) {.compilerproc, asmNoStackFrame.} =
   asm "throw `e`;"
 
 proc reraiseException() {.compilerproc, asmNoStackFrame.} =
   if lastJSError == nil:
     raise newException(ReraiseDefect, "no exception to reraise")
-  else:
-    if excHandler == 0:
-      if isNimException():
-        unhandledException(cast[ref Exception](lastJSError))
 
-    asm "throw lastJSError;"
+  exceptionStack.add (lastJSError, false)
+
+# ----
 
 proc raiseOverflow {.exportc: "raiseOverflow", noreturn, compilerproc.} =
   raise newException(OverflowDefect, "over- or underflow")
@@ -454,7 +517,7 @@ proc modInt(a, b: int): int {.asmNoStackFrame, compilerproc.} =
     return Math.trunc(`a` % `b`);
   """
 
-proc checkOverflowInt64(a: int) {.asmNoStackFrame, compilerproc.} =
+proc checkOverflowInt64(a: int64) {.asmNoStackFrame, compilerproc.} =
   asm """
     if (`a` > 9223372036854775807 || `a` < -9223372036854775808) `raiseOverflow`();
   """
@@ -496,9 +559,11 @@ proc modInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
 
 proc negInt(a: int): int {.compilerproc.} =
   result = a*(-1)
+  checkOverflowInt(result)
 
 proc negInt64(a: int64): int64 {.compilerproc.} =
   result = a*(-1)
+  checkOverflowInt64(result)
 
 proc absInt(a: int): int {.compilerproc.} =
   result = if a < 0: a*(-1) else: a
@@ -673,7 +738,7 @@ proc arrayConstr(len: int, value: JSRef, typ: PNimType): JSRef {.
   # types are fake
   asm """
     var result = new Array(`len`);
-    for (var i = 0; i < `len`; ++i) result[i] = nimCopy(null, `value`, `typ`);
+    for (var i = 0; i < `len`; ++i) result[i] = `nimCopy`(null, `value`, `typ`);
     return result;
   """
 

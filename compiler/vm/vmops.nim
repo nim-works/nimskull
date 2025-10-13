@@ -48,13 +48,6 @@ from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
   lgamma
-when declared(math.copySign):
-  # pending bug #18762, avoid renaming math
-  from std/math as math2 import copySign
-
-when declared(math.signbit):
-
-  from std/math as math3 import signbit
 
 from std/os import getEnv, existsEnv, delEnv, putEnv, envPairs,
   dirExists, fileExists, walkDir, getAppFilename, getCurrentDir,
@@ -65,6 +58,7 @@ from std/times import getTime
 from std/hashes import hash
 from std/osproc import nil
 from system/formatfloat import writeFloatToBufferSprintf
+from std/parseutils import parseBiggestFloat
 
 from compiler/modules/modulegraphs import `$`
 
@@ -156,6 +150,69 @@ proc setCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
   asgnRef(a.currentException, deref(a.getHandle(0)).refVal,
           a.mem[], reset=true)
 
+proc updateCurrentExc(a: VmArgs) =
+  if a.exState.stack.len == 0:
+    a.exState.current.asgnRef(HeapSlotHandle(0), a.mem[], true)
+  else:
+    a.exState.current.asgnRef(a.exState.stack[^1].refVal, a.mem[], true)
+
+proc nimCatchExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # ignore the ExceptionFrame pointer; the "caught" stack is managed directly
+  # by the VM
+  a.exState.stack[^1].caught = true
+
+proc popException(a: VmArgs, previous: bool) =
+  if previous:
+    a.mem.heap.heapDecRef(a.mem.allocator, a.exState.stack[^2].refVal)
+    a.exState.stack.delete(a.exState.stack.len - 2)
+  else:
+    a.mem.heap.heapDecRef(a.mem.allocator, a.exState.stack[^1].refVal)
+    a.exState.stack.shrink(a.exState.stack.len - 1)
+    updateCurrentExc(a)
+
+proc nimAbortExceptionWrapper(a: VmArgs) {.nimcall.} =
+  popException(a, a.getInt(0) == 1)
+
+proc nimLeaveExceptWrapper(a: VmArgs) {.nimcall.} =
+  # if the except block is left via a raised exception, the topmost stack
+  # entry is the raise exception and must not be popped
+  popException(a, not a.exState.stack[^1].caught)
+
+proc raiseExceptionExWrapper(a: VmArgs) {.nimcall.} =
+  let
+    raised = a.heap[].tryDeref(deref(a.getHandle(0)).refVal, noneType).value()
+    nameField = raised.getFieldHandle(1.fpos)
+
+  # set the name of the exception if it hasn't been already:
+  if deref(nameField).strVal.len == 0:
+    # XXX: the VM doesn't distinguish between a `nil` cstring and an empty
+    #      `cstring`, leading to the name erroneously being overridden if
+    #      it was explicitly initialized with `""`
+    asgnVmString(deref(nameField).strVal,
+                 deref(a.getHandle(1)).strVal,
+                 a.mem.allocator)
+
+  # push to the exception stack:
+  a.mem.heap.heapIncRef(deref(a.getHandle(0)).refVal)
+  a.exState.stack.add VmException(refVal: deref(a.getHandle(0)).refVal)
+
+proc reraiseExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # the following nimLeaveExcept call needs something valid to pop, so the
+  # caught exception is duplicated
+  a.exState.stack.add a.exState.stack[^1]
+  a.mem.heap.heapIncRef(a.exState.stack[^1].refVal)
+  a.exState.stack[^1].caught = false
+
+proc nimUnhandledExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # setup the exception AST:
+  let
+    exc = a.heap[].tryDeref(a.currentException, noneType).value()
+    ast = toExceptionAst($exc.getFieldHandle(1.fpos).deref().strVal,
+                         $exc.getFieldHandle(2.fpos).deref().strVal)
+  # report the unhandled exception:
+  raiseVmError(VmEvent(kind: vmEvtUnhandledException,
+                       trace: a.exState.stack[^1].trace, exc: ast))
+
 proc prepareMutationWrapper(a: VmArgs) {.nimcall.} =
   discard "no-op"
 
@@ -189,8 +246,8 @@ when defined(nimHasInvariant):
     of SingleValueSetting.projectFull: result = conf.projectFull.string
     of SingleValueSetting.command: result = conf.command
     of SingleValueSetting.commandLine: result = conf.commandLine
-    of SingleValueSetting.linkOptions: result = conf.linkOptions
-    of SingleValueSetting.compileOptions: result = conf.compileOptions
+    of SingleValueSetting.linkOptions: result = conf.getLinkOptionsStr()
+    of SingleValueSetting.compileOptions: result = conf.getCompileOptionsStr()
     of SingleValueSetting.ccompilerPath: result = conf.cCompilerPath
     of SingleValueSetting.backend: result = $conf.backend
     of SingleValueSetting.libPath: result = conf.libpath.string
@@ -232,6 +289,12 @@ iterator basicOps*(): Override =
   # system operations
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
+  systemop(raiseExceptionEx)
+  systemop(reraiseException)
+  systemop(nimUnhandledException)
+  systemop(nimCatchException)
+  systemop(nimLeaveExcept)
+  systemop(nimAbortException)
   systemop(prepareMutation)
   override("stdlib.system.closureIterSetupExc",
            setCurrentExceptionWrapper)
@@ -271,18 +334,19 @@ iterator basicOps*(): Override =
   override "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
     setResult(a, `mod`(getFloat(a, 0), getFloat(a, 1)))
 
-  when declared(copySign):
-    wrap2f_math(copySign)
-
-  when declared(signbit):
-    wrap1f_math(signbit)
-
   override "stdlib.math.round", proc (a: VmArgs) {.nimcall.} =
     let n = a.numArgs
     case n
     of 1: setResult(a, round(getFloat(a, 0)))
     of 2: setResult(a, round(getFloat(a, 0), getInt(a, 1).int))
     else: doAssert false, $n
+
+  override "stdlib.parseutils.parseBiggestFloat", proc(a: VmArgs) {.nimcall.} =
+    var num: BiggestFloat
+    copyMem(num.addr, a.getHandle(1).rawPointer, sizeof(num))
+    let parsed = a.getString(0).parseBiggestFloat(num, int a.getInt(2))
+    copyMem(a.getHandle(1).rawPointer, num.addr, sizeof(num))
+    a.setResult(parsed)
 
   wrap1s(getMD5, md5op)
 

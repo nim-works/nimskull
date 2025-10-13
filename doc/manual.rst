@@ -2103,6 +2103,12 @@ Nim supports these `calling conventions`:idx:\:
     Nim's default calling convention for procedures is `fastcall` to
     improve speed.
 
+`tailcall`:idx:
+    When a call to the routine appears in another `tailcall` routine, the call
+    must be a `tail call <#tail-call>`_ (with some additional restrictions)
+    and is guaranteed to not allocate a new stack frame. Otherwise it behaves
+    like a `nimcall` routine.
+
 Most calling conventions exist only for the Windows 32-bit platform.
 
 The default calling convention is `nimcall`, unless it is an inner proc (a
@@ -3825,7 +3831,7 @@ argument in inline calls, as well as a direct mirror of Nim's routine syntax.
   macroResults.add quote do:
     if not `ex`:
       echo `info`, ": Check failed: ", `expString`
-  
+
   # Processing a routine definition in a macro:
   rpc(router, "add") do (a, b: int) -> int:
     result = a + b
@@ -4100,6 +4106,65 @@ Overloading of the subscript operator
 
 The `[]` subscript operator for arrays/openarrays/sequences can be overloaded.
 
+
+Tail Call
+---------
+
+A tail call is a routine call that is the very last operation taking place in
+a routine's body.
+
+A call is considered a tail call iff:
+* it is the *tailing expression* of a `return`, and the `return` is a
+  *tailing return*
+* it is the *tailing expression* of a routine's body
+
+A *tailing expression* is recursively defined as:
+* the body of an `if`, `elif`, or `else` branch
+* the body of a `block`
+* the body of an `of` branch
+* the last expression in a statement list, where there's no implicit destructor
+  calls at its end and no `defer` statements
+
+Everything not covered by this list is **not** a tailing expression.
+
+For example, in `if a: (if b: c else: d) else: e`, `c` and `d` are the tailing
+expressions of the inner if-then-else, whereas `c`, `d`, `e`, and
+`(if b: c else: d)` are the tailing expressions of the outer if-then-else.
+
+A *tailing return* is defined as a `return` that is **not** placed in:
+* a `try` body
+* an `except` or `finally` clause
+* a statement list with implicit destructor calls at its end
+* after a `defer` statement in a statement list
+
+`.tailcall` Call
+----------------
+
+When a `.tailcall` routine is called in a routine that doesn't use the
+`.tailcall` calling convention itself:
+* the call doesn't have to be a tail call
+* the callee is not guaranteed to take over the caller's stack frame
+* no constraints are placed on the arguments
+
+When a `.tailcall` routine is called in a routine that does use the `.tailcall`
+calling convention:
+* the call must be a tail call
+* the callee is guaranteed to take over the caller's stack frame
+* several static constraints are placed on the arguments
+
+The static constraints are as follows:
+* arguments to `sink` parameters can be arbitrary expressions
+* arguments to `openArray` parameters must be views into caller parameters or
+  globals
+* arguments to `var` and pass-by-reference parameters must be lvalue
+  expressions derived from caller parameters, globals, or `ptr` dereferences
+* pass-by-value parameters act like `sink` parameters when `supportsCopyMem`
+  returns `true` for the type, otherwise they act like pass-by-reference
+  parameters
+
+For the above `openArray` and `var` rules, whether the expressions refers to
+a location derived from a parameter or global must be visible directly from the
+argument expression, no indirection through locals is allowed.
 
 Methods
 =============
@@ -4690,10 +4755,13 @@ the `raise` statement is the only way to raise an exception.
 
 .. XXX document this better!
 
-If no exception name is given, the current exception is `re-raised`:idx:. The
-`ReraiseDefect`:idx: exception is raised if there is no exception to
-re-raise. It follows that the `raise` statement *always* raises an
-exception.
+If no exception name is given, the current exception is `re-raised`:idx:.
+There are two restrictions for `raise` statements without an exception name:
+
+1. They must appear within the scope of an `except`.
+2. They must not appear within the direct scope of a `finally`. A re-raise
+   statement within an `except` that appears within a `finally` is okay, but
+   the other way around is not.
 
 
 Exception hierarchy
@@ -5418,7 +5486,7 @@ Templates
 
 A template is a form of metaprogramming: a template call evaluates to a
 |Nimskull| abstract syntax tree that is substituted in place of the call. The
-evaluation and substitution is done during semantic pass of the compiler.
+evaluation and substitution is done during the semantic pass of the compiler.
 
 The syntax to *invoke* a template is the same as calling a procedure.
 
@@ -5438,8 +5506,8 @@ templates:
 | `a in b` is transformed into `contains(b, a)`.
 | `notin` and `isnot` have the obvious meanings.
 
-The "types" of templates can be the symbols `untyped`, `typed` or `typedesc`.
-These are "meta types", they can only be used in certain contexts. Regular
+The "types" of templates can be the symbols `untyped`, `typed` or `typedesc`,
+these are "meta types" and can only be used in certain contexts. Regular
 types can be used too; this implies that `typed` expressions are expected.
 
 **Future directions**: the output type of a template is the output type of the
@@ -5447,10 +5515,10 @@ template body, which itself can be thought of as an out parameter. Templates
 will be classified into two major categories AST output (`untyped` and `typed`)
 and expression based (other types). Along with substitution positions (see
 below) template evaluation will be revised as follows:
-- `untyped` template: allow `typed` and `untyped` params in defining or
-  using positions; and all other params only in using positions
-- `typed` template: allow `typed` and `untyped` params in defining or using
-  positions; and all other params only in using positions
+- `untyped` template: allow `untyped` parameters in defining or using
+  positions; and all other parameters only in using positions
+- `typed` template: allow `untyped` parameters in defining or using positions;
+  and all other parameters only in using positions
 - non-ast template: only allow substitution in the using positions
 The above direction describes the nuance that will be incorporated into a
 broader redesign of how templates work in |Nimskull|.
@@ -5492,9 +5560,8 @@ performed before the expression is passed to the template. This allows
 
   declareInt(x) # invalid, because x has not been declared and so it has no type
 
-`typed` and `untyped` parameters may appear in defining or using symbol
-positions, while all other parameters are only substituted for using symbol
-positions.
+`untyped` parameters may appear in defining or using symbol positions, while
+all other parameters are only substituted for using symbol positions.
 
 A template where every parameter is `untyped` is called an `immediate`:idx:
 template. For historical reasons, templates can be explicitly annotated with
@@ -5729,41 +5796,6 @@ no semantics outside of a template definition and cannot be abstracted over:
 To get rid of hygiene in templates, one can use the `dirty`:idx: pragma for
 a template. `inject` and `gensym` have no effect in `dirty` templates.
 
-`gensym`'ed symbols cannot be used as `field` in the `x.field` syntax.
-Nor can they be used in the `ObjectConstruction(field: value)`
-and `namedParameterCall(field = value)` syntactic constructs.
-
-The reason for this is that code like
-
-.. code-block:: nim
-    :test: "nim c $1"
-
-  type
-    T = object
-      f: int
-
-  template tmp(x: T) =
-    let f = 34
-    echo x.f, T(f: 4)
-
-
-should work as expected.
-
-However, this means that the method call syntax is not available for
-`gensym`'ed symbols:
-
-.. code-block:: nim
-    :test: "nim c $1"
-    :status: 1
-
-  template tmp(x) =
-    type
-      T {.gensym.} = int
-
-    echo x.T # invalid: instead use:  'echo T(x)'.
-
-  tmp(12)
-
 
 
 Limitations of the method call syntax
@@ -5960,7 +5992,7 @@ as arguments if called in statement form.
     # to perform the task
   do:
     # code to undo it
-  
+
   let num = 12
   # a single colon may be used if there is no initial block
   match (num mod 3, num mod 5):
@@ -6592,47 +6624,8 @@ If the `line` pragma is used with a parameter, the parameter needs be a
 
 computedGoto pragma
 -------------------
-The `computedGoto` pragma can be used to tell the compiler how to
-compile a Nim `case`:idx: in a `while true` statement.
-Syntactically it has to be used as a statement inside the loop:
-
-.. code-block:: nim
-
-  type
-    MyEnum = enum
-      enumA, enumB, enumC, enumD, enumE
-
-  proc vm() =
-    var instructions: array[0..100, MyEnum]
-    instructions[2] = enumC
-    instructions[3] = enumD
-    instructions[4] = enumA
-    instructions[5] = enumD
-    instructions[6] = enumC
-    instructions[7] = enumA
-    instructions[8] = enumB
-
-    instructions[12] = enumE
-    var pc = 0
-    while true:
-      {.computedGoto.}
-      let instr = instructions[pc]
-      case instr
-      of enumA:
-        echo "yeah A"
-      of enumC, enumD:
-        echo "yeah CD"
-      of enumB:
-        echo "yeah B"
-      of enumE:
-        break
-      inc(pc)
-
-  vm()
-
-As the example shows, `computedGoto` is mostly useful for interpreters. If
-the underlying backend (C compiler) does not support the computed goto
-extension the pragma is simply ignored.
+The `computedGoto` pragma is kept for backwards compatibility. It can be used
+in pragma statements, but has no effect.
 
 
 immediate pragma
@@ -7052,9 +7045,17 @@ Example:
   is a single string literal, Nim symbols can be referred to via backticks.
   This usage is however deprecated.
 
-For a top-level emit statement, the section where in the generated C file
-the code should be emitted can be influenced via the prefixes
-`/*TYPESECTION*/`:c: or `/*VARSECTION*/`:c: or `/*INCLUDESECTION*/`:c:\:
+
+Top-Level Emit
+~~~~~~~~~~~~~~
+
+When using the C backend, emit statements appearing at module scope (after
+expansion of templates, macros, and `when` statements) and outside of any
+expression are *top-level emit statements*.
+
+By default, they're emitted into the *procedure* section of the generated
+C file, but the section can be influenced via the prefixes `/*TYPESECTION*/`:c:
+or `/*VARSECTION*/`:c: or `/*INCLUDESECTION*/`:c:\:
 
 .. code-block:: Nim
   # TODO: Complete this example

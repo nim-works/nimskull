@@ -15,6 +15,7 @@
 ## * introduces method dispatchers
 ## * performs lambda lifting for closure support
 ## * transforms 'defer' into a 'try finally' statement
+## * preparations for tail call elimination
 
 import
   std/[
@@ -42,16 +43,20 @@ import
     closureiters,
     semfold,
     lambdalifting,
-    lowerings
+    lowerings,
+    unreachable_elim
   ],
   compiler/backend/[
     cgmeth
   ],
   compiler/utils/[
-    idioms
+    tracer
   ]
 
 from compiler/sem/semdata import makeVarType
+
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
 
 type
   PTransCon = ref object # part of TContext; stackable
@@ -84,10 +89,6 @@ type
     deferDetected: bool
     graph: ModuleGraph
     idgen: IdGenerator
-
-    env: PSym ## the symbol of the local (or parameter) through which
-              ## the lifted local environment is accessed. 'nil', if
-              ## none exists.
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
@@ -130,7 +131,7 @@ proc transformSymAux(c: PTransf, n: PNode): PNode =
       # which is only available after transforming the routine...
       discard transformBody(c.graph, c.idgen, s, true)
 
-      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c), c.env)
+      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c))
     elif s.kind in {skProc, skFunc, skConverter, skMethod}:
       # top level .closure procs are still somewhat supported for 'Nake':
       ensureEnvParam(c.graph, c.idgen, s)
@@ -295,9 +296,9 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkCommentStmt, nkForStmt, nkWhileStmt: discard
+  of nkWithoutSons, nkForStmt, nkWhileStmt: discard
   of nkContinueStmt: result = true
-  else:
+  of nkWithSons - {nkForStmt, nkWhileStmt, nkContinueStmt}:
     for i in 0..<n.len:
       if hasContinue(n[i]): return true
 
@@ -373,9 +374,9 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
       loop[0] = newIntTypeNode(1, c.graph.getSysType(info, tyBool))
       loop[0].info = info
 
-      # XXX: we need to help ``closureiters`` (which doesn't support 'yield' in
-      #      if conditions...) here and unpack complex condition expressions;
-      #      'yield' in 'while' conditions would not work otherwise
+      # unwrap the statement list expression. It helps with the following
+      # lowering, and it's also necessary for the closure iterator
+      # transformation
       var preamble = PNode(nil)
       if cond.kind in {nkStmtListExpr, nkStmtList}:
         preamble = newNodeI(nkStmtList, info, cond.len - 1)
@@ -383,6 +384,16 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
           preamble[i] = cond[i]
 
         cond = cond[^1]
+
+      # all definitions part of the condition expression are part of the while's
+      # scope, placing the expression into the if's condition slot would thus
+      # result in incorrect scoping
+      if not isAtom(cond):
+        let tmp = newTemp(c, cond.typ, cond.info)
+        if preamble.isNil:
+          preamble = newTree(nkStmtList)
+        preamble.add newTree(nkLetSection, newIdentDefs(tmp, cond))
+        cond = tmp
 
       let exit =
         newTreeI(nkIfStmt, info,
@@ -392,14 +403,7 @@ proc transformWhile(c: PTransf; n: PNode): PNode =
               cond),
             newBreakStmt(info, labl)))
 
-      var body = transformLoopBody(c, n[1])
-      # use a nested scope for the body. This is important for the clean-up
-      # semantics, as exiting the loop via the ``break`` used by the exit
-      # handling must not run finalizers (if present) for the loop's body
-      if body.kind != nkBlockStmt:
-        body = newTreeI(nkBlockStmt, n[1].info):
-          [newSymNode(newLabel(c, body)), body]
-
+      let body = transformLoopBody(c, n[1])
       loop[1] =
         if preamble.isNil: newTree(nkStmtList, [exit, body])
         else:              newTree(nkStmtList, [preamble, exit, body])
@@ -420,7 +424,7 @@ proc introduceNewLocalVars(c: PTransf, n: PNode): PNode =
   case n.kind
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkCommentStmt:
+  of nkWithoutSons - nkSym:
     # nothing to be done for leaves:
     result = n
   of callableDefs:
@@ -567,6 +571,10 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
     [conv, newNodeIT(nkNilLit, prc.info, getSysType(c.graph, prc.info, tyNil))]
 
 proc transformConv(c: PTransf, n: PNode): PNode =
+  if sameType(n.typ.skipTypes({tySink}), n[1].typ.skipTypes({tySink})):
+    # the conversion doesn't modify the type, drop it
+    return transform(c, n[1])
+
   # numeric types need range checks:
   var dest = skipTypes(n.typ, abstractVarRange)
   var source = skipTypes(n[1].typ, abstractVarRange)
@@ -623,36 +631,22 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     of tyObject:
       let diff = inheritanceDiff(dest, source)
       if diff == 0 or diff == high(int):
-        result = transform(c, n[1])
-        result.typ = n.typ
+        result = transformSons(c, n)
       else:
         result = newTreeIT(
           if diff < 0: nkObjUpConv else: nkObjDownConv,
           n.info, n.typ): transform(c, n[1])
-    of tyNil:
-      # a ``T(nil)`` expression
-      # XXX: it might be a better idea to eliminate the conversion during
-      #      semantic analysis instead
-      result = transform(c, n[1])
-      result.typ = n.typ
     else:
       result = transformSons(c, n)
   of tyObject:
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):
-      result = transform(c, n[1])
-      result.typ = n.typ
+      # must be some distinct type conversion; keep
+      result = transformSons(c, n)
     else:
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,
         n.info, n.typ): transform(c, n[1])
-  of tyPointer:
-    case source.kind
-    of tyNil:
-      result = transform(c, n[1])
-      result.typ = n.typ
-    else:
-      result = transformSons(c, n)
   of tyGenericParam, tyOrdinal:
     result = transform(c, n[1])
     # happens sometimes for generated assignments, etc.
@@ -721,13 +715,13 @@ proc findWrongOwners(c: PTransf, n: PNode) =
 proc isSimpleIteratorVar(c: PTransf; iter: PSym): bool =
   proc rec(n: PNode; owner: PSym; dangerousYields: var int) =
     case n.kind
-    of nkEmpty..nkNilLit: discard
+    of nkWithoutSons: discard
     of nkYieldStmt:
       if n[0].kind == nkSym and n[0].sym.owner == owner:
         discard "good: yield a single variable that we own"
       else:
         inc dangerousYields
-    else:
+    of nkWithSons - nkYieldStmt:
       for c in n: rec(c, owner, dangerousYields)
 
   var dangerousYields = 0
@@ -884,12 +878,13 @@ proc transformFor(c: PTransf, n: PNode): PNode =
 proc transformCase(c: PTransf, n: PNode): PNode =
   # removes `elif` branches of a case stmt
   # adds ``else: nil`` if needed for the code generator
+  # also drops ``of`` branches without labels
   result = newNodeIT(nkCaseStmt, n.info, n.typ)
   var ifs: PNode = nil
   for it in n:
-    var e = transform(c, it)
     case it.kind
     of nkElifBranch:
+      let e = transform(c, it)
       if ifs == nil:
         # Generate the right node depending on whether `n` is used as a stmt or
         # as an expr
@@ -897,10 +892,17 @@ proc transformCase(c: PTransf, n: PNode): PNode =
         ifs = newNodeIT(kind, it.info, n.typ)
       ifs.add(e)
     of nkElse:
+      let e = transform(c, it)
       if ifs == nil: result.add(e)
       else: ifs.add(e)
+    of nkOfBranch:
+      # drop the branch if it has no labels. This is the case for,
+      # e.g.: `of []: discard`
+      if it.len > 1:
+        result.add(transform(c, it))
     else:
-      result.add(e)
+      # this must be the selector expression
+      result.add(transform(c, it))
   if ifs != nil:
     var elseBranch = newTreeI(nkElse, n.info): ifs
     result.add(elseBranch)
@@ -910,6 +912,26 @@ proc transformCase(c: PTransf, n: PNode): PNode =
     # fix a stupid code gen bug by normalizing:
     let elseBranch = newTreeI(nkElse, n.info): newNodeI(nkNilLit, n.info)
     result.add(elseBranch)
+
+  if result.len == 2 and result[1].kind == nkElse:
+    # the case statement has no 'of' branch. Transform it into a
+    # ``(discard sel; block: body)``. Why the block and discard?
+    # * the discard makes sure side-effects of the selector expression are
+    #   computed and that usage of `sel` stays
+    # * the block makes sure that lifetimes don't change
+    let
+      discardStmt = newTreeI(nkDiscardStmt, n.info, result[0])
+      body = result[1][^1]
+      label = newSymNode(newLabel(c, body))
+    result =
+      if isEmptyType(result.typ):
+        newTreeI(nkStmtList, n.info):
+          [discardStmt,
+           newTreeI(nkBlockStmt, body.info, label, body)]
+      else:
+        newTreeIT(nkStmtListExpr, n.info, n.typ):
+          [discardStmt,
+           newTreeIT(nkBlockExpr, body.info, body.typ, label, body)]
 
 proc transformArrayAccess(c: PTransf, n: PNode): PNode =
   # XXX this is really bad; transf should use a proper AST visitor
@@ -994,6 +1016,81 @@ proc flattenTree(root: PNode): PNode =
   else:
     result = root
 
+proc transformAndOr(c: PTransf, n: PNode): PNode =
+  ## Transforms both operands and hoists all locals within them that are in
+  ## the outermost scope to the start of the and/or expression:
+  ##
+  ##   (let x = 0; a) or (var y; y = 1; b)
+  ##   # ->
+  ##   (let x; var y; (x = 0; a) or (y = 1; b))
+  ##
+  ## This makes sure that the bindings' lifetime is delimited by the `and`/`or`
+  ## expression's enclosing scope, even after lowering the expression.
+  proc hoist(c: PTransf, n: sink PNode, target: PNode): PNode {.nimcall.} =
+    # traverse all statements/expressions within the *same* scope
+    case n.kind
+    of nkVarSection, nkLetSection:
+      result = newTreeI(nkStmtList, n.info)
+
+      for it in n.items:
+        case it.kind
+        of nkIdentDefs:
+          if (it[0].kind == nkSym and (sfGlobal notin it[0].sym.flags or
+              it[0].sym.owner.kind notin routineKinds)) or
+             it[0].kind == nkDotExpr:
+            # local or module-level global. The initializer expression must be
+            # processed first, since locations defined therein start their
+            # lifetime earlier. That is, for ``var x = (var y = 0; y)`` the
+            # ``var y`` must be hoisted first
+            let src = hoist(c, move it[2], target)
+            target.add newTreeI(n.kind, it.info,
+              newTreeI(nkIdentDefs, it.info, it[0], c.graph.emptyNode,
+                        c.graph.emptyNode))
+            if src.kind != nkEmpty:
+              result.add newTreeI(nkAsgn, it.info, it[0], src)
+          else:
+            # a global defined within a procedure, leave as is
+            result.add newTreeI(n.kind, n.info, it)
+        of nkVarTuple:
+          # lower into assignments first, then process the result
+          let x = lowerTupleUnpacking(c.graph, it, c.idgen, getCurrOwner(c))
+          result.add hoist(c, x, target)
+        else:
+          unreachable()
+
+      if result.len == 0:
+        # all definitions were hoisted
+        result = c.graph.emptyNode
+
+    of nkHiddenAddr, nkHiddenDeref, nkAddr, nkDerefExpr, nkObjDownConv,
+        nkObjUpConv, nkStringToCString, nkCStringToString, nkCheckedFieldExpr:
+      result = n
+      result[0] = hoist(c, move result[0], target)
+    of nkCast, nkConv, nkHiddenStdConv, nkHiddenSubConv, nkPragmaBlock:
+      result = n
+      result[1] = hoist(c, move result[1], target)
+    of nkDotExpr, nkBracketExpr, nkCallKinds, nkBracket, nkTupleConstr,
+        nkChckRangeF, nkChckRange64, nkChckRange, nkStmtListExpr, nkStmtList:
+      result = n
+      for i in 0..<result.len:
+        result[i] = hoist(c, move result[i], target)
+    else:
+      # other expressions or statements are either decalarative or open a
+      # new scope
+      result = n
+
+  if c.inlining > 0:
+    # hoisting already happened fro inlined and/or expressions
+    result = transformSons(c, n)
+  else:
+    var hoisted = newTreeIT(nkStmtListExpr, n.info, n.typ)
+    result = hoist(c, transformSons(c, n), hoisted)
+
+    if hoisted.len > 0:
+      # append the transformed expression to the statement list:
+      hoisted.add result
+      result = hoisted
+
 proc transformCall(c: PTransf, n: PNode): PNode =
   var n = flattenTree(n)
   let op = getMergeOp(n)
@@ -1013,9 +1110,6 @@ proc transformCall(c: PTransf, n: PNode): PNode =
           inc(j)
       result.add(a)
     if result.len == 2: result = result[1]
-  elif magic == mAddr:
-    result = newTreeIT(nkAddr, n.info, n.typ): n[1]
-    result = transformAddr(c, result)
   elif magic == mTypeOf:
     result = n
   elif magic == mRunnableExamples:
@@ -1028,6 +1122,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     result = transform(c, n[1])
   elif magic == mExpandToAst:
     result = transformExpandToAst(c, n)
+  elif magic in {mAnd, mOr}:
+    result = transformAndOr(c, n)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
@@ -1040,6 +1136,16 @@ proc transformCall(c: PTransf, n: PNode): PNode =
       result = methodCall(s, c.graph.config)
     else:
       result = s
+
+    if result[0].typ != nil and
+       result[0].typ.skipTypes(abstractInst).callConv == ccTailcall and
+       sfGeneratedOp notin getCurrOwner(c).flags and
+       getCurrOwner(c).typ != nil and
+       getCurrOwner(c).typ.callConv == ccTailcall and
+       result.typ.isEmptyType():
+      # make the life of downstream processing easier by turning
+      # `tailcall_voidcall(...)` into `return tailcall_voidcall()`
+      result = newTreeI(nkReturnStmt, result.info, result)
 
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
   if n[0].isInfixAs() and not isImportedException(n[0][1].typ, c.graph.config):
@@ -1096,6 +1202,9 @@ proc commonOptimizations*(g: ModuleGraph; idgen: IdGenerator; c: PSym, n: PNode)
       result = n
 
 proc transform(c: PTransf, n: PNode): PNode =
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, n)
+
   when false:
     var oldDeferAnchor: PNode
     if n.kind in {nkElifBranch, nkOfBranch, nkExceptBranch, nkElifExpr,
@@ -1108,7 +1217,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     unreachable("errors can't reach here")
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
+  of nkWithoutSons - {nkSym, nkError}:
     # nothing to be done for leaves:
     result = n
   of nkBracketExpr: result = transformArrayAccess(c, n)
@@ -1184,7 +1293,7 @@ proc transform(c: PTransf, n: PNode): PNode =
         # ensure that e.g. discard "some comment" gets optimized away
         # completely:
         result = newNode(nkCommentStmt)
-  of nkCommentStmt, nkTemplateDef, nkImportStmt, nkStaticStmt,
+  of nkTemplateDef, nkImportStmt, nkStaticStmt,
       nkExportStmt, nkExportExceptStmt:
     return n
   of nkConstSection:
@@ -1226,10 +1335,15 @@ proc transform(c: PTransf, n: PNode): PNode =
     # it can happen that for-loop-inlining produced a fresh
     # set of variables, including some computed environment
     # (bug #2604). We need to patch this environment here too:
-    let a = n[1]
-    if a.kind == nkSym:
+    if c.inlining > 0:
       result = copyTree(n)
-      result[1] = transformSymAux(c, a)
+      result[1] = transform(c, n[1])
+    elif n[0].kind == nkSym and n[0].sym.isIterator:
+      # must be a preliminary construction created by lambda lifting; complete
+      # it, but first transform the iterator so that it has a proper
+      # environment type
+      discard transformBody(c.graph, c.idgen, n[0].sym, true)
+      result = transformIterConstr(c.graph, n, c.idgen, getCurrOwner(c))
     else:
       result = n
   of nkOfBranch:
@@ -1255,6 +1369,11 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkPragmaExpr:
     # not needed in transformed AST -> drop it
     result = transform(c, n.lastSon)
+  of nkBracket:
+    # replace elements where the index is specified with just the expression
+    result = shallowCopy(n)
+    for i, it in n.pairs:
+      result[i] = transform(c, it.skipColon)
   else:
     result = transformSons(c, n)
   when false:
@@ -1309,6 +1428,135 @@ template liftDefer(c, root) =
   if c.deferDetected:
     liftDeferAux(root)
 
+proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
+  ## Forwards all ``return`` statements into complex expressions. For example:
+  ##
+  ##   return (if a: b else: c)
+  ##
+  ## becomes:
+  ##
+  ##   if a:
+  ##     return a
+  ##   else:
+  ##     return c
+  ##
+  ## This makes it so that the operand of a return is always some simple
+  ## expression, which helps with the tail-call elimination pass. In addition,
+  ## `return result = tail()` is turned into `return tail()`.
+  proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
+    if active:
+      if n.kind in nkCallKinds and
+         n[0].typ != nil and
+         n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
+        n = newTreeI(nkReturnStmt, n.info, n)
+      else:
+        n = newTreeI(nkReturnStmt, n.info,
+          newTreeI(nkAsgn, n.info,
+            newSymNode(owner.ast[resultPos].sym),
+            n))
+      n.flags.incl nfTransf
+      n.typ = g.noreturnType
+
+  template wrap(n: var PNode) =
+    wrap(g, owner, n, active)
+
+  template recurse(n: var PNode, active: bool) =
+    forwardReturn(g, owner, n, active)
+
+  # the implementation is simple: propagate the "active" flag to every terminal
+  # expression position and wrap the expression in a return. Complex
+  # expressions previously appearing as a `return` operand must have their
+  # type fixed-up
+  case n.kind
+  of nkSym, nkLiterals:
+    wrap(n)
+  of nkCast, nkConv, nkHiddenSubConv, nkHiddenStdConv:
+    recurse(n[1], false)
+    wrap(n)
+  of nkHiddenAddr, nkHiddenDeref, nkObjDownConv, nkObjUpConv, nkAddr,
+     nkDerefExpr, nkDotExpr, nkCheckedFieldExpr:
+    recurse(n[0], false)
+    wrap(n)
+  of nkBracketExpr:
+    recurse(n[0], false)
+    recurse(n[1], false)
+    wrap(g, owner, n, active)
+  of nkCallKinds:
+    for i in 0..<n.len:
+      recurse(n[i], false)
+    # don't wrap noreturn calls, they don't return a value
+    if n.typ != g.noreturnType:
+      wrap(n)
+  of nkObjConstr:
+    for i in 1..<n.len:
+      recurse(n[i], false)
+    wrap(n)
+  of nkBracket, nkCurly, nkTupleConstr:
+    for i in 0..<n.len:
+      recurse(n[i], false)
+    wrap(n)
+  of nkNimNodeLit, nkLambdaKinds:
+    # values, but the pass doesn't enter them
+    wrap(n)
+  of nkReturnStmt:
+    case n[0].kind
+    of nkAsgn:
+      n = n[0][1]
+      recurse(n, true)
+    of nkCallKinds:
+      recurse(n[0], false)
+    else:
+      discard "nothing to do"
+  of nkStmtListExpr:
+    for i in 0..<n.len-1:
+      recurse(n[i], false)
+    if n.len > 0:
+      recurse(n[^1], active)
+      if active:
+        n.transitionSonsKind(nkStmtList)
+        n.typ = g.noreturnType
+  of nkBlockExpr:
+    recurse(n[1], active)
+    if active:
+      n.typ = g.noreturnType
+      n.transitionSonsKind(nkBlockStmt)
+  of nkCaseStmt:
+    recurse(n[0], false)
+    for i in 1..<n.len:
+      recurse(n[i], active)
+    if active:
+      n.typ = g.noreturnType
+  of nkTryStmt, nkIfStmt:
+    for i in 0..<n.len:
+      recurse(n[i], active)
+    if active:
+      n.typ = g.noreturnType
+  of nkIfExpr:
+    for i in 0..<n.len:
+      recurse(n[i], active)
+    if active:
+      n.typ = g.noreturnType
+      n.transitionSonsKind(nkIfStmt)
+  of nkElifBranch, nkElifExpr:
+    recurse(n[0], false)
+    recurse(n[1], active)
+  of nkExceptBranch, nkOfBranch, nkIdentDefs, nkElse, nkElseExpr,
+     nkPragmaBlock, nkBlockStmt, nkVarTuple:
+    recurse(n[^1], active)
+  of nkFinally:
+    recurse(n[0], false)
+  of nkLetSection, nkVarSection:
+    for i in 0..<n.len:
+      recurse(n[i], active)
+  of nkConstSection, nkTypeSection, nkMixinStmt, nkBindStmt, routineDefs,
+     nkImportStmt, nkStaticStmt, nkExportStmt, nkExportExceptStmt:
+    discard "nothing to do"
+  of nkWithoutSons - {nkSym} - nkLiterals:
+    discard "nothing to do"
+  else:
+    for i in 0..<n.len:
+      recurse(n[i], false)
+
 proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
   ## Applies the various transformations to `body` and returns the result.
   ## This step is not indempotent, and since no caching is performed, it
@@ -1319,18 +1567,31 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ## 2. general lowerings -- these are the ones implemented here in
   ##    ``transf``
   ## 3. the ``closureiters`` transformation
+  ## 4. tail-call preprocessing (where enabled)
   ##
   ## Application always happens in that exact order.
+  g.config.timeTracer.traceSym(tikTransform, prc)
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
-  (result, c.env) = liftLambdas(g, prc, body, c.idgen)
+  result = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
+  result = eliminateUnreachable(g, result)
 
   if prc.isIterator:
     result = g.transformClosureIterator(c.idgen, prc, result)
     # the environment type is closed for modification, meaning that we can
     # safely create the type-bound operators now
     finishClosureIterator(c.graph, c.idgen, prc)
+
+  if prc.typ.callConv == ccTailcall:
+    forwardReturn(g, prc, result, false)
+    # add the hidden environment parameter:
+    let env = newSym(skParam, getIdent(g.cache, ":env"), nextSymId(c.idgen),
+                     prc, prc.info)
+    env.position = prc.typ.len - 1
+    env.flags.incl sfFromGeneric
+    env.typ = g.getSysType(prc.info, tyPointer)
+    prc.ast[paramsPos].add newSymNode(env)
 
   incl(result.flags, nfTransf)
 
@@ -1368,9 +1629,11 @@ proc transformStmt*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
   if nfTransf in n.flags:
     result = n
   else:
+    g.config.timeTracer.traceLoc(tikTransform, n.info)
     var c = PTransf(graph: g, module: module, idgen: idgen)
     result = processTransf(c, n, module)
     liftDefer(c, result)
+    result = eliminateUnreachable(g, result)
     #result = liftLambdasForTopLevel(module, result)
     incl(result.flags, nfTransf)
 
@@ -1378,9 +1641,11 @@ proc transformExpr*(g: ModuleGraph; idgen: IdGenerator; module: PSym, n: PNode):
   if nfTransf in n.flags:
     result = n
   else:
+    g.config.timeTracer.traceLoc(tikTransform, n.info)
     var c = PTransf(graph: g, module: module, idgen: idgen)
     result = processTransf(c, n, module)
     liftDefer(c, result)
+    result = eliminateUnreachable(g, result)
     # expressions are not to be injected with destructor calls as that
     # the list of top level statements needs to be collected before.
     incl(result.flags, nfTransf)

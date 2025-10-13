@@ -189,8 +189,8 @@ elif defined(linux) and not defined(emscripten):
       elif readBytes > 0:
         inc(result, readBytes)
       else:
-        case osLastError().int
-        of EINTR, EAGAIN:
+        let err = osLastError().int
+        if err == EINTR or err == EAGAIN:
           discard
         else:
           result = -1

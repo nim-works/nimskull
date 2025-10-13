@@ -1,5 +1,4 @@
 discard """
-  targets: "c js vm"
   description: '''
     Ensure that the return-value optimization (=RVO) is disabled where it would
     affect observable semantics

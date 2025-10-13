@@ -13,7 +13,9 @@
 
 import
   std/[
-    packedsets, algorithm
+    algorithm,
+    packedsets,
+    tables
   ],
   compiler/ast/[
     ast,
@@ -42,7 +44,8 @@ import
     rodfiles
   ],
   compiler/sem/[
-    modulelowering
+    modulelowering,
+    sighashes
   ]
 
 import compiler/backend/cbackend as cbackend2
@@ -194,6 +197,21 @@ proc generateCode*(g: ModuleGraph) =
       delete(mlist.modulesClosed, i)
       mlist.modulesClosed.add(pos)
       break
+
+  # fill the table of canonical types; hook injection needs it during its
+  # lookup
+  for e in attachedAsgn..attachedTrace:
+    for item, sym in g.attachedOps[e].mpairs:
+      # retrieving the attached-to type from the symbol is easier than
+      # trying to map `item` to a PType
+      let resolved = loadSymFromId(g.config, g.cache, g.packed, sym.id.module,
+                                   sym.id.packed)
+      if resolved.typ != nil:
+        # XXX: for an unknown reason, some symbols don't have a type
+        let t = resolved.typ[1].skipTypes({tyVar})
+        # ignore types that don't have real type-bound operators
+        if tfHasAsgn in t.flags and t.kind notin {tyDistinct, tyObject}:
+          discard g.canonTypes.mgetOrPut(hashType(t, {CoDistinct, CoType}), t)
 
   # Fourth pass: Generate the code:
   cbackend2.generateCode(g, backend, mlist)

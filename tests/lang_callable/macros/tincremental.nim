@@ -41,7 +41,7 @@ macro graph_discovery(n: typed{nkSym}): untyped =
   var visited: seq[NimNode]
   proc discover(n: NimNode) = 
     case n.kind:
-      of nnkNone..pred(nnkSym), succ(nnkSym)..nnkNilLit: discard
+      of nnkEmpty..pred(nnkSym), succ(nnkSym)..nnkNilLit: discard
       of nnkSym:
         if n.symKind in {nskFunc, nskProc}:
           if n notin visited:

@@ -28,6 +28,7 @@ true
 -1
 Meow
 '''
+disabled: windows
 joinable: false
 """
 

@@ -76,6 +76,7 @@ when hasAlloc and not defined(js):
     let stats1 = getAllocStats()
     code
     let stats2 = getAllocStats()
+    mixin `$`
     echo $(stats2 - stats1)
 
   when defined(nimAllocStats):

@@ -22,7 +22,6 @@ import
     lineinfos,
     wordrecg,
     errorhandling,
-    errorreporting,
   ],
   compiler/modules/[
     modulepaths,
@@ -377,7 +376,19 @@ proc evalImport*(c: PContext, n: PNode): PNode =
   var hasError = false
 
   for it in n.sons:
-    if it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
+    if it.kind == nkPrefix and it.len == 2 and it[1].kind == nkBracket:
+      for x in it[1].items:
+        let imp = newTreeI(nkPrefix, it.info,
+          it[0],
+          # transform `./[a as b] to `./a as b`
+          if x.kind == nkInfix and x[0].ident.s == "as":
+            x[1]
+          else:
+            x
+        )
+
+        hasError = impMod(c, imp, x.info, result).kind == nkError or hasError
+    elif it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
       let
         sep = it[0]
         dir = it[1]
@@ -449,8 +460,6 @@ proc readExceptSet(c: PContext, n: PNode): IntSet =
     let (ident, err) = lookups.considerQuotedIdent(c, n[i])
     if err.isNil:
       result.incl(ident.id)
-    else:
-      localReport(c.config, err)
 
 proc evalImportExcept*(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)

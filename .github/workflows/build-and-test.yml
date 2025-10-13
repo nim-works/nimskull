@@ -1,0 +1,232 @@
+name: Build and test
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: The runner to run the workflow with
+        required: true
+        type: string
+
+      batch-count:
+        description: The number of test batches to parallelize
+        required: false
+        default: 1
+        type: number
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  context:
+    name: Compute context for the workflow
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.context.outputs.result }}
+
+    steps:
+      - uses: actions/github-script@v8
+        id: context
+        with:
+          script: |
+            let num_batches = Number.parseInt(process.env.BATCH_COUNT, 10);
+            num_batches = Number.isNaN(num_batches) ? 2 : num_batches;
+            num_batches = Math.max(num_batches, 1);
+
+            const batch_array = Array(num_batches).fill(0).map((_, idx) => ({
+              'idx': idx,
+              'display': idx + 1,
+            }));
+
+            return {
+              'test-batch': batch_array,
+              'num-test-batch': batch_array.length,
+            };
+        env:
+          BATCH_COUNT: ${{ inputs.batch-count }}
+
+  binaries:
+    name: Build release binaries
+    runs-on: ${{ inputs.runner }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      # the mingw PCRE library requires CMake 2.8.5 to built, and the last
+      # CMake version to have compatibility with the old version is 3.31.6,
+      # so make sure that version is installed
+      - name: Pin CMake
+        if: runner.os == 'Windows'
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.31.6'
+
+      - name: Setup vcpkg (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: x64-mingw-dynamic-release
+          host-triplet: x64-mingw-dynamic-release
+          revision: 2025.07.25
+          overlay-triplets: ${{ github.workspace }}/tools/vcpkg/triplets
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: vcpkg install pcre sqlite3
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
+      - name: Build release binaries
+        run: ./koch.py all-strict
+
+      - name: Upload workspace to artifacts
+        uses: ./.github/actions/upload-compiler
+
+  test:
+    needs: [context, binaries]
+    strategy:
+      fail-fast: false
+
+      matrix:
+        batch: ${{ fromJSON(needs.context.outputs.result).test-batch }}
+        num-batch:
+          - ${{ fromJSON(needs.context.outputs.result).num-test-batch }}
+
+    runs-on: ${{ inputs.runner }}
+    name: Test compiler and stdlib (batch ${{ matrix.batch.display }}/${{ matrix.num-batch }})
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Install NodeJS
+        uses: actions/setup-node@v5
+        with:
+          node-version: "16"
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          deps=(
+            # Required by ARC/ORC memory leak tests (only enabled on linux x64)
+            libc6-dbg
+            valgrind
+          )
+
+          sudo apt-get update
+          sudo apt-get install "${deps[@]}"
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+
+          # Downgrade to OpenSSL 3.0
+          brew unlink openssl
+          brew install openssl@3.0
+          brew link --overwrite openssl@3.0
+
+      - name: Add Homebrew libraries to search path
+        if: runner.os == 'macOS'
+        run: echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib" >> "$GITHUB_ENV"
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Run tester
+        run: |
+          if ! ./koch.py test --batch:"$TEST_BATCH" --tryFailing all; then
+            # XXX: Move this to either koch or testament since it's useful.
+            echo ===
+            echo Errors occured during tests:
+            bin/nim r tools/ci_testresults
+            exit 1
+          fi
+        env:
+          TEST_BATCH: ${{ matrix.batch.idx }}_${{ matrix.num-batch }}
+
+  tooling:
+    needs: [binaries]
+    name: Build and test tooling
+    runs-on: ${{ inputs.runner }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Install MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: ./.github/actions/setup-mingw
+
+      - name: Add DLLs to PATH (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $binPath = Join-Path $PWD "vcpkg" "installed" "x64-mingw-dynamic-release" "bin"
+          $binPath | Out-File -Append $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Set Xcode version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "15.0.1"
+
+      - name: Set macOS SDK version (macOS M1)
+        if: runner.os == 'macOS' && runner.arch == 'ARM64'
+        run: |
+          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Test tooling
+        run: ./koch.py testTools

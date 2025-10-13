@@ -13,9 +13,6 @@ finally1
 except2
 finally2
 '''
-  knownIssue.vm: '''
-    Exception/finally handling is largely disfunctional in the VM
-  '''
 """
 # Test return in try statement:
 

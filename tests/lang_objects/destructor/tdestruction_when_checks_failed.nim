@@ -67,3 +67,77 @@ block field_checks:
 
   runTest:
     test(WithVariant(kind: false)) # provoke a field-check failure
+
+block object_conversion_checks:
+  type A = ref object of RootObj
+
+  proc test(a: RootRef) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard A(a)
+
+  runTest:
+    test(RootRef()) # provoke a object-conversion-check failure
+
+block signed_integer_overflow_check:
+  proc test(a: int32) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard 1'i32 + a
+
+  runTest:
+    test(high(int32)) # provoke an overflow-check failure
+
+block abs_overflow_check:
+  proc test(a: int32) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard abs(a)
+
+  runTest:
+    test(low(int32)) # provoke an overflow-check failure
+
+block float_inf_check:
+  # enable infinity checks first; they're disabled by default
+  {.push infChecks: on.}
+
+  proc test(a: float) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard 1.0 / a
+
+  {.pop.}
+
+  numDestroy = 0
+  var raised = false
+  try:
+    test(0.0) # provoke an infinity-check failure
+  except:
+    raised = true
+
+  when defined(js) or defined(vm):
+    # XXX: infinity checks aren't yet implemented on these targets
+    doAssert not raised, "NaN checks are implemented"
+  else:
+    doAssert raised
+  doAssert numDestroy == 1
+
+block float_nan_check:
+  # enable nan checks first; they're disabled by default
+  {.push nanChecks: on.}
+
+  proc test(a: float) =
+    var obj = Object() # obj stores a value that needs to be destroyed
+    discard 0.0 / a
+
+  {.pop.}
+
+  numDestroy = 0
+  var raised = false
+  try:
+    test(0.0) # provoke a nan-check failure
+  except:
+    raised = true
+
+  when defined(js) or defined(vm):
+    # XXX: nan checks aren't yet implemented on these targets
+    doAssert not raised, "NaN checks are implemented"
+  else:
+    doAssert raised
+  doAssert numDestroy == 1

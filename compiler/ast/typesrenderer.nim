@@ -144,9 +144,9 @@ proc addTypeHeader*(result: var string, conf: ConfigRef; typ: PType; prefer: TPr
 proc valueToString(a: PNode): string =
   ## Returns `int`, `float`, or `string` literals from the node, otherwise returns `<invalid value>`.
   case a.kind
-  of nkCharLit..nkUInt64Lit: result = $a.intVal
-  of nkFloatLit..nkFloat64Lit: result = $a.floatVal
-  of nkStrLit..nkTripleStrLit: result = a.strVal
+  of nkIntLiterals: result = $a.intVal
+  of nkFloatLiterals: result = $a.floatVal
+  of nkStrLiterals: result = a.strVal
   else: result = "<invalid value>"
 
 proc rangeToStr(n: PNode): string =

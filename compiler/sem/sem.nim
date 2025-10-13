@@ -12,6 +12,7 @@
 import
   std/[
     strutils,
+    hashes,
     math,
     strtabs,
     intsets,
@@ -27,7 +28,6 @@ import
     renderer,
     types,
     nimsets,
-    errorreporting,
     errorhandling,
     astmsgs,
     lineinfos,
@@ -52,7 +52,7 @@ import
     debugutils,
     int128,
     astrepr,
-    idioms
+    tracer
   ],
   compiler/sem/[
     semfold,
@@ -84,7 +84,7 @@ import
     vmdef,
   ]
 
-from std/options as std_options import some, none
+from std/options as std_options import some, none, isSome, unsafeGet
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
@@ -98,12 +98,11 @@ from compiler/ast/reports_sem import SemReport,
 # TODO: `semtypes` misuses `VMReport` to indicate a compile time error, it's a
 #       semantic analysis error born of compile time evaluation
 from compiler/ast/reports_vm import VMReport
-from compiler/ast/report_enums import ReportKind
+from compiler/ast/report_enums import ReportKind, ReportCategory
 
-when defined(nimsuggest):
-  # TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
-  #       it's silly that the compiler hook looks so broadly
-  from compiler/ast/reports import Report
+# TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
+#       it's silly that the compiler hook looks so broadly
+from compiler/ast/reports import Report, ReportSeverity
 
 import compiler/tools/suggest
 
@@ -150,6 +149,20 @@ proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
   result = c.wrapError(n)
   s.ast = result
 
+proc newSymNodeOrError(c: ConfigRef, sym: PSym, info: TLineInfo): PNode =
+  ## Creates a new `nkSym` node, unless `sym` either represents an error
+  ## itself or refers to an erroneous entity. In the latter two cases, an
+  ## error node is returned.
+  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
+  if sym.isError:
+    result = sym.ast
+    result.info = info
+  elif sym.ast.isError or (sym.typ != nil and sym.typ.kind == tyError):
+    result = c.newError(newSymNode(sym, info),
+                        PAstDiag(kind: adWrappedSymError))
+  else:
+    result = newSymNode(sym, info)
+
 template semIdeForTemplateOrGenericCheck(conf, n, cursorInBody) =
   # use only for idetools support; detecting cursor in generic or template body
   # if so call `semIdeForTemplateOrGeneric` for semantic checking
@@ -187,10 +200,11 @@ proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
     else:
       (n, tmp.keep)
   else:
-    if conv.typ.kind in {tySet, tyTuple}:
+    let styp = conv.typ.skipTypes({tyAlias, tyGenericInst})
+    if styp.kind in {tySet, tyTuple}:
       # apply the type directly and drop the conversion
       n.typ = conv.typ
-    elif conv.typ.kind in {tyOpenArray, tyVarargs, tySequence, tyArray} and
+    elif styp.kind in {tyOpenArray, tyVarargs, tySequence, tyArray} and
          n.typ.isEmptyContainer:
       # fixup empty container types
       let
@@ -206,7 +220,7 @@ proc applyConversion(c: PContext, conv, n: PNode): tuple[n: PNode, keep: bool] =
       n.typ = typ
 
     # keep to-openArray conversions, later processing still needs them
-    (n, conv.typ.kind notin {tySequence, tyArray, tyTuple, tySet})
+    (n, styp.kind notin {tySequence, tyArray, tyTuple, tySet})
 
 proc fitNodePostMatch(c: PContext, n: PNode): PNode =
   ## Performs post-processing on the result of a ``paramTypesMatch``
@@ -374,14 +388,6 @@ proc commonType*(c: PContext; x, y: PType): PType =
         result = newType(k, nextTypeId(c.idgen), r.owner)
         result.addSonSkipIntLit(r, c.idgen)
 
-proc endsInNoReturn(n: PNode): bool =
-  # check if expr ends in raise exception or call of noreturn proc
-  var it = n
-  while it.kind in {nkStmtList, nkStmtListExpr} and it.len > 0:
-    it = it.lastSon
-  result = it.kind in nkLastBlockStmts or
-    it.kind in nkCallKinds and it[0].kind == nkSym and sfNoReturn in it[0].sym.flags
-
 proc commonType*(c: PContext; x: PType, y: PNode): PType =
   # ignore exception raising branches in case/if expressions
   addInNimDebugUtils(c.config, "commonType", y, x, result)
@@ -390,9 +396,7 @@ proc commonType*(c: PContext; x: PType, y: PNode): PType =
   result = commonType(c, x, y.typ)
 
 proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
-  let (ident, err) = considerQuotedIdent(c, n)
-  if err != nil:
-    localReport(c.config, err)
+  let (ident, _) = considerQuotedIdent(c, n)
   result = newSym(kind, ident, nextSymId c.idgen, getCurrOwner(c), n.info)
   when defined(nimsuggest):
     suggestDecl(c, n, result)
@@ -458,7 +462,10 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
       # xxx: we really should guard on `sfGenSym`; but macros can transplant
       #      symbols from pretty much anywhere, so we don't know where gensym
       #      really came from.
-      if n.sym.kind in {kind, skTemp}:
+      if n.sym.kind in {kind, skTemp, skGenerated}:
+        # declaration position converts generated sym to the correct type
+        if n.sym.kind == skGenerated:
+          n.sym.kind = kind
         n.sym.owner = currOwner # xxx: modifying the sym owner is suss
         n
       else:
@@ -545,7 +552,7 @@ proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
         allowedFlags: {})))
 
 proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode
-proc semWhen(c: PContext, n: PNode, semCheck: bool = true): PNode
+proc semWhen(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
@@ -594,29 +601,39 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
     #      - ``paramTypesMatchAux``
     return nil
 
-  let oldErrorCount = c.config.errorCounter
-  let oldErrorMax = c.config.errorMax
-  let oldErrorOutputs = c.config.m.errorOutputs
+  let oldHandler = move c.config.diagHandler
+  var diags: seq[Report]
+  c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
+    # abort on the first error, capture all other diagnostics
+    if conf.severity(rep) == rsevError:
+      raise ERecoverableError.newException("")
+    else:
+      diags.add rep
 
-  c.config.m.errorOutputs = {}
-  c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
+  # TODO: figuring out whether an expression is "constant" must not require
+  #       tentatively evaluating it first. Instead, semantic analysis itself
+  #       needs to keep track of the constness of expressions
+  try:
+    result = evalConstExpr(c.module, c.idgen, c.graph, result)
+    case result.kind
+    of nkError, nkEmpty:
+      result = nil
+    else:
+      discard
+  except ERecoverableError:
+    result = nil # evaluation failed
 
-  result = evalConstExpr(c.module, c.idgen, c.graph, result)
-  case result.kind
-  of nkEmpty, nkError:
-    result = nil
-  else:
-    discard
-
-  c.config.errorCounter = oldErrorCount
-  c.config.errorMax = oldErrorMax
-  c.config.m.errorOutputs = oldErrorOutputs
+  c.config.setDiagHandler(oldHandler)
+  # emit all captured diagnostics when the expression really is a
+  # constant expression
+  if result != nil:
+    for it in diags.items:
+      c.config.localReport(it)
 
 proc evalConstExpr(c: PContext, n: PNode): PNode =
   ## Tries to turn the expression `n` into AST that represents a concrete
   ## value. If this fails, an `nkError` node is returned
   addInNimDebugUtils(c.config, "evalConstExpr", n, result)
-  assert not n.isError
 
   # this happens when the overloadableEnums is enabled. We short-circuit
   # evaluation in this case, as neither ``vmgen`` nor ``semfold`` know what to
@@ -660,12 +677,10 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   let e = semExprWithType(c, n)
   popExecCon(c)
   if e.isError:
-    localReport(c.config, e)
     return n
 
   result = evalConstExpr(c, e)
   if result.isError:
-    localReport(c.config, result)
     result = e # error correction
 
 proc semRealConstExpr(c: PContext, n: PNode): PNode =
@@ -675,12 +690,37 @@ proc semRealConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semRealConstExpr", n, result)
   assert not n.isError
 
+  pushExecCon(c, {})
   result = semExprWithType(c, n)
+  popExecCon(c)
   if result.kind != nkError:
     result = evalConstExpr(c, result)
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
+proc tryEvalStaticArgument(c: PContext, n: PNode): PNode =
+  ## Tries to evaluate an expression passed to a static parameter, while
+  ## overload resolution is still in progress. Returns nil if not successful.
+  var n = n
+  # `n` comes from sigmatch after a match and thus needs post-match fitting
+  if n.kind in {nkHiddenStdConv, nkHiddenSubConv, nkHiddenCallConv}:
+    # post-match fitting expects AST it can freely modify, which is guaranteed
+    # to be true for `n`, so copy the tree first
+    n = fitNodePostMatch(c, copyTree(n))
+  else:
+    n = copyNodeWithKids(n)
+
+  # prevent re-semming of the expression, which would throw away the
+  # types again:
+  n.flags.incl nfSem
+
+  let e = tryConstExpr(c, n)
+  if e != nil:
+    let typ = newTypeS(tyStatic, c)
+    typ.sons = @[e.typ]
+    typ.n = e
+    result =
+      if e == n: copyNodeWithKids(n)
+      else:      n
+    result.typ = typ
 
 include hlo, seminst, semcall
 
@@ -730,7 +770,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       # More restrictive version.
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
-      if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
+      if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListExpr)
       result = semTypeNode2(c, result, nil)
       if result.kind != nkError:
         result.typ = makeTypeDesc(c, result.typ)
@@ -823,6 +863,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## accumulator across the various top level statements, modules, and overall
   ## program compilation.
   addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics", n, result)
+  c.config.timeTracer.traceSem(n.kind, n.info)
 
   proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool {.nimcall.} =
     ## true if `n` is an import statement referring to the system module
@@ -886,7 +927,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
 # -- code-myopen
 
 proc myOpen(graph: ModuleGraph; module: PSym;
-            idgen: IdGenerator): PPassContext {.nosinks.} =
+            idgen: IdGenerator): PPassContext =
   var c = newContext(graph, module)
   c.idgen = idgen
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
@@ -904,7 +945,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr
-  c.semTryConstExpr = tryConstExpr
+  c.tryEvalStaticArgument = tryEvalStaticArgument
   c.computeRequiresInit = computeRequiresInit
   c.semOperand = semOperand
   c.semConstBoolExpr = semConstBoolExpr
@@ -914,6 +955,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.semTypeNode = semTypeNode
   c.instTypeBoundOp = sigmatch.instTypeBoundOp
   c.hasUnresolvedArgs = hasUnresolvedArgs
+  c.semGenericExpr = semGenericExpr
   c.templInstCounter = new int
 
   pushProcCon(c, module)
@@ -938,7 +980,7 @@ proc recoverContext(c: PContext) =
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
   c.executionCons.setLen(1)
 
-proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
+proc myProcess(context: PPassContext, n: PNode): PNode =
   ## Entry point for the semantic analysis pass, this proc is part of the
   ## compiler graph `passes` interface. This adapts that interface to the sem
   ## implementation by wrapping `semStmtAndGenerateGenerics`.

@@ -183,7 +183,9 @@ elif hostOS == "standalone" or defined(StandaloneHeapSize):
   const StandaloneHeapSize {.intdefine.}: int = 1024 * PageSize
   var
     theHeap: array[StandaloneHeapSize div sizeof(float64), float64] # 'float64' for alignment
-    bumpPointer = cast[int](addr theHeap)
+    # pages must always be aligned to the page size, which the heap array is
+    # not guaranteed to be, hence the roundup
+    bumpPointer = roundup(cast[int](addr theHeap), PageSize)
 
   proc osAllocPages(size: int): pointer {.inline.} =
     if size+bumpPointer < cast[int](addr theHeap) + sizeof(theHeap):

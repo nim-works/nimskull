@@ -4,53 +4,81 @@ discard """
   nimout: '''--expandArc: main
 
 scope:
-  try:
-    def_cursor x: (string, int) = construct (arg "hi", arg 5)
-    block L0:
-      if cond:
-        scope:
-          x =fast construct (arg "different", arg 54)
-          break L0
+  def_cursor x: (string, int) = <const> ("hi", 5)
+  scope:
+    if cond:
       scope:
-        x =fast construct (arg "string here", arg 80)
-    def_cursor _0: (string, int) = x
-    def _1: string = $(arg _0) (raises)
-    echo(arg type(array[0..0, string]), arg _1) (raises)
-  finally:
-    =destroy(name _1)
+        x = <const> ("different", 54)
+        goto [L1]
+  scope:
+    x = <const> ("string here", 80)
+  L1:
+  def_cursor _3: (string, int) = x
+  def _4: string = $(arg _3) -> [Unwind]
+  echo(arg type(array[0..0, string]), arg _4) -> [L2]
+  =destroy(name _4)
+  goto [L3]
+  finally (L2):
+    =destroy(name _4)
+    continue [Unwind]
+  L3:
+return
 -- end of expandArc ------------------------
 --expandArc: sio
 
 scope:
   scope:
     def_cursor filename: string = "debug.txt"
-    def_cursor _0: string = filename
-    def f: File = open(arg _0, arg fmRead, arg 8000) (raises)
-    try:
+    def_cursor _3: string = filename
+    def f: File = open(arg _3, arg fmRead, arg 8000) -> [Unwind]
+    def _4: uint32
+    scope:
+      def res: string = newStringOfCap(arg 80)
       scope:
-        try:
-          def res: string = newStringOfCap(arg 80)
-          block L0:
+        while true:
+          scope:
+            def_cursor _7: File = f
+            def :tmp: bool = readLine(arg _7, name res) -> [L1]
             scope:
-              while true:
+              def_cursor _8: bool = :tmp
+              def _9: bool = not(arg _8)
+              if _9:
                 scope:
-                  def_cursor _1: File = f
-                  def_cursor _2: bool = readLine(arg _1, name res) (raises)
-                  def_cursor _3: bool = not(arg _2)
-                  if _3:
-                    scope:
-                      break L0
-                  scope:
-                    scope:
-                      def_cursor x: string = res
-                      def_cursor _4: string = x
-                      echo(arg type(array[0..0, string]), arg _4) (raises)
-        finally:
-          =destroy(name res)
-    finally:
-      scope:
-        def_cursor _5: File = f
-        close(arg _5) (raises)
+                  goto [L3]
+            scope:
+              def_cursor x: string = res
+              def_cursor _11: string = x
+              echo(arg type(array[0..0, string]), arg _11) -> [L1]
+      L3:
+      =destroy(name res)
+      _4 = 0'u32
+      goto [L4]
+      finally (L1):
+        =destroy(name res)
+        continue [L5]
+    except (L5):
+      _4 := 1'u32
+    L4:
+    scope:
+      def_cursor _12: File = f
+      close(arg _12) -> [L6]
+    goto [L7]
+    finally (L6):
+      def _13: bool = eqI(arg _4, arg 1'u32)
+      if _13:
+        nimAbortException(arg true)
+      continue [Unwind]
+    L7:
+    case _4
+    of 0'u32: goto L9
+    of 1'u32: goto L10
+    L9:
+    goto [L11]
+    L10:
+    raise -> [Unwind]
+    L11:
+return
+
 -- end of expandArc ------------------------'''
 """
 

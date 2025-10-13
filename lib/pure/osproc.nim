@@ -203,6 +203,15 @@ proc kill*(p: Process) {.rtl, extern: "nosp$1", tags: [].}
 proc running*(p: Process): bool {.rtl, extern: "nosp$1", tags: [].}
   ## Returns true if the process `p` is still running. Returns immediately.
 
+when defined(windows) or defined(nimdoc):
+  proc processHandle*(p: Process): int {.rtl, extern: "nosp$1".}
+    ## Returns `p`'s process handle, which is unique for the process
+    ## even after it has stopped execution.
+    ##
+    ## The handle is valid until `p` is closed.
+    ##
+    ## This procedure is only supported on Windows at the moment.
+
 proc processID*(p: Process): int {.rtl, extern: "nosp$1".} =
   ## Returns `p`'s process ID.
   ##
@@ -811,6 +820,9 @@ when defined(windows) and not defined(useNimRtl):
   proc kill(p: Process) =
     terminate(p)
 
+  proc processHandle(p: Process): int =
+    p.fProcessHandle
+
   proc waitForExit(p: Process, timeout: int = -1): int =
     if p.exitFlag:
       return p.exitStatus
@@ -1183,10 +1195,8 @@ elif not defined(useNimRtl):
       discard fcntl(data.pErrorPipe[writeIdx], F_SETFD, FD_CLOEXEC)
 
       if (poUsePath in data.options):
-        when defined(uClibc) or defined(linux) or defined(haiku):
-          # uClibc environment (OpenWrt included) doesn't have the full execvpe
-          let exe = findExe(data.sysCommand)
-          discard execve(exe.cstring, data.sysArgs, data.sysEnv)
+        when not defined(macosx):
+          discard execvpe(data.sysCommand.cstring, data.sysArgs, data.sysEnv)
         else:
           # MacOSX doesn't have execvpe, so we need workaround.
           # On MacOSX we can arrive here only from fork, so this is safe:
@@ -1583,6 +1593,9 @@ elif not defined(useNimRtl):
 
     result = int(select(cint(m+1), addr(rd), nil, nil, nil)) == 1
 
+  when defined(nimdoc):
+    # Default implementations for docgen
+    proc processHandle(p: Process): int = discard
 
 proc execCmdEx*(command: string, options: set[ProcessOption] = {
                 poStdErrToStdOut, poUsePath}, env: StringTableRef = nil,

@@ -29,7 +29,6 @@ import
   compiler/utils/[
     pathutils,
     platform,
-    idioms,
   ]
 
 from compiler/ast/ast import setUseIc
@@ -154,7 +153,6 @@ type
     cmdSwitchExperimental
     cmdSwitchExceptions
     cmdSwitchCppdefine
-    cmdSwitchSeqsv2
     cmdSwitchStylecheck
     cmdSwitchShowallmismatches
     cmdSwitchDocinternal
@@ -163,13 +161,14 @@ type
     cmdSwitchExpandarc
     cmdSwitchBenchmarkvm
     cmdSwitchProfilevm
-    cmdSwitchSinkinference
     cmdSwitchCursorinference
     cmdSwitchPanics
     cmdSwitchSourcemap
     cmdSwitchDeepcopy
     cmdSwitchProjStdin
     cmdSwitchCmdexitgcstats
+    cmdSwitchShowIr
+    cmdSwitchTimeTrace
     cmdSwitchConfigVar
 
   # Full list of all the command line options.
@@ -283,7 +282,6 @@ type
     fullSwitchTxtExperimental        = "experimental"
     fullSwitchTxtExceptions          = "exceptions"
     fullSwitchTxtCppdefine           = "cppdefine"
-    fullSwitchTxtSeqsv2              = "seqsv2"
     fullSwitchTxtStylecheck          = "stylecheck"
     fullSwitchTxtShowallmismatches   = "showallmismatches"
     fullSwitchTxtDocinternal         = "docinternal"
@@ -292,12 +290,13 @@ type
     fullSwitchTxtExpandarc           = "expandarc"
     fullSwitchTxtBenchmarkvm         = "benchmarkvm"
     fullSwitchTxtProfilevm           = "profilevm"
-    fullSwitchTxtSinkinference       = "sinkinference"
     fullSwitchTxtCursorinference     = "cursorinference"
     fullSwitchTxtPanics              = "panics"
     fullSwitchTxtSourcemap           = "sourcemap"
     fullSwitchTxtDeepcopy            = "deepcopy"
     fullSwitchTxtCmdexitgcstats      = "cmdexitgcstats"
+    fullSwitchShowIr                 = "showir"
+    fullSwitchTxtTimeTrace           = "timetrace"
     smolSwitchTxtProjStdin           = ""               # `nim c -r -`, the `-` gets stripped
     fullSwitchTxtConfigVar           = "*.*"            # cfg var dummy entry
     fullSwitchTxtInvalid             = "!ERROR!"
@@ -410,7 +409,6 @@ const
       cmdSwitchExperimental       : {fullSwitchTxtExperimental},
       cmdSwitchExceptions         : {fullSwitchTxtExceptions},
       cmdSwitchCppdefine          : {fullSwitchTxtCppdefine},
-      cmdSwitchSeqsv2             : {fullSwitchTxtSeqsv2},
       cmdSwitchStylecheck         : {fullSwitchTxtStylecheck},
       cmdSwitchShowallmismatches  : {fullSwitchTxtShowallmismatches},
       cmdSwitchDocinternal        : {fullSwitchTxtDocinternal},
@@ -419,13 +417,14 @@ const
       cmdSwitchExpandarc          : {fullSwitchTxtExpandarc},
       cmdSwitchBenchmarkvm        : {fullSwitchTxtBenchmarkvm},
       cmdSwitchProfilevm          : {fullSwitchTxtProfilevm},
-      cmdSwitchSinkinference      : {fullSwitchTxtSinkinference},
       cmdSwitchCursorinference    : {fullSwitchTxtCursorinference},
       cmdSwitchPanics             : {fullSwitchTxtPanics},
       cmdSwitchSourcemap          : {fullSwitchTxtSourcemap},
       cmdSwitchDeepcopy           : {fullSwitchTxtDeepcopy},
       cmdSwitchProjStdin          : {smolSwitchTxtProjStdin},
       cmdSwitchCmdexitgcstats     : {fullSwitchTxtCmdexitgcstats},
+      cmdSwitchShowIr             : {fullSwitchShowIr},
+      cmdSwitchTimeTrace          : {fullSwitchTxtTimeTrace},
       cmdSwitchConfigVar          : {fullSwitchTxtConfigVar},
     ]
 
@@ -616,6 +615,7 @@ func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
   of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
   of cmdSwitchExceptions  : @["native", "goto"]
   of cmdSwitchStylecheck  : @["off", "hint", "error"]
+  of cmdSwitchShowIr      : IrName.toSeq.mapIt($it)
   else: unreachable("this is a compiler bug")
 
 func allowedCompileOptionArgs*(switch: string): seq[string] =
@@ -1601,9 +1601,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "profilevm":
     setSwitchAndSrc cmdSwitchProfilevm
     processOnOffSwitchG(conf, {optProfileVM}, arg, switch)
-  of "sinkinference":
-    setSwitchAndSrc cmdSwitchSinkinference
-    processOnOffSwitch(conf, {optSinkInference}, arg, switch)
   of "cursorinference":
     setSwitchAndSrc cmdSwitchCursorinference
     # undocumented, for debugging purposes only:
@@ -1627,6 +1624,28 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchCmdexitgcstats
     # Print GC statistics for the compiler run
     conf.incl optCmdExitGcStats
+  of "showir":
+    setSwitchAndSrc cmdSwitchShowIr
+    expectArg(switch, arg)
+    # can either be ``--showir:a:b`` or just ``--showir:a``
+    let (irName, name) =
+      if (let p = find(arg, ':'); p != -1):
+        (arg.substr(0, p-1), arg.substr(p+1))
+      else:
+        (arg, "")
+
+    let ir =
+      try:    parseEnum[IrName](irName)
+      except: invalidArgValue(irName, switch)
+
+    if name.len == 0:
+      conf.toDebugIr.incl ir # enabled globally
+    else:
+      # IR debugging is enabled only for the specific procedure
+      conf.toDebugProc[name] = $ir # use the canonical name
+  of "timetrace":
+    setSwitchAndSrc cmdSwitchTimeTrace
+    processOnOffSwitchG(conf, {optTimeTrace}, arg, switch)
   else:
     if strutils.find(switch, '.') >= 0:
       setSwitchAndSrc cmdSwitchConfigVar
@@ -1732,7 +1751,7 @@ proc setCmd*(conf: ConfigRef, cmd: Command) =
   # Note that `--backend` can override the backend, so the logic here must remain reversible.
   conf.cmd = cmd
   case cmd
-  of cmdCompileToC, cmdCrun, cmdTcc: conf.backend = backendC
+  of cmdCompileToC, cmdCrun: conf.backend = backendC
   of cmdCompileToJS: conf.backend = backendJs
   of cmdCompileToVM: conf.backend = backendNimVm
   else: discard
@@ -1745,7 +1764,6 @@ proc parseCommand(command: string): Command =
   of "js", "compiletojs": cmdCompileToJS
   of "vm", "compiletovm": cmdCompileToVM
   of "r": cmdCrun
-  of "run": cmdTcc
   of "check": cmdCheck
   of "e": cmdNimscript
   of "doc2", "doc": cmdDoc

@@ -32,7 +32,6 @@ import
     bitabs
   ],
   compiler/utils/[
-    idioms,
     pathutils,
     bitsets
   ],
@@ -95,6 +94,33 @@ proc loadConst(s: PackedEnv, idx: int, dst: LocHandle,
     while i < L:
       result += loadConst(s, idx+1+result, getItemHandle(dst, i, mem.allocator), mem)
       inc i
+  of akOpenArray:
+    var
+      len: int
+      data: CellPtr
+    case n.kind
+    of pdkString:
+      let str {.cursor.} = s.strings[n.pos.LitId]
+      len = str.len
+      data = mem.allocator.allocTypedLocations(
+        dst.typ.seqElemType,
+        len,
+        len * dst.typ.seqElemStride)
+      let slice = loadFullSlice(mem.allocator, data, dst.typ.seqElemType)
+      safeCopyMem(byteView(slice), toOpenArray(str, 0, str.high), str.len)
+    of pdkArray:
+      len = n.pos.int
+      data = mem.allocator.allocTypedLocations(
+        dst.typ.seqElemType,
+        len,
+        len * dst.typ.seqElemStride)
+      let slice = loadFullSlice(mem.allocator, data, dst.typ.seqElemType)
+      for i in 0..<len:
+        result += loadConst(s, idx + i + 1, slice[i], mem)
+    else:
+      unreachable()
+
+    deref(dst).oaVal = VmOpenArray(data: cast[VmMemPointer](data), length: len)
 
   of akString:
     assert n.kind == pdkString
@@ -163,7 +189,7 @@ proc loadIntoContext(c: var TCtx, p: PackedEnv) =
   c.allocator.byteType = c.typeInfoCache.charType
 
   mapList(c.globals, p.globals, x):
-    c.heap.heapNew(c.allocator, c.types[x])
+    c.allocator.allocSingleLocation(c.types[x])
 
   mapList(c.complexConsts, p.cconsts, x):
     let
@@ -183,6 +209,8 @@ proc loadFromFile(c: var TCtx, overrides: var seq[string],
 
   loadIntoContext(c, p)
   c.code = move p.code
+  c.ehTable = move p.ehTable
+  c.ehCode = move p.ehCode
   overrides = move p.callbacks
 
   result.initSuccess(p.entryPoint)
@@ -271,6 +299,7 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtFieldNotFound: rvmFieldNotFound
   of vmEvtNotAField: rvmNotAField
   of vmEvtFieldUnavailable: rvmFieldInavailable
+  of vmEvtCannotCreateNode: rvmCannotCreateNode
   of vmEvtCannotSetChild: rvmCannotSetChild
   of vmEvtCannotAddChild: rvmCannotAddChild
   of vmEvtCannotGetChild: rvmCannotGetChild
@@ -346,6 +375,7 @@ func vmEventToLegacyVmReport(
 
 proc main*(args: seq[string]): int =
   let config = newConfigRef(cli_reporter.reportHook)
+  config.diagHandler = msgs.defaultDiagHandler
   config.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   config.writeHook = msgs.msgWrite
   config.writelnHook =
@@ -373,14 +403,11 @@ proc main*(args: seq[string]): int =
   let
     entryPoint = c.functions[lr.unsafeGet.int]
 
-  # setup the starting frame:
-  var frame = TStackFrame(prc: entryPoint.sym)
-  frame.slots.newSeq(entryPoint.regCount)
-
   # the execution part. Set up a thread and run it until it either exits
   # normally or abnormally
   var
-    thread = initVmThread(c, entryPoint.start, frame)
+    thread = initVmThread(c, entryPoint.start, entryPoint.regCount.int,
+                          entryPoint.sym)
     continueExecution = true ## whether we continue to execute after yield
   while continueExecution:
     continueExecution = false # default to stop execution on any yield
@@ -389,7 +416,7 @@ proc main*(args: seq[string]): int =
     of yrkDone:
       # on successful execution, the executable's main function returns the
       # value of ``programResult``, which we use as the runner's exit code
-      let reg = thread[0].slots[r.reg.get]
+      let reg = thread.regs[r.reg.get]
       result = regToNode(c, reg, nil, TLineInfo()).intVal.int
     of yrkError:
       # an uncaught error occurred

@@ -30,7 +30,7 @@ template genNodeKind(kind, name: untyped) =
     for c in children:
       result.add(c)
 
-genNodeKind(nnkNone, None)
+genNodeKind(nnkEmpty, None)
 
 
 # Test that generics in templates still work (regression to fix #1915)

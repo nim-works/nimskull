@@ -3,7 +3,7 @@ description: '''
 Test pragma annotations that can be used on identifier declaratios.
 '''
 
-matrix: "-d:strdefineUsed='test' -d:intdefineUsed=2 -d:booldefineUsed=false"
+matrix: "-d:strdefineUsed=test -d:intdefineUsed=2 -d:booldefineUsed=false"
 
 """
 

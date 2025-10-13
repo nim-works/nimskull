@@ -23,12 +23,11 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
     result = newNode(nkEmpty)
     return
   case n.kind
-  of nkEmpty..pred(nkIdent), succ(nkSym)..nkNilLit: result = copyNode(n)
+  of nkWithoutSons - {nkIdent, nkSym}:
+    result = copyNode(n)
   of nkIdent, nkSym:
     result = n
-    let (ident, err) = considerQuotedIdent(c.c, n)
-    if err != nil:
-      localReport(c.c.config, err)
+    let (ident, _) = considerQuotedIdent(c.c, n)
     if c.replaceByFieldName:
       if ident.id == legacyConsiderQuotedIdent(c.c, forLoop[0], nil).id:
         let fieldName = if c.tupleType.isNil: c.field.name.s
@@ -50,7 +49,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
           result.add(tupl)
           result.add(newSymNode(c.field, n.info))
         break
-  else:
+  of nkWithSons:
     if n.kind == nkContinueStmt:
       localReport(c.c.config, n, reportSem rsemFieldsIteratorCannotContinue)
     result = shallowCopy(n)
@@ -143,9 +142,7 @@ proc semForFields(c: PContext, n, call: PNode, flags: TExprFlags): PNode =
     let calli = call[i]
     var tupleTypeB = skipTypes(calli.typ, skippedTypesForFields)
     if not sameType(tupleTypeA, tupleTypeB):
-      let r = typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
-      if r.kind == nkError:
-        localReport(c.config, r)
+      discard typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
   inc(c.execCon.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:
     var loopBody = semmedLoop[^1]

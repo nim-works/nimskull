@@ -72,8 +72,8 @@ class Bootstrap:
     # The location of build configuration
     ConfigPath: ClassVar = NimSource / "config" / "build_config.txt"
 
-    # The location of bootstrap source release file
-    SourceReleasePath: ClassVar = Source / "csources-release"
+    # The location of bootstrap source bundle state
+    SourceReleasePath: ClassVar = NimSource / "build" / "csources-bundled-version"
 
     def __init__(self) -> None:
         """Load configuration and initialize the object"""

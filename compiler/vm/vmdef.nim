@@ -28,11 +28,13 @@ import
   ],
   compiler/utils/[
     debugutils,
+    idioms
+  ],
+  compiler/vm/[
+    identpatterns
   ]
 
 import std/options as std_options
-
-from compiler/vm/vmlinker import LinkerData
 
 import vm_enums
 export vm_enums
@@ -110,6 +112,7 @@ type
 
     akString
     akSeq
+    akOpenArray
     akRef
     akCallable # TODO: rename to akProcedural or akFuncHandle
 
@@ -184,7 +187,7 @@ type
       targetType*: PVmType
     of akSet:
       setLength*: int ## The number of elements in the set
-    of akSeq, akString:
+    of akSeq, akString, akOpenArray:
       # TODO: remove stride information and merge this branch with
       #       `akPtr`/`akRef`
       seqElemStride*: int
@@ -286,6 +289,11 @@ type
     length*: int
     data*: CellPtr
 
+  VmOpenArray* = object
+    ## An openArray as stored in VM memory.
+    data*: VmMemPointer
+    length*: int
+
   VmString* = distinct VmSeq
 
   Atom* {.union.} = object
@@ -295,6 +303,7 @@ type
     ptrVal*: pointer ## akPtr
     strVal*: VmString ## akString
     seqVal*: VmSeq ## akSeq
+    oaVal*: VmOpenArray
     refVal*: HeapSlotHandle ## akRef
     callableVal*: VmFunctionPtr ## akCallable
 
@@ -336,13 +345,11 @@ type
   ConstantKind* = enum
     cnstInt
     cnstFloat
-    cnstString
     cnstNode ## AST, type literals
 
     # slice-lists are used for implementing `opcBranch` (branch for case stmt)
     cnstSliceListInt
     cnstSliceListFloat
-    cnstSliceListStr
 
   ConstantId* = int ## The ID of a `VmConstant`. Currently just an index into
                     ## `TCtx.constants`
@@ -357,8 +364,6 @@ type
       intVal*: BiggestInt
     of cnstFloat:
       floatVal*: BiggestFloat
-    of cnstString:
-      strVal*: string
     of cnstNode:
       node*: PNode
 
@@ -368,16 +373,13 @@ type
       intSlices*: seq[Slice[BiggestInt]]
     of cnstSliceListFloat:
       floatSlices*: seq[Slice[BiggestFloat]]
-    of cnstSliceListStr:
-      strSlices*: seq[Slice[ConstantId]] ## Stores the ids of string constants
-                                         ## as a storage optimization
 
   VmArgs* = object
     ra*, rb*, rc*: Natural
     slots*: ptr UncheckedArray[TFullReg]
     # TODO: rework either the callback or exception handling (or both) so that
     #       no pointer is required here
-    currentExceptionPtr*: ptr HeapSlotHandle
+    exState*: ptr ExceptionState
     currentLineInfo*: TLineInfo
 
     # XXX: These are only here as a temporary measure until callback handling
@@ -495,6 +497,11 @@ type
       #      know nor care about ``RootObj``. Can be removed once closure types
       #      are lowered earlier
 
+  LinkIndex* = uint32
+    ## Identifies a linker-relevant entity. There are three namespaces, one
+    ## for procedures, one for globals, and one for constants -- which
+    ## namespace an index is part of is stored separately.
+
   FunctionIndex* = distinct int
 
   # XXX: TCtx's contents should be separated into five parts (separate object
@@ -598,6 +605,7 @@ type
     vmEvtFieldNotFound
     vmEvtNotAField
     vmEvtFieldUnavailable
+    vmEvtCannotCreateNode
     vmEvtCannotSetChild
     vmEvtCannotAddChild
     vmEvtCannotGetChild
@@ -623,7 +631,8 @@ type
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
       of vmEvtErrInternal, vmEvtNilAccess, vmEvtIllegalConv,
           vmEvtFieldUnavailable, vmEvtFieldNotFound,
-          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
+          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey,
+          vmEvtCannotCreateNode:
         msg*: string
       of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
          vmEvtNoType, vmEvtNodeNotASymbol:
@@ -659,11 +668,40 @@ type
 
   VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
 
+  HandlerTableEntry* = tuple
+    offset: uint32 ## instruction offset
+    instr:  uint32 ## position of the EH instruction to spawn a thread with
+
+  EhOpcode* = enum
+    ehoExcept
+      ## unconditional exception handler
+    ehoExceptWithFilter
+      ## conditionl exception handler. If the exception is a subtype or equal
+      ## to the specified type, the handler is entered
+    ehoFinally
+      ## enter the ``finally`` handler
+    ehoNext
+      ## relative jump to another instruction
+    ehoEnd
+      ## ends the thread without treating the exception as handled
+
+  EhInstr* = tuple
+    ## Exception handling instruction. 8-byte in size.
+    opcode: EhOpcode
+    a: uint16 ## meaning depends on the opcode
+    b: uint32 ## meaning depends on the opcode
+
   TCtx* = object
     code*: seq[TInstr]
     debug*: seq[TLineInfo]  # line info for every instruction; kept separate
                             # to not slow down interpretation
-    globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
+    ehTable*: seq[HandlerTableEntry]
+      ## stores the instruction-to-EH mappings. Used to look up the EH
+      ## instruction to start exception handling with in case of a normal
+      ## instruction raising
+    ehCode*: seq[EhInstr]
+      ## stores the instructions for the exception handling (EH) mechanism
+    globals*: seq[LocHandle] ## global slots
     constants*: seq[VmConstant] ## constant data
     complexConsts*: seq[LocHandle] ## complex constants (i.e. everything that
                                    ## is not a int/float/string literal)
@@ -680,9 +718,8 @@ type
       ## generator. Initialized by the VM's callsite and queried by the JIT.
     # XXX: ^^ make this a part of the JIT state as soon as possible
 
-    linking*: LinkerData
-    # XXX: ^^ should be made part of the JIT state but ``vmcompilerserdes``
-    #      currently blocks that
+    callbackKeys*: Patterns
+    # TODO: make this a part of the JIT state; it not needed at VM run-time
 
     module*: PSym
     callsite*: PNode
@@ -704,17 +741,16 @@ type
 
   TStackFrame* = object
     prc*: PSym                 # current prc; proc that is evaluated
-    slots*: seq[TFullReg]      # parameters passed to the proc + locals;
-                              # parameters come first
+    start*: int
+      ## position in the thread's register sequence where the registers for
+      ## the frame start
+    eh*: HOslice[int]
+      ## points to the active list of instruction-to-EH mappings
+    baseOffset*: PrgCtr
+      ## the instruction that all offsets in the instruction-to-EH list are
+      ## relative to. Only valid when `eh` is not empty
 
     comesFrom*: int
-    safePoints*: seq[int]      # used for exception handling
-                              # XXX 'break' should perform cleanup actions
-                              # What does the C backend do for it?
-
-    savedPC*: PrgCtr         ## remembers the program counter of the ``Ret``
-                             ## instruction during cleanup. -1 indicates that
-                             ## no clean-up is happening
 
   ProfileInfo* = object
     ## Profiler data for a single procedure.
@@ -729,6 +765,23 @@ type
     data*: Table[PSym, ProfileInfo]
       ## maps the symbol of a procedure to the associated data gathered by the
       ## profiler
+
+  VmException* = object
+    ## Internal-only. Has to be exposed here because ``VmArgs`` needs access
+    ## to the type.
+    refVal*: HeapSlotHandle
+    trace*: VmRawStackTrace
+    # XXX: the trace should be stored in the exception object, which would
+    #      also make it accessible to the guest (via ``getStackTrace``)
+    caught*: bool
+      ## whether the exception was already caught
+
+  ExceptionState* = object
+    ## Thread-local exception runtime state.
+    stack*: seq[VmException]
+      ## previously caught but not yet full handled exceptions
+    current*: HeapSlotHandle
+      ## the current exception, which is what ``getCurrentException`` returns
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
@@ -784,6 +837,7 @@ proc init*(cache: var TypeInfoCache) =
 
   setInfo(akSeq, VmSeq)
   setInfo(akString, VmString)
+  setInfo(akOpenArray, VmOpenArray)
   setInfo(akPtr, ptr Atom)
   setInfo(akRef, HeapSlotHandle)
   setInfo(akCallable, VmFunctionPtr)
@@ -937,11 +991,11 @@ template isValid*(handle: LocHandle): bool =
 
 template currentException*(a: VmArgs): HeapSlotHandle =
   ## A temporary workaround for the exception handle being stored as a pointer
-  a.currentExceptionPtr[]
+  a.exState.current
 
 template `currentException=`*(a: VmArgs, h: HeapSlotHandle) =
   ## A temporary workaround for the exception handle being stored as a pointer
-  a.currentExceptionPtr[] = h
+  a.exState.current = h
 
 func unpackedConvDesc*(info: uint16
                       ): tuple[op: NumericConvKind, dstbytes, srcbytes: int] =

@@ -11,9 +11,6 @@ import
   compiler/front/[
     options
   ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmdef,
     vmmemory,
@@ -360,6 +357,8 @@ func arrayLen*(loc: LocHandle): int =
   case loc.typ.kind
   of akSeq:
     deref(loc).seqVal.length
+  of akOpenArray:
+    deref(loc).oaVal.length
   of akArray:
     loc.typ.elementCount
   of akString:
@@ -507,22 +506,15 @@ func add*(s: var string, str: VmString) =
   safeCopyMem(s.toOpenArray(i, s.high), str.data.slice(str.len), str.len)
 
 
-func getItemHandle*(loc: LocHandle, index: Natural, a: VmAllocator): LocHandle =
-  ## Creates a handle to the item at `index` for the array-like at `loc`
-  let typ = loc.typ
-  case typ.kind
-  of akSeq:
-    makeLocHandle(a, deref(loc).seqVal.data, typ.seqElemStride * index, typ.seqElemType)
-  of akArray:
-    subLocation(loc, typ.elementStride * index, typ.elementType)
-  else:
-    # Not an array like type
-    unreachable(typ.kind)
-
 func `[]`*(s: VmSlice, i: Natural): LocHandle =
   ## Creates a ``LocHandle`` to the `i`-th element of the slice `s`
-  LocHandle(cell: s.cell, p: applyOffset(s.start, uint(i) * s.typ.alignedSize),
-            typ: s.typ)
+  if s.cell == -1:
+    # don't use pointer arithmetic on `s.p`, which might be a nil pointer
+    LocHandle(cell: -1, typ: s.typ)
+  else:
+    LocHandle(cell: s.cell,
+              p: applyOffset(s.start, uint(i) * s.typ.alignedSize),
+              typ: s.typ)
 
 func toSlice*(loc: LocHandle): VmSlice =
   ## Creates a ``VmSlice`` view for the array location `loc`
@@ -537,6 +529,28 @@ func toSlice*(s: VmSeq, elemTyp: PVmType, a: VmAllocator): VmSlice =
   # cell
   VmSlice(cell: id, start: cast[VmMemPointer](s.data), len: s.length,
           typ: elemTyp)
+
+func toSlice*(oa: VmOpenArray, elemTyp: PVmType, a: VmAllocator): VmSlice =
+  ## Creates a ``VmSlice`` view for all elements in the slice `oa`.
+  let id = a.mapInteriorPointerToCell(oa.data)
+  # set the `start` and `len` even if data pointer doesn't point to a
+  # cell
+  VmSlice(cell: id, start: oa.data, len: oa.length, typ: elemTyp)
+
+func getItemHandle*(loc: LocHandle, index: Natural, a: VmAllocator): LocHandle =
+  ## Creates a handle to the item at `index` for the array-like at `loc`.
+  let typ = loc.typ
+  case typ.kind
+  of akSeq:
+    makeLocHandle(a, deref(loc).seqVal.data, typ.seqElemStride * index,
+                  typ.seqElemType)
+  of akOpenArray:
+    toSlice(deref(loc).oaVal, typ.seqElemType, a)[index]
+  of akArray:
+    subLocation(loc, typ.elementStride * index, typ.elementType)
+  else:
+    # Not an array like type
+    unreachable(typ.kind)
 
 proc arrayCopy*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmMemoryRegion, count: Natural, elemTyp: PVmType, reset: static[bool]) =
   ## Copies (via assignment) all items from `src[0..count-1]` to
@@ -667,7 +681,7 @@ func resetLocation*(mm: var VmMemoryManager, loc: var VmMemoryRegion, typ: PVmTy
   let a = cast[ptr Atom](addr loc[0])
 
   case typ.kind
-  of akInt, akFloat, akPtr, akSet, akCallable: discard
+  of akInt, akFloat, akPtr, akSet, akCallable, akOpenArray: discard
   of akString:
     if not a.strVal.data.isNil:
       mm.allocator.dealloc(a.strVal.data)
@@ -725,7 +739,7 @@ proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmM
         doAssert false
 
   case typ.kind
-  of akInt, akFloat, akPtr, akSet:
+  of akInt, akFloat, akPtr, akSet, akOpenArray:
     safeCopyMem(dest, src.subView(0, size), size)
   of akString:
     asgnVmString(dstAtom.strVal, srcAtom.strVal, mm.allocator)

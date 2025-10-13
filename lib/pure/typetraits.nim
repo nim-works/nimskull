@@ -93,6 +93,12 @@ proc supportsCopyMem*(t: typedesc): bool {.magic: "TypeTrait".}
   ##
   ## Other languages name a type like these `blob`:idx:.
 
+proc supportsZeroMem*(t: typedesc): bool {.magic: "TypeTrait".}
+  ## This trait returns true if using `zeroMem`:idx: on a location of type `t`
+  ## brings the location into its "default-initialized" state. This doesn't
+  ## imply that using `zeroMem`:idx: on a location already storing a value is
+  ## valid.
+
 proc isNamedTuple*(T: typedesc): bool {.magic: "TypeTrait".} =
   ## Returns true for named tuples, false for any other type.
   runnableExamples:
@@ -230,66 +236,12 @@ macro enumLen*(T: typedesc[enum]): int =
   expectKind(enumTy, nnkEnumTy)
   result = newLit(enumTy.len - 1)
 
-macro genericParamsImpl(T: typedesc): untyped =
-  # auxiliary macro needed, can't do it directly in `genericParams`
-  result = newNimNode(nnkTupleConstr)
-  var impl = getTypeImpl(T)
-  expectKind(impl, nnkBracketExpr)
-  impl = impl[1]
-  while true:
-    case impl.kind
-    of nnkSym:
-      impl = impl.getImpl
-    of nnkTypeDef:
-      impl = impl[2]
-    of nnkTypeOfExpr:
-      impl = getTypeInst(impl[0])
-    of nnkBracketExpr:
-      for i in 1..<impl.len:
-        let ai = impl[i]
-        var ret: NimNode = nil
-        case ai.typeKind
-        of ntyTypeDesc:
-          ret = ai
-        of ntyStatic: doAssert false
-        else:
-          # getType from a resolved symbol might return a typedesc symbol.
-          # If so, use it directly instead of wrapping it in StaticParam.
-          if (ai.kind == nnkSym and ai.symKind == nskType) or
-              (ai.kind == nnkBracketExpr and ai[0].kind == nnkSym and
-              ai[0].symKind == nskType) or ai.kind in {nnkRefTy, nnkVarTy, nnkPtrTy, nnkProcTy}:
-            ret = ai
-          elif ai.kind == nnkInfix and ai[0].kind == nnkIdent and
-                ai[0].strVal == "..":
-            # For built-in array types, the "2" is translated to "0..1" then
-            # automagically translated to "range[0..1]". However this is not
-            # reflected in the AST, thus requiring manual transformation here.
-            #
-            # We will also be losing some context here:
-            #   var a: array[10, int]
-            # will be translated to:
-            #   var a: array[0..9, int]
-            # after typecheck. This means that we can't get the exact
-            # definition as typed by the user, which will cause confusion for
-            # users expecting:
-            #   genericParams(typeof(a)) is (StaticParam(10), int)
-            # to be true while in fact the result will be:
-            #   genericParams(typeof(a)) is (range[0..9], int)
-            ret = newTree(nnkBracketExpr, @[bindSym"range", ai])
-          else:
-            since (1, 1):
-              ret = newTree(nnkBracketExpr, @[bindSym"StaticParam", ai])
-        result.add ret
-      break
-    else:
-      error "wrong kind: " & $impl.kind, impl
-
 since (1, 1):
-  template genericParams*(T: typedesc): untyped =
+  macro genericParams*(T: typedesc): untyped =
     ## Returns the tuple of generic parameters for the generic type `T`.
     ##
     ## **Note:** For the builtin array type, the index generic parameter will
-    ## **always** become a range type after it's bound to a variable.
+    ## **always** become a range type.
     runnableExamples:
       type Foo[T1, T2] = object
 
@@ -303,13 +255,43 @@ since (1, 1):
       var s: seq[Bar[3.0, string]]
       doAssert genericParams(typeof(s)) is (Bar[3.0, string],)
 
-      doAssert genericParams(array[10, int]) is (StaticParam[10], int)
+      doAssert genericParams(array[10, int]) is (range[0..9], int)
       var a: array[10, int]
       doAssert genericParams(typeof(a)) is (range[0..9], int)
 
-    type T2 = T
-    genericParamsImpl(T2)
+    let desc = getTypeInst(T)
+    expectKind(desc, nnkBracketExpr)
+    let typ = getType(desc[1]) # skip aliases
 
+    result = newNimNode(nnkTupleConstr)
+    case typ.typeKind
+    of ntyGenericInst:
+      # fetch all instnatiation parameters
+      for i in 1..<typ.len:
+        let op = getTypeInst(typ[i])
+        # ``getTypeInst`` loses the staticness, so `typ` has to be queried
+        # instead
+        if typ[i].typeKind == ntyStatic:
+          result.add nnkBracketExpr.newTree(bindSym"StaticParam", op)
+        else:
+          result.add op
+    of ntyPtr, ntyRef, ntyVar, ntySequence, ntyOpenArray, ntyVarargs, ntySet,
+       ntyUncheckedArray:
+      result.add typ[1]
+    of ntyRange:
+      result.add nnkBracketExpr.newTree(bindSym"StaticParam", typ[1])
+      result.add nnkBracketExpr.newTree(bindSym"StaticParam", typ[2])
+    of ntyArray:
+      var len = getTypeInst(typ[1])
+      if len.kind == nnkInfix:
+        # create a proper range type constructor
+        len = nnkBracketExpr.newTree(bindSym"range", len)
+
+      result = nnkTupleConstr.newTree(
+        len,
+        typ[2])
+    else:
+      error("not an instantiated generic type", T)
 
 proc hasClosureImpl(n: NimNode): bool = discard "see compiler/vmops.nim"
 

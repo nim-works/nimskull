@@ -36,7 +36,6 @@ import
   dynlib,
   encodings,
   endians,
-  epoll,
   fenv,
   hashes,
   heapqueue,
@@ -44,10 +43,8 @@ import
   htmlparser,
   httpclient,
   httpcore,
-  inotify,
   intsets,
   json,
-  kqueue,
   lenientops,
   lexbase,
   lists,
@@ -164,5 +161,8 @@ import std/private/[
 
 when defined(posix):
   import std/[
+    epoll,
+    inotify,
+    kqueue,
     posix_utils,
   ]

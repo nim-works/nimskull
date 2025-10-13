@@ -20,6 +20,8 @@ type
     opcYldYoid,     # yield with no value
     opcYldVal,      # yield with a value
 
+    opcSetEh        # sets the active instruction-to-EH mappings list
+
     opcAsgnInt,
     opcAsgnFloat,
     opcAsgnComplex,
@@ -75,7 +77,7 @@ type
     opcMulSet, opcPlusSet, opcMinusSet, opcConcatStr,
     opcContainsSet, opcRepr, opcSetLenStr, opcSetLenSeq,
     opcIsNil, opcOf,
-    opcParseFloat, opcConv, opcNumConv, opcObjConv, opcCast
+    opcConv, opcNumConv, opcObjConv, opcCast
     opcQuit, opcInvalidField,
     opcNarrowS, opcNarrowU,
     opcSignExtend,
@@ -87,6 +89,7 @@ type
     opcIndexChck, ## abort execution if the index is not in bounds
 
     opcArrCopy,
+    opcSlice,
 
     # NimNode manipulation opcodes
 
@@ -126,6 +129,7 @@ type
     opcEcho,
     opcIndCall, # dest = call regStart, n; where regStart = fn, arg1, ...
     opcIndCallAsgn, # dest = call regStart, n; where regStart = fn, arg1, ...
+    opcTailCall,
 
     opcRaise,
     opcNChild,
@@ -138,8 +142,6 @@ type
     opcJmp,   # jump Bx
     opcJmpBack, # jump Bx; resulting from a while loop
     opcBranch,  # branch for 'case'
-    opcTry,
-    opcExcept,
     opcFinally,
     opcFinallyEnd,
     opcNew,
@@ -147,13 +149,13 @@ type
     opcLdNull,    # dest = nullvalue(types[Bx])
     opcLdNullReg,
     opcLdConst,   # dest = constants[Bx]
-    opcAsgnConst, # dest = copy(constants[Bx])
     opcLdGlobal,  # dest = globals[Bx]
 
     opcLdCmplxConst, # dest = complexConsts[Bx]
 
     opcLdImmInt,  # dest = immediate value
     opcSetType,   # dest.typ = types[Bx]
+    opcObjChck    # raise error if a[] not of types[Bx]
     opcNSetType,  # dest.nimNode.typ = types[Bx]
     opcTypeTrait,
     opcSymOwner,

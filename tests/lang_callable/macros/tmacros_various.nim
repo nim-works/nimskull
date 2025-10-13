@@ -10,6 +10,12 @@ Infix
       Ident "cint"
   NilLit
 macrocache ok
+CommentStmt "comment 1"
+CommentStmt "comment 2"
+false
+false
+false
+true
 '''
 
   output: '''
@@ -328,3 +334,64 @@ block: # bug #15118
 
   block:
     flop("b")
+
+block:
+  # Ensure nkCommentStmt equality is not ignored when vmgen.toNodeCnst
+  # deduplicates NimNode constants, so that `CommentStmt "comment 2"`
+  # is not counted as a duplicate of `CommentStmt "comment 1"` and
+  # incorrectly optimized to point at the `Comment "comment 1"` node
+
+  proc createComment(s: string): NimNode =
+    result = nnkCommentStmt.newNimNode()
+    result.strVal = s
+
+  const C1 = (1, createComment("comment 1"))
+  const C2 = (1, createComment("comment 2"))
+  static:
+    echo treeRepr(C1[1])
+    echo treeRepr(C2[1])
+
+block:
+  # Ensure nkType equality is not ignored by `==` for NimNode
+  macro checkEq(a, b: typed) =
+    echo a == b
+
+  type Exception1 = object of Exception
+  type Exception2 = object of Exception
+  checkEq (;
+    try:
+      discard
+    except Exception1:
+      discard
+  ), (;
+    try:
+      discard
+    except Exception2:
+      discard
+  )
+
+  macro checkEqOfTry(a, b: typed) =
+    echo a[0][1][1] == b[0][1][1]
+
+  checkEqOfTry (;
+    block:
+      type E = object of Exception1
+      try:
+        discard
+      except E:
+        discard
+  ), (;
+    block:
+      type E = object of Exception2
+      try:
+        discard
+      except E:
+        discard
+  )
+
+block:
+  # Ensure float equality semantics are not used when comparing AST for equality
+
+  static:
+    echo newLit(0.0) == newLit(-0.0) # false
+    echo newLit(NaN) == newLit(NaN) # true

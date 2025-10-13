@@ -33,7 +33,9 @@ type
     case opc*: TOpcode:
       of opcConv, opcCast:
         types*: tuple[tfrom, tto: PType]
-      of opcLdConst, opcAsgnConst:
+      of opcSlice:
+        rd*: int
+      of opcLdConst:
         ast*: PNode
       else:
         discard
@@ -86,15 +88,17 @@ proc codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
       code.types = (c.rtti[c.code[i + 0].regBx-wordExcess].nimType,
                     c.rtti[c.code[i + 1].regBx-wordExcess].nimType)
       inc i, 1
-    of opcLdConst, opcAsgnConst:
+    of opcSlice:
+      code.rd = c.code[i + 1].regB
+      inc i, 1
+    of opcLdConst:
       let cnst = c.constants[code.idx]
       code.ast =
         case cnst.kind
         of cnstInt:    newIntNode(nkIntLit, cnst.intVal)
         of cnstFloat:  newFloatNode(nkFloatLit, cnst.floatVal)
-        of cnstString: newStrNode(nkStrLit, cnst.strVal)
         of cnstNode:   cnst.node
-        of cnstSliceListInt..cnstSliceListStr:
+        of cnstSliceListInt..cnstSliceListFloat:
           # XXX: translate into an `nkOfBranch`?
           newNode(nkEmpty)
     else:
@@ -136,13 +140,16 @@ proc renderCodeListing*(config: ConfigRef, sym: PSym,
                 $<e.opc, $<e.ra, $<e.rb,
                 $<e.types[0].typeToString(),
                 $<e.types[1].typeToString())
+    of opcSlice:
+      line.addf("  $# r$# r$# r$# r$#",
+                $<e.opc, $<e.ra, $<e.rb, $<e.rc, $<e.rd)
+    of opcSetEh:
+      line.addf("  $# $# $#", $<e.opc, $<e.ra, $e.rb)
     elif e.opc < firstABxInstr:
       line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
-    elif e.opc in relativeJumps + {opcTry}:
+    elif e.opc in relativeJumps:
       line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
-    elif e.opc in {opcExcept}:
-      line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
-    elif e.opc in {opcLdConst, opcAsgnConst}:
+    elif e.opc in {opcLdConst}:
       line.addf("  $# r$# $# $#",
                 $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)
     else:

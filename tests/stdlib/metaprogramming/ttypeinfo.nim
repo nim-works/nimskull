@@ -69,3 +69,17 @@ block:
 
   doAssert getEnumOrdinal(y, "Hello") == 0
   doAssert getEnumOrdinal(y, "hello") == 1
+
+block seq_extension_zeroes:
+  # make sure ``invokeNewSeq`` and ``extendSeq`` zero the new locations
+  var s: seq[int]
+  toAny(s).invokeNewSeq(100)
+
+  # check that the values are all zero and change them to something else
+  for it in s.mitems:
+    doAssert it == 0
+    it = 1
+
+  s.setLen(0) # clear the seq, which should leave the memory untouched
+  toAny(s).extendSeq() # grow by one
+  doAssert s[0] == 0

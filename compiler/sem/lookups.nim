@@ -22,13 +22,11 @@ import
     renderer,
     lineinfos,
     errorhandling,
-    errorreporting,
   ],
   compiler/modules/[
     modulegraphs
   ],
   compiler/utils/[
-    idioms,
     debugutils
   ],
   compiler/front/[
@@ -98,7 +96,7 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
 
   const
     atomicIdentKinds = {nkIdent, nkSym}
-    renderableLiterals = nkLiterals - nkFloatLiterals
+    renderableLiterals = nkLiterals - nkFloatLiterals - nkNilLit
     renderableKinds = atomicIdentKinds + renderableLiterals
     allNodeKinds = {low(TNodeKind)..high(TNodeKind)}
 
@@ -271,28 +269,8 @@ proc legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
   ## error reporting, but it was an awkward API. This template creates a block
   ## to replicate the previous behaviour of fetching and doing inline error
   ## with an `origin` parameter for the purposes of transition.
-  let (ident, err) = considerQuotedIdent(c, n)
+  let (ident, _) = considerQuotedIdent(c, n)
   result = ident
-  if err != nil:
-    if origin.isNil or n == origin:
-      localReport(c.config, err)
-    else:
-      # xxx: janky error gen, the way to fix is this by starting at the
-      #      callsites and reworking how things are consumed/passed in.
-      #      also, the nkAccQuote handling likely requires alpha-rewriting
-      if origin.isError: c.config.localReport(origin)
-      if n.kind == nkError: c.config.localReport(n)
-      let
-        errTarget =
-          if n.kind == nkAccQuoted and n.len == 1:
-            n[0]
-          else:
-            n
-        errDiag = PAstDiag(kind: adSemExpectedIdentifierInExpr,
-                            notIdent: errTarget)
-        finalErr = c.config.newError(origin, errDiag)
-
-      localReport(c.config, finalErr)
 
 template addSym*(scope: PScope, s: PSym) =
   strTableAdd(scope.symbols, s)
@@ -762,7 +740,6 @@ proc lookUp*(c: PContext, n: PNode): PSym =
     result = searchInScopes(c, n.ident, amb)
     if result == nil:
       result = errorUndeclaredIdentifierHint(c, n, n.ident)
-      localReport(c.config, result.ast)
   of nkSym:
     result = n.sym
   of nkAccQuoted:
@@ -771,7 +748,6 @@ proc lookUp*(c: PContext, n: PNode): PSym =
       result = searchInScopes(c, ident, amb)
       if result == nil:
         result = errorUndeclaredIdentifierHint(c, n, ident)
-        localReport(c.config, result.ast)
     else:
       result = newQualifiedLookUpError(c, ident, n.info, err)
   else:

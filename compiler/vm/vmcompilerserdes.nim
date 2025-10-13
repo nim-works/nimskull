@@ -1,49 +1,30 @@
-## This module implements the translation of `PNode`-tree values into
-## VM data and vice-versa.
-##
-## ser = serialize; des = deserialize
-##
-## `serialize` means `PNode` -> VM-data
-## `deserialize` means VM-data -> `PNode`
+## Implements the deserialization of VM data into `PNode`-trees.
 
 import
   compiler/ast/[
     ast_types,
     ast,
+    astalgo,
     errorhandling,
     lineinfos,
     nimsets,
     types
   ],
-  compiler/front/[
-    msgs
-  ],
-  compiler/utils/[
-    idioms
-  ],
   compiler/vm/[
     vmaux,
+    vmchecks,
     vmdef,
     vmmemory,
     vmobjects,
-    vmtypegen,
     vmtypes,
-  ],
-  std/[
-    options
   ],
   experimental/[
     results
   ]
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_sem import SemReport,
-  reportAst
-from compiler/ast/report_enums import ReportKind
-
 # XXX: the function signatures are a bit cumbersome here
 
-from compiler/ast/trees import exprStructuralEquivalent, cyclicTree
+from compiler/ast/trees import cyclicTree
 
 const SkipSet = abstractRange + {tyStatic} - {tyTypeDesc}
 
@@ -105,31 +86,6 @@ proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal: PType, info: TLineInfo): PNode {.inline.} =
   deserialize(c, m, vt, formal, formal.skipTypes(SkipSet), info)
 
-
-# TODO: record walking is implemented multiple times in multiple different
-#       places across the compiler. An `iterator` encapsulating the logic would
-#       probably make sense...
-func findField(n: PNode, pos: int): PSym =
-  case n.kind
-  of nkSym:
-    if n.sym.position == pos:
-      return n.sym
-  of nkRecList:
-    for x in n.items:
-      result = findField(x, pos)
-      if result != nil:
-        return
-  of nkRecCase:
-    if n[0].sym.position == pos:
-      return n[0].sym
-
-    for i in 1..<n.len:
-      result = findField(lastSon(n[i]), pos)
-      if result != nil:
-        return
-  else:
-    unreachable()
-
 proc deserializeTuple(c: TCtx, m: VmMemoryRegion, vt: PVmType; formal, ty: PType, info: TLineInfo): PNode =
   assert vt.kind == akObject
 
@@ -181,7 +137,7 @@ proc deserializeObjectPart(c: TCtx,
     # no variant object
     for i in start..<vt.objFields.len:
       let f = vt.objFields[i]
-      let sym = findField(ty.n, vt.toFieldPos(FieldIndex i).int)
+      let sym = lookupInRecord(ty.n, vt.toFieldPos(FieldIndex i).int)
       dest.sons[result.cIdx] = constrField(f, sym)
       inc result.cIdx
 
@@ -199,7 +155,7 @@ proc deserializeObjectPart(c: TCtx,
       let r = iter.get()
       if r.valid:
         let f = vt.fieldAt(r.idx)
-        let sym = findField(ty.n, vt.toFieldPos(r.idx).int)
+        let sym = lookupInRecord(ty.n, vt.toFieldPos(r.idx).int)
         assert sym.typ != nil
         dest.sons[result.cIdx] = constrField(f, sym)
         inc result.cIdx
@@ -254,6 +210,16 @@ proc deserializeArray*(
   if hasError:
     result = c.config.wrapError(result)
 
+proc deserializeNimNode*(c: TCtx, n: PNode, formal: PType,
+                         info: TLineInfo): PNode =
+  ## Makes sure `n` (which represent a NimNode value) is valid and turns it
+  ## into a proper NimNode literal.
+  if cyclicTree(n):
+    result = c.config.newError(
+      newNodeIT(nkEmpty, info, formal),
+      PAstDiag(kind: adCyclicTree, cyclic: n))
+  else:
+    result = newTreeIT(nkNimNodeLit, info, formal): n
 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info: TLineInfo): PNode =
   let
@@ -312,14 +278,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
       result = deserializeRef(c, atom.refVal, vt.targetType, formal, t, info)
     else:
       assert vt.kind == akPNode
-
-      if unlikely(cyclicTree(atom.nodeVal)):
-        result = c.config.newError(
-          wrongNode(),
-          PAstDiag(kind: adCyclicTree, cyclic: atom.nodeVal))
-      else:
-        # XXX: not doing a full tree-copy here might lead to issues
-        result = newTreeIT(nkNimNodeLit, info, formal): atom.nodeVal
+      result = deserializeNimNode(c, atom.nodeVal, formal, info)
 
   of tyProc:
     case t.callConv
@@ -380,6 +339,40 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
         vt.seqElemType,
         t.elemType(),
         info)
+    of akOpenArray:
+      # openArray stores an unsafe host pointer, requiring manual access
+      # validation in order to not access host memory
+      let
+        len        = atom.oaVal.length
+        elem       = vt.seqElemType
+        slice      = toSlice(atom.oaVal, elem, c.allocator)
+        formalElem = t.elemType()
+      var hasError = false
+
+      proc error(c: TCtx, kind: AstDiagVmKind, formal: PType,
+                 info: TLineInfo): PNode =
+        c.config.newError(
+          wrongNode(),
+          PAstDiag(kind: adVmError, vmErr: AstDiagVmError(kind: kind)))
+
+      result = newNodeIT(nkBracket, info, formal, len)
+      for i in 0..<len:
+        case checkValid(c.allocator, slice[i])
+        of avrNoError:
+          result[i] =
+            deserialize(c, byteView(slice[i]), elem, formalElem, info)
+        of avrNoLocation:
+          result[i] = error(c, adVmAccessNoLocation, formal, info)
+          hasError = true
+        of avrOutOfBounds:
+          result[i] = error(c, adVmAccessOutOfBounds, formal, info)
+          hasError = true
+        of avrTypeMismatch:
+          result[i] = error(c, adVmAccessTypeMismatch, formal, info)
+          hasError = true
+
+      if hasError:
+        result = c.config.wrapError(result)
     else:
       unreachable($vt.kind)
 
@@ -409,158 +402,3 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
 # XXX: can't be a func because of internal error reporting
 proc deserialize*(c: TCtx, handle: LocHandle, asType: PType, info: TLineInfo): PNode =
   deserialize(c, handle.byteView(), handle.typ, asType, info)
-
-proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil)
-
-proc marshalFields*(c: var TCtx, nodes: openArray[PNode], dest: LocHandle) =
-  for (i, n) in nodes.pairs:
-    let (p, sub) =
-      if n.kind == nkExprColonExpr:
-        assert i == n[0].sym.position
-        (n[0].sym.position, n[1])
-      else:
-        (i, n)
-
-    c.serialize(sub, dest.getFieldHandle(FieldPosition(p)))
-
-proc serializeObject(c: var TCtx, dest: LocHandle, constr: PNode, ty: PType) =
-  ## Loads an `object`-value represented by the valid construction expression
-  ## `constr` into `dest`. The destination memory is expected to be in the
-  ## zero-initialized state.
-  assert ty.kind == tyObject
-  # serialize every field value present in the construction expression. This
-  # works because only assignment to active fields are allowed in the
-  # expression (meaning that there's no possibility of in-memory overlap)
-  for i in 1..<constr.len:
-    let
-      n = constr[i]
-      lhs = n[0].sym
-      rhs = n[1]
-      loc = dest.getFieldHandle(fpos lhs.position)
-
-    if sfDiscriminant in lhs.flags:
-      let
-        (owner, idx) = getFieldAndOwner(dest.typ, fpos lhs.position)
-        b = findMatchingBranch(findRecCase(ty, lhs), getInt(rhs))
-      assert b != -1
-      loc.writeDiscrField(owner, idx, rhs.intVal.int, b)
-    else:
-      c.serialize(rhs, loc)
-
-proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
-  ## Translates the given `PNode`-tree based data (`n`) into VM data, storing
-  ## the result in the location referenced by `dest`. Required extra memory
-  ## (`string`, `seq`, closures, etc.) is automatically created and populated
-  let origTyp = if t != nil: t else: n.typ
-  let t = origTyp.skipTypes(abstractRange+{tyStatic}-{tyTypeDesc})
-
-  case t.kind
-  of tyBool, tyChar, tyEnum, tyInt..tyInt64, tyUInt..tyUInt64:
-    assert n.kind in nkCharLit..nkUInt64Lit
-    dest.writeUInt(n.intVal)
-  of tyCstring, tyString:
-    assert n.kind in nkStrLit..nkTripleStrLit
-    assert dest.typ.kind == akString
-    deref(dest).strVal.newVmString(n.strVal, c.allocator)
-  of tyFloat32:
-    assert n.kind == nkFloat32Lit
-    dest.writeFloat32(float32(n.floatVal))
-  of tyFloat64:
-    assert n.kind == nkFloat64Lit
-    dest.writeFloat64(float64(n.floatVal))
-  of tyFloat:
-    assert n.kind in {nkFloatLit, nkFloat64Lit}
-    dest.writeFloat(n.floatVal)
-  of tyPointer, tyPtr, tyNil:
-    assert n.kind == nkNilLit
-    # Only allow nil values for pointers
-    deref(dest).ptrVal = nil
-  of tyUntyped, tyTyped, tyTypeDesc:
-    assert dest.typ.kind == akPNode
-    deref(dest).nodeVal = n
-  of tyRef:
-    if t.sym == nil or t.sym.magic != mPNimrodNode:
-      assert dest.typ.kind == akRef
-      case n.kind:
-      of nkNilLit: discard "nothing to do"
-      of nkObjConstr:
-        let typ = c.getOrCreate(t)
-        let r = c.heap.heapNew(c.allocator, typ.targetType)
-        c.serialize(n, c.heap.unsafeDeref(r), t[0])
-      else: unreachable()
-    else:
-      # a ``NimNode``
-      assert dest.typ.kind == akPNode
-      assert n.kind == nkNimNodeLit
-      deref(dest).nodeVal = n[0]
-  of tyProc:
-    case t.callConv
-    of ccClosure:
-      assert dest.typ.kind == akObject
-      case n.kind
-      of nkNilLit: discard "nothing to do"
-      of nkClosure:
-        assert n[0].kind == nkSym
-        deref(dest.getFieldHandle(FieldPosition 0)).callableVal =
-          toFuncPtr(c.lookupProc(n[0].sym))
-
-        deref(dest.getFieldHandle(FieldPosition 1)).refVal =
-          if n[1].kind == nkNilLit:
-            # TODO: use a constant instead
-            HeapSlotHandle(0)
-          else:
-            let nEnvTyp = n[1].typ # note: this is the `ref env` type
-            # The closure's env type was already created, so we can just look
-            # it up here
-            let envTyp = c.typeInfoCache.lookup(c.config, nEnvTyp).unsafeGet
-            let e = c.heap.heapNew(c.allocator, envTyp.targetType)
-            c.serialize(n[1], c.heap.unsafeDeref(e), nEnvTyp[0])
-              # we wan't to fill the object, so pass the object type (not the
-              # ref-type, i.e. `nEnvTyp`)
-            e
-      else: unreachable(n.kind)
-    else:
-      assert n.kind == nkSym
-      assert dest.typ.kind == akCallable
-      deref(dest).callableVal = toFuncPtr(c.lookupProc(n.sym))
-  of tyObject:
-    assert n.kind == nkObjConstr
-    assert dest.typ.kind == akObject
-    serializeObject(c, dest, n, t)
-  of tyArray, tySequence, tyOpenArray:
-    assert n.kind == nkBracket
-    let slice =
-      if t.kind == tyArray:
-        assert dest.typ.kind == akArray
-        toSlice(dest)
-      else:
-        # `openArray` is currently the same as `seq` inside the VM
-        assert dest.typ.kind == akSeq
-        newVmSeq(deref(dest).seqVal, dest.typ, n.len, c.memory)
-        loadFullSlice(c.allocator, deref(dest).seqVal.data, dest.typ.seqElemType)
-
-    for (i, x) in n.pairs:
-      c.serialize(x, slice[i])
-
-  of tyTuple:
-    assert n.kind == nkTupleConstr
-    assert dest.typ.kind == akObject
-    marshalFields(c, n.sons, dest)
-
-  of tySet:
-    assert n.kind == nkCurly
-    if t[0].kind != tyEmpty: # Prevent `set[Empty]` from reaching `lengthOrd`
-      inclTreeSet(mbitSet(dest), c.config, n)
-
-  of tyVar, tyLent:
-    # XXX: var and lent should either be rejected during sem check or supported
-    c.config.globalReport(n.info, SemReport(
-      kind: rsemTypeNotAllowed,
-      allowedType: (
-        allowed: origTyp,
-        actual: origTyp,
-        kind: skConst,
-        allowedFlags: {})))
-
-  of tyError: unreachable("error nodes must not reach here")
-  else: unreachable(t.kind)

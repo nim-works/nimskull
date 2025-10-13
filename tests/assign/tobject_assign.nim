@@ -3,6 +3,9 @@ discard """
     Regression test for assigning to an uninitialized `seq` slot that
     has a type header
   '''
+  knownIssue.vm: '''
+    'localtime' is not yet supported with the VM backend
+  '''
 """
 
 # bug https://github.com/nim-lang/nim/issues/16706

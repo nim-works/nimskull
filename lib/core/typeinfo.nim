@@ -108,6 +108,9 @@ proc prepareSeqAdd(len: int; p: pointer; addlen, elemSize, elemAlign: int): poin
 
 template `+!!`(a, b): untyped = cast[pointer](cast[ByteAddress](a) + b)
 
+proc align(address, alignment: int): int =
+  result = (address + (alignment - 1)) and not (alignment - 1)
+
 proc getDiscriminant(aa: pointer, n: ptr TNimNode): int =
   assert(n.kind == nkCase)
   var d: int
@@ -180,6 +183,11 @@ proc invokeNewSeq*(x: Any, len: int) =
     s.len = len
     let elem = x.rawType.base
     s.p = cast[ptr NimSeqPayloadReimpl](newSeqPayload(len, elem.size, elem.align))
+    if len > 0:
+      # zeroing the memory might not be legal depending on the type, but there's
+      # curently no way to check that here
+      when declared(zeroMem): # not the case for JS and the VM
+        zeroMem(s.p +!! align(sizeof(int), elem.align), elem.size * len)
 
 proc extendSeq*(x: Any) =
   ## Performs `setLen(x, x.len+1)`. `x` needs to represent a `seq`.
@@ -189,6 +197,13 @@ proc extendSeq*(x: Any) =
     let elem = x.rawType.base
     if s.p == nil or s.p.cap < s.len+1:
       s.p = cast[ptr NimSeqPayloadReimpl](prepareSeqAdd(s.len, s.p, 1, elem.size, elem.align))
+
+    # zeroing the memory might not be legal depending on the type, but there's
+    # curently no way to check that here
+    when declared(zeroMem): # not the case for JS and the VM
+      let headerSize = align(sizeof(int), elem.align)
+      zeroMem(s.p +!! (headerSize + s.len * elem.size), elem.size)
+
     inc s.len
 
 proc setObjectRuntimeType*(x: Any) =
@@ -202,9 +217,6 @@ proc setObjectRuntimeType*(x: Any) =
 proc skipRange(x: PNimType): PNimType {.inline.} =
   result = x
   if result.kind == tyRange: result = result.base
-
-proc align(address, alignment: int): int =
-  result = (address + (alignment - 1)) and not (alignment - 1)
 
 proc `[]`*(x: Any, i: int): Any =
   ## Accessor for an any `x` that represents an array or a sequence.

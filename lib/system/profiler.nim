@@ -63,6 +63,15 @@ var
   profilingRequestedHook*: proc (): bool {.nimcall, locks: 0, gcsafe.}
     ## set this variable to provide a procedure that implements a profiler in
     ## user space. See the `nimprof` module for a reference implementation.
+  profilerGuard {.threadvar.}: bool
+
+template guard(body: untyped) =
+  # prevent infinite recursion when the profiler callbacks call instrumented
+  # procedures
+  if not profilerGuard:
+    profilerGuard = true
+    body
+    profilerGuard = false
 
 when defined(memProfiler):
   type
@@ -79,8 +88,9 @@ when defined(memProfiler):
     hook(st, requestedSize)
 
   proc nimProfile(requestedSize: int) =
-    if not isNil(profilingRequestedHook) and profilingRequestedHook():
-      callProfilerHook(profilerHook, requestedSize)
+    guard:
+      if not isNil(profilingRequestedHook) and profilingRequestedHook():
+        callProfilerHook(profilerHook, requestedSize)
 else:
   var
     profilerHook*: ProfilerHook
@@ -97,7 +107,8 @@ else:
 
   proc nimProfile() =
     ## This is invoked by the compiler in every loop and on every proc entry!
-    if not isNil(profilingRequestedHook) and profilingRequestedHook():
-      callProfilerHook(profilerHook)
+    guard:
+      if not isNil(profilingRequestedHook) and profilingRequestedHook():
+        callProfilerHook(profilerHook)
 
 {.pop.}

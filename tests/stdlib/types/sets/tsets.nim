@@ -72,15 +72,7 @@ type Foo = enum
 let x = { Foo1, Foo2 }
 # bug #8425
 
-template disallowVm(code: untyped) =
-  when not defined(vm):
-    block:
-      code
-
-# knownIssue: the serilization logic (``vm/packed_env``) doesn't offset the
-#             elements for sets, resulting in either crashes or wrong values
-#             if the first element of a set doesn't have the ordinal value '0'
-disallowVm:
+block:
   # bug #2880
   type
     FakeMsgKind = enum
@@ -100,3 +92,12 @@ disallowVm:
 
   doAssert k99 notin s1
   doAssert k99 notin s2
+
+block set_construction_with_dynamic_range:
+  # constructing a set value using dynamic ranges crashed the compiler
+  var
+    a = 1'u8
+    b = 4'u8
+  let se = {a..b}
+  doAssert 3'u8 in se
+  doAssert 5'u8 notin se

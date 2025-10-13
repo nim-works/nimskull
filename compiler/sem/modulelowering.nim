@@ -14,13 +14,18 @@
 ## via the pass interface.
 
 import
+  std/private/[
+    containers
+  ],
   compiler/ast/[
     ast,
     ast_idgen,
     ast_types,
     ast_query,
     lineinfos,
-    idents
+    idents,
+    trees,
+    wordrecg
   ],
   compiler/front/[
     options
@@ -30,13 +35,9 @@ import
   ],
   compiler/sem/[
     passes
-  ],
-  compiler/utils/[
-    containers,
-    idioms
   ]
 
-from compiler/sem/injectdestructors import getOp
+from compiler/mir/injecthooks import getOp
 
 type
   ModuleStructs* = object
@@ -59,6 +60,8 @@ type
     decls*: PNode
       ## all declarative statements (type, routine, and constant
       ## definitions)
+    emit*: seq[PNode]
+      ## all top-level emit and asm statements
     structs*: ModuleStructs
       ## the contents of the module's structs
 
@@ -71,8 +74,11 @@ type
     init*: PSym
       ## the procedure responsible for initializing the module's globals
     destructor*: PSym
-      ## the prodcedure responsible for de-initializing the module's
+      ## the procedure responsible for de-initializing the module's
       ## globals
+    threadDestructor*: PSym
+      ## the procedure responsible for de-initializing the module's
+      ## thread-local variables
 
     # XXX: the design around the pre-init and post-destructor procedure is
     #      likely not final yet. At the moment, we set them up here so that
@@ -81,6 +87,8 @@ type
       ## the procedure for initializing the module's lifted globals
     postDestructor*: PSym
       ## the procedure for destroying the module's lifted globals
+    threadPostDestructor*: PSym
+      ## the procedure for destroying the module's lifted threadvars
     dynlibInit*: PSym
       ## the procedure for loading the dynamic libraries, procedure, and
       ## variables associated with the module
@@ -151,8 +159,6 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
   of nkEmpty, nkError:
     # errors were already reported earlier
     discard "drop errors and empty nodes"
-  of nkNone:
-    unreachable()
   of nkStmtList:
     # flatten statement lists
     for it in n.items:
@@ -164,6 +170,41 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
     # what to do with them, this also includes declarative statements part
     # of nested scopes (those inside ``if``, ``block``, etc. statements)
     imperative.add(n)
+
+proc extractEmitAndAsm(stmts: var seq[PNode]): seq[PNode] =
+  ## Extracts all top-level emit and emit statements from `n` into a separate
+  ## list.
+  var i = 0
+  while i < stmts.len:
+    let s = stmts[i]
+    case s.kind
+    of nkAsmStmt:
+      result.add(s)
+      stmts.delete(i)
+    of nkPragma:
+      # a pragma statement may contain multiple emit pragmas
+      var modified = s
+      for at, it in s.pairs:
+        if whichPragma(it) == wEmit:
+          if modified == s:
+            # copy on write
+            modified = newNodeI(nkPragma, s.info)
+            for j in 0..<at:
+              modified.add s[j]
+
+          result.add newTreeI(nkPragma, it.info, it)
+        elif modified != s:
+          modified.add it
+
+      if modified == s:
+        inc i # nothing changed
+      elif modified.len > 0:
+        stmts[i] = modified
+        inc i
+      else:
+        stmts.delete(i)
+    else:
+      inc i # keep the statement
 
 proc createModuleOp(graph: ModuleGraph, idgen: IdGenerator, postfix: string,
                     module: PSym, body: PNode, options: TOptions): PSym =
@@ -190,8 +231,8 @@ proc registerGlobals(stmts: seq[PNode], structs: var ModuleStructs) =
   ## the module level (within the module imperative body `stmts`).
 
   proc register(structs: var ModuleStructs, s: PSym, isTopLevel: bool) {.nimcall.} =
-    if sfCompileTime in s.flags:
-      # don't register compile-time globals with the module struct
+    if {sfCompileTime, sfImportc} * s.flags != {}:
+      # don't register compile-time or imported globals with the module struct
       discard
     elif s.kind == skTemp:
       # HACK: semantic analysis sometimes produces temporaries (it does so for
@@ -301,12 +342,13 @@ proc genDestroy(graph: ModuleGraph, dest: PNode): PNode =
 
   result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
 
-proc generateModuleDestructor(graph: ModuleGraph, m: Module): PNode =
-  ## Generates the body for the destructor procedure of module `m` (also
-  ## referred to as the 'de-init' procedure).
+proc generateDestructor(graph: ModuleGraph, vars: openArray[PSym]): PNode =
+  ## Generates the body for a module destructor (also referred to as the
+  ## 'de-init' procedure). A destructor call for each entitiy in `vars` is
+  ## emitted, in reverse order of appearance.
   result = newNode(nkStmtList)
-  for i in countdown(m.structs.globals.high, 0):
-    let s = m.structs.globals[i]
+  for i in countdown(vars.high, 0):
+    let s = vars[i]
     if hasDestructor(s.typ):
       result.add genDestroy(graph, newSymNode(s))
 
@@ -374,12 +416,12 @@ proc changeOwner(n: PNode, newOwner: PSym) =
       changeOwner(it, newOwner)
 
 proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
-                  decls, imperative: seq[PNode]): Module =
+                  decls, imperative, emit: seq[PNode]): Module =
   ## Creates a ``Module`` instance from `decls` and `imperative`. The module
   ## structs are populated with the initial items (top-level globals defined
   ## in the outermost scope, and threadvars) and the module-bound operators
   ## are set up.
-  result = Module(sym: m, idgen: idgen)
+  result = Module(sym: m, idgen: idgen, emit: emit)
 
   result.decls =
     if decls.len == 0: newNodeI(nkEmpty, m.info)
@@ -416,11 +458,22 @@ proc setupModule*(graph: ModuleGraph, idgen: IdGenerator, m: PSym,
   result.dataInit = createModuleOp(graph, idgen, "DatInit", m, newNode(nkEmpty), options)
 
   # setup the module struct clean-up operator:
-  let destructorBody = generateModuleDestructor(graph, result)
-  result.destructor = createModuleOp(graph, idgen, "Deinit", m, destructorBody, options)
+  result.destructor =
+    createModuleOp(graph, idgen, "Deinit", m,
+                   generateDestructor(graph, result.structs.globals),
+                   options)
+
+  # setup the per-thread module struct clean-up operator:
+  result.threadDestructor =
+    createModuleOp(graph, idgen, "ThreadDeinit", m,
+                   generateDestructor(graph, result.structs.threadvars),
+                   options)
 
   result.preInit = createModuleOp(graph, idgen, "PreInit", m, newNode(nkEmpty), options)
   result.postDestructor = createModuleOp(graph, idgen, "PostDeinit", m, newNode(nkEmpty), options)
+  result.threadPostDestructor =
+    createModuleOp(graph, idgen, "ThreadPostDeinit", m, newNode(nkEmpty),
+                   options)
   result.dynlibInit = createModuleOp(graph, idgen, "DynlibInit", m, newNode(nkEmpty), options)
 
 # Below is the `passes` interface implementation
@@ -450,8 +503,13 @@ proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
     c = CollectPassCtx(b)
     pos = c.module.position.FileIndex
 
+  var emit: seq[PNode]
+  if graph.config.backend == backendC:
+    # only the C code generator supports top-level emit/asm statements
+    emit = extractEmitAndAsm(c.imperative)
+
   list.modules[pos] = setupModule(graph, c.idgen, c.module, c.decls,
-                                  c.imperative)
+                                  c.imperative, emit)
   list.modulesClosed.add(pos)
 
   # remember the positions of important modules:

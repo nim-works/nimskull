@@ -14,13 +14,9 @@ import
     options
   ],
   compiler/vm/[
+    identpatterns,
     vmdef,
-    vmlinker,
     vmtypegen
-  ],
-
-  std/[
-    tables
   ]
 
 func findRecCaseAux(n: PNode, d: PSym): PNode =
@@ -85,13 +81,13 @@ func getEnvParam*(prc: PSym): PSym =
   else: nil
 
 
-proc initProcEntry*(linker: LinkerData, config: ConfigRef,
+proc initProcEntry*(keys: Patterns, config: ConfigRef,
                     tc: var TypeInfoCache, prc: PSym): FuncTableEntry =
   ## Returns an initialized function table entry. Execution information (such
   ## as the bytecode offset and register count) for procedures not overriden
   ## by callbacks is initialized to a state that indicates "missing"; it needs
   ## to be filled in separately via `fillProcEntry`.
-  let cbIndex = lookup(linker.callbackKeys, prc)
+  let cbIndex = lookup(keys, prc)
   result =
     if cbIndex >= 0:
       FuncTableEntry(kind: ckCallback, cbOffset: cbIndex)
@@ -116,16 +112,10 @@ proc initProcEntry*(linker: LinkerData, config: ConfigRef,
 
 proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry {.inline.} =
   ## Convenience wrapper around
-  ## `initProcEntry <#initProcEntry,LinkerData,ConfigRef,TypeInfoCache,PSym>`_.
-  initProcEntry(c.linking, c.config, c.typeInfoCache, prc)
+  ## `initProcEntry <#initProcEntry,Patterns,ConfigRef,TypeInfoCache,PSym>`_.
+  initProcEntry(c.callbackKeys, c.config, c.typeInfoCache, prc)
 
 func fillProcEntry*(e: var FuncTableEntry, info: CodeInfo) {.inline.} =
   ## Sets the execution information of the function table entry to `info`
   e.start = info.start
   e.regCount = info.regCount.uint16
-
-proc lookupProc*(c: var TCtx, prc: PSym): FunctionIndex {.inline.} =
-  ## Returns the function-table index corresponding to the provided `prc`
-  ## symbol. Behaviour is undefined if `prc` has no corresponding function-
-  ## table entry.
-  c.linking.symToIndexTbl[prc.id].FunctionIndex

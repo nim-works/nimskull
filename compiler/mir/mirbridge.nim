@@ -17,11 +17,8 @@ import
   ],
   compiler/mir/[
     mirbodies,
-    mirchangesets,
-    mirconstr,
-    mirtrees,
+    mirenv,
     mirgen,
-    sourcemaps,
     utils
   ],
   compiler/modules/[
@@ -32,12 +29,6 @@ import
   ]
 
 export GenOption
-
-proc getStrDefine(config: ConfigRef, name: string): string =
-  if config.isDefined(name):
-    result = config.getDefined(name)
-  else:
-    result = ""
 
 template writeBody(config: ConfigRef, header: string, body: untyped) =
   # NOTE: if the debug traces should be kept, they should be properly
@@ -51,93 +42,50 @@ let reprConfig = block:
   rc.flags.excl trfShowFullSymTypes
   rc.flags.excl trfShowNodeTypes
   rc.flags.incl trfShowSymKind
+  rc.flags.incl trfShowSymId
   rc
 
-# NOTE: the ``echoX`` are used as a temporary solution for inspecting inputs
-# and outputs in the context of compiler debugging until a more
-# structured/integrated solution is implemented
+template isEnabled(config: ConfigRef, ir: IrName, name: string): bool =
+  # debugging the IR must be enabled globally or locally
+  ir in config.toDebugIr or config.isDebugEnabled(ir, name)
 
 proc echoInput*(config: ConfigRef, owner: PSym, body: PNode) =
   ## If requested via the define, renders the input AST `body` and writes the
   ## result out through ``config.writeLine``.
-  if config.getStrDefine("nimShowMirInput") == owner.name.s:
+  if config.isEnabled(irTransf, owner.name.s):
     writeBody(config, "-- input AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody) =
+proc echoMir*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
   ## If requested via the define, renders the `body` and writes the result out
   ## through ``config.writeln``.
-  if config.getStrDefine("nimShowMir") == owner.name.s:
+  if config.isEnabled(irMirIn, owner.name.s):
     writeBody(config, "-- MIR: " & owner.name.s):
-      config.writeln(treeRepr(body.code))
+      config.writeln(render(body.code, addr env, addr body))
+
+proc echoOutput*(config: ConfigRef, owner: PSym, body: MirBody, env: MirEnv) =
+  ## If enabled, renders the output IR `body` and outputs the result to
+  ## ``config.writeLine``.
+  if config.isEnabled(irMirOut, owner.name.s):
+    writeBody(config, "-- MIR: " & owner.name.s):
+      config.writeln(render(body.code, addr env, addr body))
 
 proc echoOutput*(config: ConfigRef, owner: PSym, body: Body) =
   ## If requested via the define, renders the output IR `body` and writes the
   ## result out through ``config.writeLine``.
-  if config.getStrDefine("nimShowMirOutput") == owner.name.s:
-    writeBody(config, "-- output AST: " & owner.name.s):
+  if config.isEnabled(irCgir, owner.name.s):
+    writeBody(config, "-- CGIR: " & owner.name.s):
       config.writeln(treeRepr(body.code))
 
-proc rewriteGlobalDefs*(body: var MirTree, sourceMap: var SourceMap) =
-  ## Rewrites definitions of globals in the outermost scope into assignments.
-  # XXX: integrate the pass into ``mirgen`` once the dependency collection
-  #      also happens there
-  var
-    changes = initChangeset(body)
-    depth   = 0
-
-  for i, n in body.pairs:
-    case n.kind
-    of DefNodes:
-      let def = body.child(i, 0)
-      if body[def].kind == mnkGlobal:
-        let
-          sym = body[def].sym
-          typ = sym.typ
-        if depth > 1:
-          # don't rewrite the def
-          discard
-        elif body[i, 1].kind != mnkNone:
-          # the global has a starting value
-          changes.replaceMulti(body, i, buf):
-            let val = buf.inline(body, body.child(i, 1))
-            buf.subTree mnkInit:
-              buf.use symbol(mnkGlobal, sym)
-              buf.use val
-        elif {sfImportc, sfNoInit} * sym.flags == {} and
-             {exfDynamicLib, exfNoDecl} * sym.extFlags == {}:
-          # XXX: ^^ re-think this condition from first principles. Right now,
-          #      it's just meant to make some tests work
-          # the location doesn't have an explicit starting value. Initialize
-          # it to the type's default value.
-          changes.replaceMulti(body, i, buf):
-            buf.subTree mnkInit:
-              buf.use symbol(mnkGlobal, sym)
-              buf.buildMagicCall mDefault, typ:
-                discard
-        else:
-          # just remove the def:
-          changes.remove(body, i)
-
-    of mnkScope:
-      inc depth
-    of mnkEnd:
-      if n.start == mnkScope:
-        dec depth
-    else:
-      discard "ignore"
-
-  apply(body, prepare(changes))
-
-proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
-                   body: PNode, config: TranslationConfig): Body =
+proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
+                   owner: PSym, body: PNode, config: TranslationConfig): Body =
   ## Legacy routine. Translates the body `body` of the procedure `owner` to
   ## MIR code, and the MIR code to ``CgNode`` IR.
   echoInput(graph.config, owner, body)
   # step 1: generate a ``MirTree`` from the input AST
-  let body = generateCode(graph, owner, config, body)
-  echoMir(graph.config, owner, body)
+  let body = generateCode(graph, env, owner, config, body)
+  echoMir(graph.config, owner, body, env)
 
   # step 2: generate the ``CgNode`` tree
-  result = generateIR(graph, idgen, owner, body)
+  result = cgirgen.generateIR(graph, idgen, env, owner, body)
   echoOutput(graph.config, owner, result)

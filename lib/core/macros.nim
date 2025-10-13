@@ -47,7 +47,8 @@ template skipEnumValue(define: untyped, predecessor: untyped; gap = 1): untyped 
 
 type
   NimNodeKind* = enum
-    nnkNone, nnkEmpty, nnkIdent, nnkSym,
+    nnkError,  ## erroneous AST node
+    nnkEmpty, nnkIdent, nnkSym,
     nnkType, nnkCharLit, nnkIntLit, nnkInt8Lit,
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,
@@ -92,8 +93,8 @@ type
     nnkIncludeStmt,
     nnkBindStmt, nnkMixinStmt, nnkUsingStmt,
     nnkCommentStmt, nnkStmtListExpr, nnkBlockExpr,
-    nnkStmtListType, nnkBlockType,
-    nnkWith, nnkWithout,
+    nnkWith = skipEnumValue(nimskullNoNkStmtListTypeAndNkBlockType, nnkBlockExpr, 2),
+    nnkWithout,
     nnkTypeOfExpr, nnkObjectTy,
     nnkTupleTy, nnkTupleClassTy, nnkTypeClassTy, nnkStaticTy,
     nnkRecList, nnkRecCase, nnkRecWhen,
@@ -111,8 +112,7 @@ type
     nnkGotoState,
     nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkGotoState, 2),
     nnkTupleConstr,
-    nnkError,  ## erroneous AST node
-    nnkNimNodeLit
+    nnkNimNodeLit = skipEnumValue(nimskullNoNkNone, nnkTupleConstr)
 
   NimNodeKinds* = set[NimNodeKind]
   NimTypeKind* = enum  # some types are no longer used, see ast.nim
@@ -145,13 +145,17 @@ type
     nskProc, nskFunc, nskMethod, nskIterator,
     nskConverter, nskMacro, nskTemplate, nskField,
     nskEnumField, nskForVar, nskLabel,
-    nskStub
+    nskStub, nskGenerated
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
+    ## `NimNodeKind`s that represent syntax literals
   nnkCallKinds* = {nnkCall, nnkInfix, nnkPrefix, nnkPostfix, nnkCommand,
                    nnkCallStrLit}
   nnkPragmaCallKinds = {nnkExprColonExpr, nnkCall, nnkCallStrLit}
+  nnkRequireInitKinds* = {nnkError, nnkIdent, nnkSym, nnkType}
+    ## `NimNodeKind`s that require initialization and cannot be created via
+    ## general construction routines e.g. `newNimNode`.
 
 proc `==`*(a, b: NimNode): bool {.magic: "EqNimrodNode", noSideEffect.}
   ## Compare two Nim nodes. Return true if nodes are structurally
@@ -428,10 +432,37 @@ proc bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): NimNode {.
   ##
   ## See the `manual <manual.html#macros-bindsym>`_ for more details.
 
-proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
-  magic: "NGenSym", noSideEffect.}
-  ## Generates a fresh symbol that is guaranteed to be unique. The symbol
-  ## needs to occur in a declaration context.
+when defined(nimskullHasUnaryGenSym):
+  proc genSym*(ident = ""): NimNode {.magic: "NGenSym", noSideEffect.}
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+
+  template genSym*(kind: NimSymKind = nskGenerated; ident: string): NimNode {.
+    deprecated: "genSym no longer takes a `kind` parameter".} =
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+    ##
+    ## This is a compatibility alias for `genSym <#genSym,string>`_, the `kind`
+    ## parameter is ignored.
+    {.line.}:
+      discard kind 
+      genSym(ident)
+
+  template genSym*(kind: NimSymKind): NimNode {.
+    deprecated: "genSym no longer takes a `kind` parameter".} =
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+    ##
+    ## This is a compatibility alias for `genSym <#genSym,string>`_, the `kind`
+    ## parameter is ignored.
+    {.line.}:
+      discard kind
+      genSym()
+
+else:
+  # Old prototype for bootstrapping
+  proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
+    magic: "NGenSym", noSideEffect.}
 
 proc callsite*(): NimNode {.magic: "NCallSite", benign, deprecated:
   "Deprecated since v0.18.1; use `varargs[untyped]` in the macro prototype instead".}
@@ -518,7 +549,8 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
   ## A custom operator interpolation needs accent quoted (``) whenever it resolves
   ## to a symbol.
   ##
-  ## See also `genasts <genasts.html>`_ which avoids some issues with `quote`.
+  ## See also:
+  ## * `genasts <genasts.html>`_
   runnableExamples:
     macro check(ex: untyped) =
       # this is a simplified version of the check macro from the
@@ -586,6 +618,30 @@ proc quote*(bl: typed, op = "``"): NimNode {.magic: "QuoteAst", noSideEffect.} =
         doAssert y &% y == 2 # binary operator => no need to escape
         doAssert y == 3
     bar2()
+
+proc quoteImpl(n: NimNode, args: varargs[NimNode]): NimNode {.compilerproc,
+    compileTime.} =
+  ## Substitutes the placeholders in `n` with the corresponding AST from
+  ## `args`. Invoked by the compiler for implementating ``quote``.
+  proc aux(n: NimNode, args: openArray[NimNode]): NimNode =
+    case n.kind
+    of nnkAccQuoted:
+      if n[0].kind == nnkAccQuoted:
+        result = n[0] # an escaped accquoted tree
+      else:
+        result = args[n[0].intVal] # a placeholder
+    else:
+      result = n
+      for i in 0..<n.len:
+        result[i] = aux(n[i], args)
+
+  result = aux(n, args)
+  # unwrap single-element statement lists:
+  if n.kind == nnkStmtList and n.len == 1:
+    result = n[0]
+
+proc evalToAst*[T](x: T): NimNode {.magic: "EvalToAst".} =
+  ## Leaked implementation detail. **Do not use**.
 
 proc expectKind*(n: NimNode, k: NimNodeKind) =
   ## Checks that `n` is of kind `k`. If this is not the case,
@@ -843,8 +899,6 @@ proc treeTraverse(n: NimNode; res: var string; level = 0; isLisp = false, indent
     res.add(" " & $n.floatVal)
   of nnkStrLit .. nnkTripleStrLit, nnkCommentStmt, nnkIdent, nnkSym:
     res.add(" " & $n.strVal.newLit.repr)
-  of nnkNone:
-    assert false
   elif n.kind in {nnkOpenSymChoice, nnkClosedSymChoice} and collapseSymChoice:
     res.add(" " & $n.len)
     if n.len > 0:
@@ -885,7 +939,7 @@ proc astGenRepr*(n: NimNode): string {.benign.} =
   ## See also `repr`, `treeRepr`, and `lispRepr`.
 
   const
-    NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkNone, nnkCommentStmt}
+    NodeKinds = {nnkEmpty, nnkIdent, nnkSym, nnkCommentStmt}
     LitKinds = {nnkCharLit..nnkInt64Lit, nnkFloatLit..nnkFloat64Lit, nnkStrLit..nnkTripleStrLit}
 
   proc traverse(res: var string, level: int, n: NimNode) {.benign.} =
@@ -906,7 +960,6 @@ proc astGenRepr*(n: NimNode): string {.benign.} =
     of nnkFloatLit..nnkFloat64Lit: res.add($n.floatVal)
     of nnkStrLit..nnkTripleStrLit, nnkCommentStmt, nnkIdent, nnkSym:
       res.add(n.strVal.newLit.repr)
-    of nnkNone: assert false
     elif n.kind in {nnkOpenSymChoice, nnkClosedSymChoice} and collapseSymChoice:
       res.add(", # unrepresentable symbols: " & $n.len)
       if n.len > 0:
@@ -1098,7 +1151,7 @@ proc last*(node: NimNode): NimNode = node[node.len-1]
 const
   RoutineNodes* = {nnkProcDef, nnkFuncDef, nnkMethodDef, nnkDo, nnkLambda,
                    nnkIteratorDef, nnkTemplateDef, nnkConverterDef, nnkMacroDef}
-  AtomicNodes* = {nnkNone..nnkNilLit}
+  AtomicNodes* = {nnkEmpty..nnkNilLit}
   CallNodes* = {nnkCall, nnkInfix, nnkPrefix, nnkPostfix, nnkCommand,
     nnkCallStrLit, nnkHiddenCallConv}
 
@@ -1696,3 +1749,126 @@ proc extractDocCommentsAndRunnables*(n: NimNode): NimNode =
         result.add ni
       else: break
     else: break
+
+macro stamp*(body: untyped): NimNode =
+  ## Accepts a template body, immediately applies it, and returns the resulting AST.
+  ##
+  ## Identifiers within `body` are bound to symbols from the caller's scope in
+  ## the same fashion as a template. As a special case, `result` is excluded
+  ## from automatic binding.
+  ##
+  ## The template body is hygienic, as such identifiers declared within might
+  ## turn into `gensym` symbols. This behavior can be overridden using
+  ## `{.gensym.}` or `{.inject.}` pragmas at declaration sites. Consult the
+  ## language manual for details on template hygiene.
+  ##
+  ## Within `body`, placeholders, which are references to values in the caller's
+  ## scope delimited by backticks, are substituted with the referenced values.
+  runnableExamples:
+    import std/strutils
+    import std/times
+
+    macro logQuote(msg: string) =
+      ## Log the given message with timestamp
+      # Using `quote` requires binding many symbols explicitly so that users
+      # don't have to import the providers themselves
+      let
+        # Make sure that `$` is selected from this scope to get `$` for `DateTime`
+        stringify = bindSym"$"
+        # Bind to `now` so that users don't have to import times
+        now = bindSym"now"
+        # Bind to `strutils.%` so users don't have to import strutils
+        format = bindSym"%"
+
+      quote:
+        echo `format`("[$1]\t$2", [stringify(`now`()), `msg`])
+
+    macro log(msg: string) =
+      ## Log the given message with timestamp
+      # Using `stamp`, `echo`, `%`, `$` and `now` are bound automatically to
+      # macro scope and users won't have to import times or strutils manually.
+      stamp:
+        echo "[$1]\t$2" % [$now(), `msg`]
+
+  runnableExamples:
+    import std/strutils
+    import std/times
+
+    when false:
+      # `quote` yields AST as-is, as such declarations must be explicitly
+      # gensym-ed or they might collide with something within the caller scope
+      macro log(msg: string) =
+        let
+          # Make sure that `$` is selected from this scope to get `$` for `DateTime`
+          stringify = bindSym"$"
+          # Bind to `now` so that users don't have to import times
+          now = bindSym"now"
+
+        quote:
+          let time = `stringify`(`now`())
+          echo time, "\t", `msg`
+
+      log("first")
+      log("second") # <- error: `time` is redefined
+    else:
+      # `stamp`'s body is a template, and as such template gensym rules are
+      # applied to declarations within
+      macro log(msg: string) =
+        stamp:
+          let time = $now() # implicitly gensym-ed
+          echo time, "\t", `msg`
+
+      log("first")
+      log("second") # All OK!
+
+  runnableExamples:
+    # `stamp` automatically binds to symbols within the caller scope, which can
+    # introduce unexpected errors to correct-looking code.
+    when false:
+      macro log(msg: string) =
+        result = newStmtList()
+
+        let echo = newCall(bindSym"echo", newLit"== log")
+        result.add echo
+
+        result.add:
+          stamp:
+            echo `msg`
+          # ^~~~ this binds to the `let echo` above instead of `system.echo` and
+          #      will error when used.
+
+      log("hi!") # this will error!
+
+  var args: seq[NimNode]
+  proc extract(n: NimNode, args: var seq[NimNode]): NimNode =
+    ## Extract backticks-delimited expressions.
+    case n.kind
+    of nnkAccQuoted:
+      result = ident("_" & $args.len)
+      args.add n[0]
+    else:
+      for i in 0..<n.len:
+        n[i] = extract(n[i], args)
+      result = n
+
+  let body = extract(body, args)
+
+  var params = @[bindSym"untyped"]
+  for i in 0..<args.len:
+    params.add newIdentDefs(ident("_" & $i), bindSym"untyped")
+  # Add result as a template parameter to prevent automatic binding
+  params.add newIdentDefs(ident"result", bindSym"untyped")
+
+  let name = genSym(nskTemplate, "stamped")
+  # Prepend the callee
+  args.insert(name, 0)
+  # Explicitly bind result as an identifier
+  args.add(newCall(bindSym"ident", newLit"result"))
+
+  result = nnkStmtListExpr.newTree(
+    newProc(name, params, body, nnkTemplateDef),
+    nnkCall.newTree(
+      bindSym"getAst",
+      nnkCall.newTree(args)
+    )
+  )

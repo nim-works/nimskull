@@ -34,7 +34,8 @@ import
     magicsys,
   ],
   compiler/utils/[
-    pathutils
+    pathutils,
+    tracer
   ],
   compiler/ic/[
     replayer
@@ -104,7 +105,11 @@ proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
                 name: getModuleIdent(graph, filename),
                 info: newLineInfo(fileIdx, 1, 1))
   if not isNimIdentifier(result.name.s):
-    localReport(graph.config, reportSym(rsemInvalidModuleName, result))
+    localReport(
+      graph.config,
+      newLineInfo(fileIdx, 0, -1),
+      reportSym(rsemInvalidModuleName, result)
+    )
 
   partialInitModule(result, graph, fileIdx, filename)
   graph.registerModule(result)
@@ -133,6 +138,7 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
     let filename = AbsoluteFile toFullPath(graph.config, fileIdx)
     if result == nil:
       result = newModule(graph, fileIdx)
+      graph.config.timeTracer.traceSym(tikModule, result)
       result.flags.incl flags
       registerModule(graph, result)
       processModuleAux("import")

@@ -10,7 +10,6 @@ import
     options
   ],
   compiler/utils/[
-    idioms,
     int128
   ]
 
@@ -74,7 +73,11 @@ proc needsBoundCheck*(arr, lo, hi: PNode): bool =
   case arr.typ.skipTypes(instTypes + {tyDistinct, tyVar}).kind
   of tyPtr, tyUncheckedArray:
     false
-  of tyArray, tyString, tySequence, tyOpenArray, tyVarargs:
+  of tyArray:
+    # the index operands are range-checked already, meaning that no bound
+    # errors are possible
+    false
+  of tyString, tySequence, tyOpenArray, tyVarargs:
     true
   of tyCstring:
     # XXX: depends on the targeted backend

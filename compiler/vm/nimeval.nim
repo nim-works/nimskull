@@ -28,7 +28,8 @@ import
     condsyms,
     options,
     scripting,
-    cli_reporter
+    cli_reporter,
+    msgs
   ],
   compiler/utils/[
     pathutils
@@ -92,12 +93,12 @@ proc callRoutine*(i: Interpreter; routine: PSym; args: openArray[PNode]): PNode 
 
 proc getGlobalValue*(i: Interpreter; letOrVar: PSym): PNode =
   let c = PEvalContext(i.graph.vm)
-  result = getGlobalValue(c.vm, letOrVar)
+  result = getGlobalValue(c[], letOrVar)
 
 proc setGlobalValue*(i: Interpreter; letOrVar: PSym, val: PNode) =
   ## Sets a global value to a given PNode, does not do any type checking.
   let c = PEvalContext(i.graph.vm)
-  setGlobalValue(c.vm, letOrVar, val)
+  setGlobalValue(c[], letOrVar, val)
 
 proc implementRoutine*(i: Interpreter; pkg, module, name: string;
                        impl: proc (a: VmArgs) {.closure, gcsafe.}) =
@@ -149,6 +150,7 @@ proc createInterpreter*(
   ): Interpreter =
 
   var conf = newConfigRef(hook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
@@ -174,7 +176,7 @@ proc createInterpreter*(
     # Register basic system operations and parts of stdlib modules
     for o in basicOps():
       vm.registerCallback(o.pattern, o.prc)
-  graph.vm = PEvalContext(vm: vm)
+  graph.vm = PVmCtx(context: vm)
   graph.compileSystemModule()
   result = Interpreter(mainModule: m, graph: graph, scriptName: scriptName, idgen: idgen)
 
@@ -196,6 +198,7 @@ proc runRepl*(
   ) =
   ## deadcode but please don't remove... might be revived
   var conf = newConfigRef(reportHook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
 
   var cache = newIdentCache()
@@ -219,7 +222,7 @@ proc runRepl*(
   var idgen = idGeneratorFromModule(m)
 
   if supportNimscript:
-    graph.vm = PEvalContext(vm: setupVM(m, cache, "stdin", graph, idgen))
+    graph.vm = PVmCtx(context: setupVM(m, cache, "stdin", graph, idgen))
 
   graph.compileSystemModule()
   processModule(graph, m, idgen, llStreamOpenStdIn(r))

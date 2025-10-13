@@ -13,9 +13,6 @@ BEFORE
 EXCEPT: IOError: hi
 FINALLY
 '''
-  knownIssue.vm: '''
-    Exception/finally handling is largely disfunctional in the VM
-  '''
 """
 
 echo ""

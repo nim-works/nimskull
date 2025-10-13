@@ -47,8 +47,7 @@ import
   ],
   compiler/utils/[
     nversion,
-    astrepr,
-    idioms
+    astrepr
   ],
   compiler/front/[
     msgs
@@ -428,6 +427,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemOwnedTypeDeprecated:
       result = "the `owned` type-operator is deprecated and treated as a no-op"
 
+    of rsemCodegenDeclDeprecated:
+      result = "the `.codegenDecl` pragma is deprecated; support for it " &
+               "will be removed in the future"
+
     of rsemLinterReport:
       result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
 
@@ -491,6 +494,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemUnavailableLocation:
       result = ("accessed location '$1' doesn't exist in the current " &
                "compile-time context") % [r.ast.render]
+
+    of rsemNoTailingExpression:
+      result = "call to .tailcall routine is not the tailing expression of " &
+               "a return"
+
+    of rsemArgumentMustBorrowFromParameter:
+      result = "argument doesn't borrow from parameter, global, or pointer " &
+               "dereference"
 
     of rsemIllegalCallconvCapture:
       let s = r.symbols[0]
@@ -565,6 +576,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemNoUnionForJs:
       result = "`{.union.}` is not implemented for js backend."
+
+    of rsemUndeclaredSymUsed:
+      result = "symbol used before declaration: "
+      result.add conf.getSymRepr r.sym
 
     of rsemBitsizeRequiresPositive:
       result = "bitsize needs to be positive"
@@ -786,6 +801,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           r.ownerSym.name.s
         )
 
+    of rsemCannotInstantiateForwarded:
+      result = "cannot instantiate generic procedure forward-declared in " &
+               "another module"
+
     of rsemTypeKindMismatch:
       result = r.str
       result.add  " got '$1'" % typeToString(r.actualType)
@@ -961,9 +980,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemInvalidBindContext:
       result = "invalid context for 'bind' statement: " & render(r.ast)
 
-    of rsemExpectedTypelessDeferBody:
-      result = "'defer' takes a 'void' expression"
-
     of rsemUnexpectedToplevelDefer:
       result = "defer statement not supported at top level"
 
@@ -1136,6 +1152,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemRangeIsEmpty:
       result = "range is empty"
 
+    of rsemStringRangeNotAllowed:
+      result = "cannot create a range of strings"
+
     of rsemExpectedOrdinalOrFloat:
       result = "ordinal or float type expected"
 
@@ -1208,12 +1227,15 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "illegal discard"
 
     of rsemUseOrDiscardExpr:
-      let n = r.wrongNode
+      let
+        n = r.wrongNode
+        typStr = if n.typ.isNil: "void" else: n.typ.skipTypes({tyVar}).render
+
       result.add(
         "expression '",
         n.render,
         "' is of type '",
-        n.typ.skipTypes({tyVar}).render,
+        typStr,
         "' and has to be used (or discarded)"
       )
 
@@ -1301,6 +1323,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemXCannotRaiseY:
       result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
 
+    of rsemHookCannotRaise:
+      result = "a hook routine is not allowed to raise. ($1)" % r.typ.render
+
     of rsemUnlistedRaises, rsemWarnUnlistedRaises:
       result.add("$1 can raise an unlisted exception: " % r.ast.render,
                  r.typ.render)
@@ -1344,6 +1369,38 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemMisplacedRunnableExample:
       result = "runnableExamples must appear before the first non-comment statement"
+
+    of rsemCannotReraise:
+      result = "an exception can only be re-raised within the scope of an" &
+               " except, with no finally in-between"
+
+    of rsemCleanupPreventsTailCall:
+      if r.sym != nil:
+        result = "cannot tail call; local '$1' requires cleanup" %
+                 [r.symstr]
+      else:
+        result = ("cannot tail call; temporary requires cleanup [comes " &
+                 "from: $1]") % [conf $ r.ast.info]
+
+    of rsemDeferPreventsTailCall:
+      result = "cannot tail call because of 'defer' (at $1)" %
+               [conf $ r.ast.info]
+
+    of rsemFinallyPreventsTailCall:
+      result = "tail call must not be enclosed in 'finally' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemExceptPreventsTailCall:
+      result = "tail call must not be enclosed in 'except' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemTryPreventsTailCall:
+      result = "tail call must not be enclosed in 'try' ($1)" %
+               [conf $ r.ast.info]
+
+    of rsemTrailingStatementPreventsTailCall:
+      result = "a call to a .tailcall must not be followed by statement ($1)" %
+               [conf $ r.ast.info]
 
     of rsemCannotInferTypeOfLiteral:
       result = "cannot infer the type of the $1" % r.typ.kind.toHumanStr
@@ -1546,7 +1603,21 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "` can be defined only in the same module with its type (" & r.typ.render & ")"
 
     of rsemUnexpectedTypeBoundOpSignature:
-      result = "signature for '" & r.symstr & "' must be proc[T: object](x: var T)"
+      let typ = copyType(r.sym.typ, r.sym.typ.itemId, r.sym.typ.owner)
+
+      # set the calling convention to 'nimcall' and remove 'explicitCallConv'
+      # so it's not rendered
+      typ.callConv = ccNimCall
+      typ.flags.excl tfExplicitCallConv
+
+      let msg =
+        if r.sym.magic == mDeepCopy:
+          "where T is 'ptr' or 'ref' of either 'distinct' or 'object'"
+        else:
+          "where T is 'distinct' or 'object'"
+    
+      result = "'$1' must satisfy the signature '$2' $3" %
+               [r.str, typ.render, msg]
 
     of rsemRebidingDeepCopy:
       result = "cannot bind another 'deepCopy' to: " & r.typ.render
@@ -1561,11 +1632,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "'method' needs a parameter that has an object type"
 
     of rsemUnexpectedPragmaInDefinitionOf:
-      let proto = r.symbols[0]
-      let s = r.symbols[1]
-      result = "pragmas are only allowed in the header of a proc; redefinition of $1" %
-        ("'" & proto.name.s & "' from " & conf $ proto.info &
-        " '" & s.name.s & "' from " & conf $ s.info)
+      let
+        proto = r.symbols[0]
+        s = r.symbols[1]
+      result = ("pragmas are only allowed in the header of a routine; '$1' " &
+                "header at $2 redefined at $3") %
+               [proto.name.s, conf $ proto.info, conf $ s.info]
 
     of rsemDisjointFields:
       result = ("The fields '$1' and '$2' cannot be initialized together, " &
@@ -1617,6 +1689,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCustomUserError:
       result = r.str
 
+    of rsemMethodCantBeTailcall:
+      result = "method cannot use .tailcall calling convention"
+
     of rsemImplicitPragmaError:
       result = "application of implicit pragma failed"
 
@@ -1627,7 +1702,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "using '.' instead of '/' in import paths is deprecated"
 
     of rsemInvalidModuleName:
-      result = "invalid module name: '$1'" % r.ast.render
+      if r.sym != nil:
+        result = "invalid module name: '$1'" % r.symstr
+      else:
+        result = "invalid module name: '$1'" % r.ast.render
 
     of rsemInvalidMethodDeclarationOrder:
       result = "invalid declaration order; cannot attach '" & r.symbols[0].name.s &
@@ -1666,9 +1744,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemNodeNotAllowed:
       result = "'$1' not allowed here" % r.ast.render
-
-    of rsemCustomGlobalError:
-      result = r.str
 
     of rsemCannotImportItself:
       result = "module '$1' cannot import itself" % r.symstr
@@ -1820,10 +1895,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         $r.countMismatch.expected
       )
 
-    of rsemCalleeHasAnError:
-      result = "cannot call '$1'; its definition has an error [defined at '$2']" %
-               [r.symstr, conf.toFileLineCol(r.sym.info)]
-
     of rsemNoGenericParamsAllowed:
       result = "no generic parameters allowed for $1" % r.symstr
 
@@ -1888,6 +1959,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemHintLibDependency:
       result = r.str
+
+    of rsemUnknownHint:
+      result = "unknown hint: '$1'" % [r.str]
+
+    of rsemUnknownWarning:
+      result = "unknown warning: '$1'" % [r.str]
 
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
@@ -1971,30 +2048,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemRequiresDeepCopyEnabled:
       result = "for --gc:arc|orc 'deepcopy' support has to be enabled with --deepcopy:on"
 
-    of rsemExpectedLiteralForGoto:
-      result = "'goto' target must be a literal value"
-
     of rsemExpectedParameterForJsPattern:
       result =  "wrong importjs pattern; expected parameter at position " &
         $r.countMismatch.expected & " but got only: " & $r.countMismatch.got
-
-    of rsemDisallowedRangeForComputedGoto:
-      result = "range notation not available for computed goto"
-
-    of rsemExpectedCaseForComputedGoto:
-      result = "no case statement found for computed goto"
-
-    of rsemExpectedLow0ForComputedGoto:
-      result = "case statement has to start at 0 for computed goto"
-
-    of rsemTooManyEntriesForComputedGoto:
-      result = "case statement has too many cases for computed goto"
-
-    of rsemExpectedUnholyEnumForComputedGoto:
-      result = "case statement cannot work on enums with holes for computed goto"
-
-    of rsemExpectedExhaustiveCaseForComputedGoto:
-      result = "case statement must be exhaustive for computed goto"
 
     of rsemExpectedNimcallProc:
       result = r.symstr & " needs to have the 'nimcall' calling convention"
@@ -2061,6 +2117,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemParameterNotPointerToPartial:
       result = "parameter '$1' is not a pointer to a partial object" % r.ast.render
+
+    of rsemParametersTooLarge:
+      result = "parameters take up too much storage"
+
+    of rsemParameterCannotBeIncomplete:
+      result = ("size of .tailcall parameter must be known, but it's not " &
+                "for $1") % r.symstr
 
     of rsemGenericInstantiationTooNested:
       result = "generic instantiation too nested"
@@ -2617,8 +2680,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      result = if conf.cmd == cmdInteractive: ">>> " & r.msg
-               else:                          r.msg
+      result = r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
@@ -2952,6 +3014,9 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmFieldNotFound:
     result = "node lacks field: " & r.str
 
+  of rvmCannotCreateNode:
+    result = "cannot manually create a node of kind: n" & r.str
+
   of rvmCannotSetChild:
     result = "cannot set child of node kind: n" & $r.ast.kind
 
@@ -3140,7 +3205,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
     vmRep: VMReport
 
   case diag.kind
-  of adWrappedError:
+  of adWrappedError, adWrappedSymError:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
@@ -3208,7 +3273,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemAlignRequiresPowerOfTwo,
       adSemNoReturnHasReturn,
       adSemMisplacedDeprecation,
-      adSemFatalError,
+      adSemMethodCantBeTailcall,
       adSemNoUnionForJs,
       adSemBitsizeRequiresPositive,
       adSemExperimentalRequiresToplevel,
@@ -3222,6 +3287,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemCallInCompilesContextNotAProcOrField,
       adSemExpressionHasNoType,
       adSemTypeExpected,
+      adSemStringRangeNotAllowed,
+      adSemRangeIsEmpty,
       adSemIllformedAst,
       adSemInvalidExpression,
       adSemExpectedNonemptyPattern,
@@ -3233,8 +3300,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemSelectorMustBeOfCertainTypes,
       adSemInvalidPragmaBlock,
       adSemConceptPredicateFailed,
-      adSemDotOperatorsNotEnabled,
-      adSemCallOperatorsNotEnabled,
       adSemUnexpectedPattern,
       adSemIsOperatorTakes2Args,
       adSemNoTupleTypeForConstructor,
@@ -3269,6 +3334,15 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemDotOperatorsNotEnabled,
+     adSemCallOperatorsNotEnabled,
+     adSemGeneratedSymUsed:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode,
+        sym: diag.wrongNode.sym)
   of adSemInvalidTupleSubscript:
     semRep = SemReport(
         location: some diag.location,
@@ -3378,6 +3452,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
               "contains '$1'" % $diag.unexpectedKind,
         ast: diag.wrongNode)
   of adSemRaisesPragmaExpectsObject,
+      adSemTIsNotAConcreteType,
       adSemCannotInferTypeOfLiteral,
       adSemProcHasNoConcreteType,
       adSemCannotAssignTo:
@@ -3416,11 +3491,11 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: rsemPragmaRecursiveDependency,
         sym: diag.userPragma,
         ast: diag.wrongNode)
-  of adSemCustomUserError:
+  of adSemFatalError, adSemCustomUserError:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
-        kind: rsemCustomUserError,
+        kind: kind,
         str: diag.errmsg,
         ast: diag.wrongNode)
   of adSemImplicitPragmaError:
@@ -3500,13 +3575,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: rsemWrongNumberOfGenericParams,
       ast: diag.wrongNode,
       countMismatch: diag.countMismatch)
-  of adSemCalleeHasAnError:
-    semRep = SemReport(
-      location: some diag.location,
-      reportInst: diag.instLoc.toReportLineInfo,
-      kind: rsemCalleeHasAnError,
-      ast: diag.wrongNode,
-      sym: diag.callee)
   of adSemIllformedAstExpectedPragmaOrIdent:
     semRep = SemReport(
       location: some diag.location,
@@ -3828,6 +3896,13 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       str: diag.compilerOpt.getStr,
       compilerOptArg: diag.compilerOptArg.getStr)
+  of adSemCannotBeRaised, adSemCannotRaiseNonException:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.wrongNode[0].typ)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
@@ -3870,7 +3945,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo)
     of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
-        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
+        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey,
+        rvmCannotCreateNode:
       vmRep = VMReport(
         kind: kind,
         str: diag.vmErr.msg,

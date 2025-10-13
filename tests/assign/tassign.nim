@@ -5,7 +5,8 @@ TEMP=C:\Programs\xyz\bin
 8 5 0 0
 pre test a:test b:1 c:2 haha:3
 assignment test a:test b:1 c:2 haha:3
-abc123
+abc
+123
 '''
 """
 
@@ -72,7 +73,7 @@ block tcopy:
     p = find(example, "=")
     a = substr(example, 0, p-1)
     b = substr(example, p+1)
-    writeLine(stdout, a & '=' & b)
+    echo a & '=' & b
 
   main()
 
@@ -212,8 +213,7 @@ when false:
 block tgeneric_assign_varargs:
   template fatal(msgs: varargs[string]) =
     for msg in msgs:
-      stdout.write(msg)
-    stdout.write('\n')
+      echo msg
 
   fatal "abc", "123"
 

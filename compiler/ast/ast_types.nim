@@ -25,6 +25,8 @@ type
     ccFastCall = "fastcall"         ## fastcall (pass parameters in registers)
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
+    ccTailcall = "tailcall"         ## procedure supports guaranteed tail call
+                                    ## elimination
 
 type
   MismatchKind* = enum
@@ -52,10 +54,9 @@ type
   TNodeKind* = enum
     ## order is important, because ranges are used to check whether a node
     ## belongs to a certain class
-
-    nkNone                ## unknown node kind: indicates an error
-                          ## Expressions:
-                          ## Atoms:
+    ## Expressions:
+    ## Atoms:
+    nkError               ## erroneous AST node see `errorhandling`
     nkEmpty               ## the node is empty
     nkIdent               ## node is an identifier
     nkSym                 ## node is a symbol
@@ -201,9 +202,6 @@ type
     nkBlockExpr           ## a statement block ending in an expr; this is used
                           ## to allow powerful multi-line templates that open a
                           ## temporary scope
-    nkStmtListType        ## a statement list ending in a type; for macros
-    nkBlockType           ## a statement block ending in a type; for macros
-                          ## types as syntactic trees:
 
     nkWith                ## distinct with `foo`
     nkWithout             ## distinct without `foo`
@@ -237,7 +235,6 @@ type
                           ## transformation
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
-    nkError               ## erroneous AST node see `errorhandling`
     nkNimNodeLit          ## a ``NimNode`` literal. Stores a single sub node
                           ## that represents the ``NimNode`` AST
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair
@@ -247,14 +244,20 @@ type
   TNodeKinds* = set[TNodeKind]
 
 const
+  nkUIntLiterals*  = {nkCharLit, nkUIntLit..nkUInt64Lit}
+    ## Unsigned int literals
+  nkSIntLiterals*  = {nkIntLit..nkInt64Lit}
+    ## Signed int literals
+  nkIntLiterals*   = nkUIntLiterals + nkSIntLiterals
+  nkFloatLiterals* = {nkFloatLit..nkFloat64Lit}
+  nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
+  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals + nkNilLit
+
   nkWithoutSons* =
-    {nkEmpty, nkNone} +
+    {nkEmpty} +
     {nkIdent, nkSym} +
     {nkType} +
-    {nkCharLit..nkUInt64Lit} +
-    {nkFloatLit..nkFloat64Lit} +
-    {nkStrLit..nkTripleStrLit} +
-    {nkNilLit} +
+    nkLiterals +
     {nkError} +
     {nkCommentStmt}
 
@@ -432,7 +435,6 @@ const
 
   sfNoForward*     = sfRegister       ## forward declarations are not required (per module)
   sfExperimental*  = sfOverriden      ## module uses the .experimental switch
-  sfGoto*          = sfOverriden      ## var is used for 'goto' code generation
   sfWrittenTo*     = sfBorrow         ## param is assigned to
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
@@ -612,6 +614,8 @@ type
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
+    nfWasGensym  ## the identifier node was a gensym prior to template
+                 ## evaluation
 
   TNodeFlags* = set[TNodeFlag]
   TTypeFlag* = enum   ## keep below 32 for efficiency reasons (now: 43)
@@ -714,6 +718,8 @@ type
     skStub                ## symbol is a stub and not yet loaded from the ROD
                           ## file (it is loaded on demand, which may
                           ## mean: never)
+    skGenerated           ## symbol is generated and requires specialization in
+                          ## a definition context
     skPackage             ## symbol is a package (used for canonicalization)
 
   TSymKinds* = set[TSymKind]
@@ -783,7 +789,7 @@ type
     mSetLengthStr, mSetLengthSeq,
     mIsPartOf, mAstToStr,
     mSwap, mIsNil, mArrToSeq,
-    mNewString, mNewStringOfCap, mParseBiggestFloat,
+    mNewString, mNewStringOfCap,
     mMove, mWasMoved, mDestroy, mTrace,
     mDefault, mFinished, mIsolate, mAccessEnv, mAccessTypeField, mReset,
     mArray, mOpenArray, mRange, mSet, mSeq, mVarargs,
@@ -815,6 +821,8 @@ type
     mException, mBuiltinType, mSymOwner, mUncheckedArray, mGetImplTransf,
     mSymIsInstantiationOf, mNodeId, mPrivateAccess
 
+    mEvalToAst
+
     # magics only used internally:
     mStrToCStr
       ## the backend-dependent string-to-cstring conversion
@@ -822,6 +830,9 @@ type
     mChckRange
       ## chckRange(v, lower, upper); conversion + range check -- returns
       ## either the type-converted value or raises a defect
+    mChckNaN
+      ## chckNaN(v); raise an error when the float value `v` is a quiet NaN.
+      ## Behaviour with signaling NaNs is undefined.
     mChckIndex
       ## chckIndex(arr, idx); raise an error when `idx` is not within `arr`'s
       ## bounds
@@ -832,11 +843,18 @@ type
       ## chckField(valid, val, inverted, msg); raises an error when `val` is
       ## not part of `valid`. `inverted` tells whether to invert the check
       ## and `msg` is the error message
+    mChckObj
+      ## chckObj(ptr_like, type); raises a conversion error when the dynamic
+      ## type of the object pointed to by `ptr_like` is unrelated to or a
+      ## super type of `type`
     mSamePayload
       ## returns whether both seq/string operands share the same payload
     mCopyInternal
       ## copyInternal(a, b); copies backend-specific internal data stored
       ## on non-pure objects from a to b
+    mStoreParams
+      ## storeParams(p, tup): savely stores the tuple in the storage pointed
+      ## to by `p`
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -897,7 +915,7 @@ type
 
 
 type
-  TIdObj* {.acyclic.} = object of RootObj
+  TIdObj* = object of RootObj
     itemId*: ItemId
   PIdObj* = ref TIdObj
 
@@ -979,6 +997,7 @@ type
     adVmFieldNotFound
     adVmNotAField
     adVmFieldUnavailable
+    adVmCannotCreateNode
     adVmCannotSetChild
     adVmCannotAddChild
     adVmCannotGetChild
@@ -1001,7 +1020,8 @@ type
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
       of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
           adVmFieldUnavailable, adVmFieldNotFound,
-          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey,
+          adVmCannotCreateNode:
         msg*: string
       of adVmCannotSetChild, adVmCannotAddChild, adVmCannotGetChild,
           adVmUnhandledException, adVmNoType, adVmNodeNotASymbol:
@@ -1061,10 +1081,12 @@ type
   AstDiagKind* = enum
     # general
     adWrappedError
+    adWrappedSymError
     adCyclicTree
     # type
     adSemTypeMismatch
     adSemTypeNotAllowed
+    adSemTIsNotAConcreteType
     # lookup
     adSemUndeclaredIdentifier
     adSemConflictingExportnims
@@ -1111,6 +1133,7 @@ type
     adSemNoReturnHasReturn
     adSemMisplacedDeprecation
     adSemCustomUserError
+    adSemMethodCantBeTailcall
     adSemFatalError
     adSemNoUnionForJs
     adSemBitsizeRequiresPositive
@@ -1143,12 +1166,13 @@ type
     adSemUndeclaredField
     adSemCannotInstantiate
     adSemWrongNumberOfGenericParams
-    adSemCalleeHasAnError
     # sem
     adSemExpressionHasNoType
     adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
+    adSemStringRangeNotAllowed
+    adSemRangeIsEmpty
     # semtempl
     adSemIllformedAst
     adSemIllformedAstExpectedPragmaOrIdent
@@ -1181,6 +1205,8 @@ type
     adSemDotOperatorsNotEnabled
     adSemCallOperatorsNotEnabled
     adSemUnexpectedPattern
+    adSemCannotBeRaised
+    adSemCannotRaiseNonException
     # types
     adSemTypeKindMismatch
     # semexprs
@@ -1221,6 +1247,7 @@ type
     adSemCannotMixTypesAndValuesInTuple
     adSemNoReturnTypeDeclared
     adSemReturnNotAllowed
+    adSemGeneratedSymUsed
     # semmagics
     adSemExprHasNoAddress
     adSemExpectedOrdinal
@@ -1253,6 +1280,8 @@ type
 
   PAstDiag* = ref TAstDiag
   TAstDiag* {.acyclic.} = object
+    ## A diagnostic must never store a tree that references the diagnostic
+    ## itself.
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals
@@ -1263,7 +1292,7 @@ type
     location*: TLineInfo        # TODO: `wrongNode` already has this, move to
                                 #       variant or handle in display/rendering
     case kind*: AstDiagKind
-    of adWrappedError:
+    of adWrappedError, adWrappedSymError:
       discard
     of adSemTypeMismatch,
         adSemIllegalConversion,
@@ -1308,7 +1337,7 @@ type
         adSemAlignRequiresPowerOfTwo,
         adSemNoReturnHasReturn,
         adSemMisplacedDeprecation,
-        adSemFatalError,
+        adSemMethodCantBeTailcall,
         adSemNoUnionForJs,
         adSemBitsizeRequiresPositive,
         adSemExperimentalRequiresToplevel,
@@ -1322,6 +1351,8 @@ type
         adSemCallInCompilesContextNotAProcOrField,
         adSemExpressionHasNoType,
         adSemTypeExpected,
+        adSemStringRangeNotAllowed,
+        adSemRangeIsEmpty,
         adSemIllformedAst,
         adSemIllformedAstExpectedPragmaOrIdent,
         adSemInvalidExpression,
@@ -1337,6 +1368,8 @@ type
         adSemDotOperatorsNotEnabled,
         adSemCallOperatorsNotEnabled,
         adSemUnexpectedPattern,
+        adSemCannotBeRaised,
+        adSemCannotRaiseNonException,
         adSemIsOperatorTakes2Args,
         adSemNoTupleTypeForConstructor,
         adSemInvalidOrderInArrayConstructor,
@@ -1366,7 +1399,8 @@ type
         adSemContinueCannotHaveLabel,
         adSemUnavailableLocation,
         adSemForExpectedIterator,
-        adSemExternalLocalNotAllowed:
+        adSemExternalLocalNotAllowed,
+        adSemGeneratedSymUsed:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1390,6 +1424,7 @@ type
     of adSemAsmEmitExpectsStringLiteral:
       unexpectedKind*: TNodeKind
     of adSemRaisesPragmaExpectsObject,
+        adSemTIsNotAConcreteType,
         adSemCannotInferTypeOfLiteral,
         adSemProcHasNoConcreteType,
         adSemCannotCastToNonConcrete,
@@ -1400,7 +1435,7 @@ type
       externName*: string
     of adSemPragmaRecursiveDependency:
       userPragma*: PSym
-    of adSemCustomUserError:
+    of adSemCustomUserError, adSemFatalError:
       errmsg*: string
     of adSemImplicitPragmaError:
       implicitPragma*: PSym
@@ -1439,8 +1474,6 @@ type
     of adSemWrongNumberOfGenericParams:
       countMismatch*: tuple[expected, got: int]
       gnrcCallLineInfo*: TLineInfo
-    of adSemCalleeHasAnError:
-      callee*: PSym
     of adSemIllformedAstExpectedOneOf:
       expectedKinds*: TNodeKinds
     of adSemImplementationExpected:
@@ -1557,28 +1590,30 @@ type
           adSemDefNameSymIllformedAst:
         discard
 
-  TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-                                    # on a 64bit machine, this takes 40 bytes
+  TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
+                           # on a 64bit machine, this takes 40 bytes
+    # NOTE: don't mark as `.acyclic`. User-created AST might form cycles, and
+    # nodes can also form reference cycles with ``PSym`` and ``PType``
     typ*: PType
     id*: NodeId  # placed after `typ` field to save space due to field alignment
     info*: TLineInfo
     flags*: TNodeFlags
     case kind*: TNodeKind
-    of nkCharLit..nkUInt64Lit:
+    of nkIntLiterals:
       intVal*: BiggestInt
       intLitBase*: NumericalBase
-    of nkFloatLit..nkFloat64Lit:
+    of nkFloatLiterals:
       floatVal*: BiggestFloat
       floatLitBase*: NumericalBase
         # Once case branches can share fields this can be unified with
         # intLitBase above
-    of nkStrLit..nkTripleStrLit:
+    of nkStrLiterals:
       strVal*: string
     of nkSym:
       sym*: PSym
     of nkIdent:
       ident*: PIdent
-    of nkEmpty, nkNone, nkType, nkNilLit, nkCommentStmt:
+    of nkEmpty, nkType, nkNilLit, nkCommentStmt:
       discard
     of nkError:
       diag*: PAstDiag
@@ -1639,6 +1674,7 @@ type
   PInstantiation* = ref TInstantiation
 
   TScope* {.acyclic.} = object
+    ## Scopes form a stack; cycles are not allowed.
     depthLevel*: int
     symbols*: TStrTable
     parent*: PScope
@@ -1646,7 +1682,7 @@ type
 
   PScope* = ref TScope
 
-  TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
+  TSym* = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
     of routineKinds - {skMacro}:
@@ -1702,8 +1738,6 @@ type
                               ## generated name is to be used
     extFlags*: ExternalFlags  ## additional flags that are relevant to code
                               ## generation
-    locId*: uint32            ## associates the symbol with a loc in the C code
-                              ## generator. 0 means unset.
     annex*: LibId             ## additional fields (seldom used, so we use a
                               ## reference to another object to save space)
     constraint*: PNode        ## additional constraints like 'lit|result'; also
@@ -1724,7 +1758,7 @@ type
     attachedTrace,
     attachedDeepCopy
 
-  TType* {.acyclic.} = object of TIdObj
+  TType*  = object of TIdObj
     ## types are identical only if they have the same id; there may be multiple
     ## copies of a type in memory! Keep in sync with PackedType
     kind*: TTypeKind          ## kind of type
@@ -1732,15 +1766,15 @@ type
     flags*: TTypeFlags        ## flags of the type
     sons*: TTypeSeq           ## base types, etc.
     n*: PNode                 ## node for types:
-                              ## for range types a nkRange node
-                              ## for record types a nkRecord node
-                              ## for enum types a list of symbols
-                              ## if kind == tyInt: it is an 'int literal(x)' type
-                              ## for procs and tyGenericBody, it's the
-                              ## formal param list
-                              ## for concepts, the concept body
-                              ## for errors, nkError or nil if legacy
-                              ## else: unused
+                              ## - range types a nkRange node
+                              ## - record types a nkRecord node
+                              ## - enum types a list of symbols
+                              ## - if kind == tyInt: it is an 'int literal(x)' type
+                              ## - procs and tyGenericBody, it's the formal
+                              ##   param list
+                              ## - concepts, the concept body
+                              ## - errors, nkError or nil if legacy
+                              ## - else: unused
     owner*: PSym              ## the 'owner' of the type
     sym*: PSym                ## types have the sym associated with them
                               ## it is used for converting types to strings

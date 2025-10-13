@@ -32,7 +32,8 @@ import
     commands,
     cli_reporter,
     cmdlinehelper,
-    nimconf
+    nimconf,
+    msgs
   ]
 
 # xxx: all the `reports` bits are legacy
@@ -52,6 +53,7 @@ proc getReports(): seq[Report] =
 proc firstPass*(args: seq[string]): ConfigRef =
   ## Create config ref object and run fist CLI pass of on the configuration
   result = newConfigRef(hook)
+  result.diagHandler = msgs.defaultDiagHandler
   result.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   processCmdLine(passCmd1, args, result)
 

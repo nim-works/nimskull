@@ -6,7 +6,7 @@ discard """
 
 macro dump(n: untyped): untyped =
   dump(n)
-  if kind(n) == nnkNone:
+  if kind(n) == nnkEmpty:
     nil
   else:
     hint($kind(n))

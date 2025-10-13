@@ -112,7 +112,8 @@ type
     x: int
 
 proc `=destroy`(x: var AObj) =
-  close(x.io)
+  {.cast(raises: []).}:
+    close(x.io)
   echo "closed"
 
 var x = B(io: newStringStream("thestream"))

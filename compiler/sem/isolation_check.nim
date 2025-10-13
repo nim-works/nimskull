@@ -89,7 +89,7 @@ proc checkIsolate*(n: PNode): bool =
     # XXX Maybe require that 'n.typ' is acyclic. This is not much
     # worse than the already exisiting inheritance and closure restrictions.
     case n.kind
-    of nkCharLit..nkNilLit:
+    of nkLiterals:
       result = true
     of nkCallKinds:
       # XXX: as long as we don't update the analysis while examining arguments

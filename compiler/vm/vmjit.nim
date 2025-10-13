@@ -25,44 +25,63 @@ import
     backends,
     cgir
   ],
+  compiler/front/[
+    in_options,
+  ],
   compiler/mir/[
+    datatables,
     mirbodies,
     mirbridge,
-    mirconstr,
+    mirenv,
     mirgen,
     mirpasses,
     mirtrees,
+    mirtypes
   ],
   compiler/modules/[
-    magicsys
+    magicsys,
+    modulegraphs
   ],
   compiler/sem/[
     transf
   ],
   compiler/vm/[
+    identpatterns,
     vmaux,
-    vmcompilerserdes,
+    vmserialize,
     vmdef,
     vmgen,
-    vmlinker,
+    vmjit_checks,
     vmmemory,
     vmtypegen
+  ],
+  compiler/utils/[
+    tracer
   ],
   experimental/[
     results
   ]
+
+# XXX: temporary imports for expression support
+from compiler/ast/ast import newTreeIT
+from compiler/sem/semdata import makeVarType
+from compiler/sem/parampatterns import isAssignable, TAssignableResult
 
 export VmGenResult
 
 type
   JitState* = object
     ## State of the VM's just-in-time compiler that is kept across invocations.
-    discovery: DiscoveryData
-      ## acts as the source-of-truth regarding what entities exists. All
-      ## entities not registered with `discovery` also don't exist in
-      ## ``TCtx``
     gen: CodeGenCtx
       ## code generator state
+
+proc initJit*(graph: ModuleGraph): JitState =
+  ## Returns an initialized ``JitState`` instance.
+  JitState(gen: initCodeGen(graph))
+
+func env*(jit: JitState): lent MirEnv {.inline.} =
+  ## The JIT code generator's MIR environment.
+  jit.gen.env
 
 func selectOptions(c: TCtx): TranslationConfig =
   result = TranslationConfig(options: {goIsNimvm}, magicsToKeep: MagicsToKeep)
@@ -83,60 +102,52 @@ func swapState(c: var TCtx, gen: var CodeGenCtx) =
   # input parameters:
   swap(graph)
   swap(config)
-  swap(mode)
   swap(features)
   swap(module)
-  swap(linking)
+  swap(callbackKeys)
 
   # input-output parameters:
   swap(code)
   swap(debug)
+  swap(ehTable)
+  swap(ehCode)
   swap(constants)
   swap(typeInfoCache)
   swap(rtti)
 
-proc updateEnvironment(c: var TCtx, data: var DiscoveryData) =
+proc updateEnvironment(c: var TCtx, env: var MirEnv, cp: EnvCheckpoint) =
   ## Needs to be called after a `vmgen` invocation and prior to resuming
   ## execution. Allocates and sets up the execution resources required for the
-  ## newly gathered dependencies.
+  ## newly gathered dependencies (those added since `cp` was created).
   ##
   ## This "commits" to the new dependencies.
 
   # procedures
-  c.functions.setLen(data.procedures.len)
-  for i, sym in visit(data.procedures):
-    c.functions[i] = initProcEntry(c, sym)
+  for id, sym in since(env.procedures, cp.procs):
+    c.functions.add initProcEntry(c, sym)
 
-  block: # globals and threadvars
-    # threadvars are currently treated the same as normal globals
-    var i = c.globals.len
-    c.globals.setLen(data.globals.len + data.threadvars.len)
-
-    template alloc(q: Queue[PSym]) =
-      for _, sym in visit(q):
-        let typ = c.getOrCreate(sym.typ)
-        c.globals[i] = c.heap.heapNew(c.allocator, typ)
-        inc i
-
-    # order is important here!
-    alloc(data.globals)
-    alloc(data.threadvars)
+  # globals (which includes threadvars)
+  for id, sym in since(env.globals, cp.globals):
+    let typ = c.getOrCreate(sym.typ)
+    c.globals.add c.allocator.allocSingleLocation(typ)
 
   # constants
-  c.complexConsts.setLen(data.constants.len)
-  for i, sym in visit(data.constants):
-    assert sym.ast.kind notin nkLiterals
-
+  for id, data in since(env.data, cp.data):
     let
-      typ = c.getOrCreate(sym.typ)
+      typ = c.getOrCreate(env.types[data[0].typ])
       handle = c.allocator.allocConstantLocation(typ)
 
-    # TODO: strings, seqs and other values using allocation also need to be
-    #       allocated with `allocConstantLocation` inside `serialize` here
-    c.serialize(sym.ast, handle)
+    initFromExpr(handle, data, env, c)
 
-    c.complexConsts[i] = handle
+    c.complexConsts.add handle
 
+template preCheck(env: MirEnv, n: PNode) =
+  ## Verifies that `n` can be built and run in JIT mode. If not, aborts the
+  ## surrounding routine by returning a ``VmGenResult``.
+  block:
+    let r = validate(env, n)
+    if r.isErr:
+      return VmGenResult.err(r.takeErr)
 
 func removeLastEof(c: var TCtx) =
   let last = c.code.len-1
@@ -146,63 +157,26 @@ func removeLastEof(c: var TCtx) =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-func discoverGlobalsAndRewrite(data: var DiscoveryData, body: var MirBody,
-                               rewrite: bool) =
-  ## Scans `tree` for definitions of globals, registers them with the `data`,
-  ## and rewrites their definitions into assignments (if `rewrite` is true).
-  template tree(): MirTree =
-    body.code
-
-  # scan the body for definitions of globals:
-  var i = NodePosition 0
-  while i.int < tree.len:
-    case tree[i].kind
-    of DefNodes:
-      if tree[i + 1].kind == mnkGlobal and
-         (let g = tree[i+1].sym; sfImportc notin g.flags):
-        # found a global definition; register it. Imported ones are
-        # ignored -- ``vmgen`` will report an error when the global is
-        # accessed
-        data.registerGlobal(g)
-
-      i = sibling(tree, i)
-    else:
-      inc i
-
-  if rewrite:
-    rewriteGlobalDefs(tree, body.source)
-
-func register(linker: var LinkerData, data: DiscoveryData) =
-  ## Registers the newly discovered entities in the link table, but doesn't
-  ## commit to them yet.
-  for i, it in peek(data.procedures):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-  for i, it in peek(data.constants):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-  # first register globals, then threadvars. This order must be the same as
-  # the one they're later committed to in
-  for i, it in peek(data.globals):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-  for i, it in peek(data.threadvars):
-    linker.symToIndexTbl[it.id] = LinkIndex(i)
-
-proc generateMirCode(c: var TCtx, n: PNode;
+proc generateMirCode(c: var TCtx, env: var MirEnv, n: PNode;
                      isStmt = false): MirBody =
   ## Generates the initial MIR code for a standalone statement/expression.
   if isStmt:
-    # we want statements wrapped in a scope, hence generating a proper
-    # fragment
-    result = generateCode(c.graph, c.module, selectOptions(c), n)
+    result = generateCode(c.graph, env, c.module, selectOptions(c), n)
   else:
-    var bu: MirBuilder
-    generateCode(c.graph, selectOptions(c), n, bu, result.source)
-    result.code = finish(bu)
+    var n = n
+    # optimization: wrap the expression in a hidden address if it's an lvalue
+    # expression. This eliminates the unnecessary copy that would be created
+    # otherwise
+    if isAssignable(nil, n, isUnsafeAddr=true) in {arLocalLValue, arLValue,
+                                                   arLentValue}:
+      n = newTreeIT(nkHiddenAddr, n.info,
+                    makeVarType(c.module, n.typ, c.idgen, tyLent),
+                    n)
 
-proc generateIR(c: var TCtx, body: sink MirBody): Body =
-  backends.generateIR(c.graph, c.idgen, c.module, body)
+    result = exprToMir(c.graph, env, selectOptions(c), n)
+
+proc generateIR(c: var TCtx, env: var MirEnv, body: sink MirBody): Body =
+  backends.generateIR(c.graph, c.idgen, env, c.module, body)
 
 proc setupRootRef(c: var TCtx) =
   ## Sets up if the ``RootRef`` type for the type info cache. This
@@ -226,72 +200,52 @@ template runCodeGen(c: var TCtx, cg: var CodeGenCtx, b: Body,
   swapState(c, cg)
   r
 
-proc genStmt*(jit: var JitState, c: var TCtx; n: PNode): VmGenResult =
-  ## Generates and emits code for the standalone top-level statement `n`.
+proc applyPasses(c: var TCtx, env: var MirEnv, prc: PSym, body: var MirBody) =
+  let restore = optProfiler in prc.options
+  # don't instrument procedures when using the JIT
+  if restore:
+    prc.options.excl optProfiler
+  applyPasses(body, prc, env, c.graph, targetVm)
+  if restore:
+    prc.options.incl optProfiler
+
+proc gen(jit: var JitState, c: var TCtx, n: PNode, isStmt: bool): VmGenResult =
+  preCheck(jit.gen.env, n)
   c.removeLastEof()
 
+  let cp = checkpoint(jit.gen.env)
+
   # `n` is expected to have been put through ``transf`` already
-  var mirBody = generateMirCode(c, n, isStmt = true)
-  discoverGlobalsAndRewrite(jit.discovery, mirBody, true)
-  applyPasses(mirBody, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, mirBody.code)
-  register(c.linking, jit.discovery)
+  var mirBody = generateMirCode(c, jit.gen.env, n, isStmt)
+  applyPasses(c, jit.gen.env, c.module, mirBody)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
 
   let
-    body = generateIR(c, mirBody)
+    body = generateIR(c, jit.gen.env, mirBody)
     start = c.code.len
 
-  # generate the bytecode:
-  let r = runCodeGen(c, jit.gen, body): genStmt(jit.gen, body)
+  c.config.timeTracer.traceLoc(tikVmCodegen, n.info):
+    # generate the bytecode:
+    let r = runCodeGen(c, jit.gen, body): genStmt(jit.gen, body)
 
   if unlikely(r.isErr):
-    rewind(jit.discovery)
+    rewind(jit.gen.env, cp)
     return VmGenResult.err(r.takeErr)
 
-  updateEnvironment(c, jit.discovery)
+  updateEnvironment(c, jit.gen.env, cp)
 
   result = VmGenResult.ok: (start: start, regCount: r.get)
+
+proc genStmt*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
+  ## Generates and emits code for the standalone top-level statement `n`.
+  gen(jit, c, n, isStmt = true)
 
 proc genExpr*(jit: var JitState, c: var TCtx, n: PNode): VmGenResult =
   ## Generates and emits code for the standalone expression `n`
-  c.removeLastEof()
-
-  # XXX: the way standalone expressions are currently handled is going to
-  #      be a problem as soon as proper MIR passes need to be run (which
-  #      all expect statements). Ideally, dedicated support for
-  #      expressions would be removed from the JIT.
-
-  var mirBody = generateMirCode(c, n)
-  # constant expression outside of routines can currently also contain
-  # definitions of globals...
-  # XXX: they really should not, but that's up to sem. Example:
-  #
-  #        const c = block: (var x = 0; x)
-  #
-  #     If `c` is defined at the top-level, then `x` is a "global" variable
-  discoverGlobalsAndRewrite(jit.discovery, mirBody, false)
-  applyPasses(mirBody, c.module, c.config, targetVm)
-  discoverFrom(jit.discovery, mirBody.code)
-  register(c.linking, jit.discovery)
-
-  let
-    body = generateIR(c, mirBody)
-    start = c.code.len
-
-  # generate the bytecode:
-  let r = runCodeGen(c, jit.gen, body): genExpr(jit.gen, body)
-
-  if unlikely(r.isErr):
-    rewind(jit.discovery)
-    return VmGenResult.err(r.takeErr)
-
-  updateEnvironment(c, jit.discovery)
-
-  result = VmGenResult.ok: (start: start, regCount: r.get)
+  gen(jit, c, n, isStmt = false)
 
 proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
-  c.removeLastEof()
-
   let body =
     if isCompileTimeProc(s) and not defined(nimsuggest):
       # no need to go through the transformation cache
@@ -303,63 +257,51 @@ proc genProc(jit: var JitState, c: var TCtx, s: PSym): VmGenResult =
       # when in suggest mode
       transformBody(c.graph, c.idgen, s, cache = true)
 
-  echoInput(c.config, s, body)
-  var mirBody = generateCode(c.graph, s, selectOptions(c), body)
-  echoMir(c.config, s, mirBody)
-  # XXX: lifted globals are currently not extracted from the procedure and,
-  #      for the most part, behave like normal locals. The call to
-  #      ``discoverGlobalsAndRewrite`` plus the MIR -> ``CgNode`` translation
-  #      make sure that at least ``vmgen`` doesn't have to be concerned with
-  #      that, but eventually it needs to be decided how lifted globals should
-  #      work in compile-time and interpreted contexts
-  discoverGlobalsAndRewrite(jit.discovery, mirBody, false)
-  applyPasses(mirBody, s, c.config, targetVm)
-  discoverFrom(jit.discovery, mirBody.code)
-  register(c.linking, jit.discovery)
+  preCheck(jit.gen.env, body)
+  c.removeLastEof()
 
-  let outBody = generateIR(c.graph, c.idgen, s, mirBody)
+  let cp = checkpoint(jit.gen.env)
+
+  echoInput(c.config, s, body)
+  var mirBody = generateCode(c.graph, jit.gen.env, s, selectOptions(c), body)
+  echoMir(c.config, s, mirBody, jit.gen.env)
+  applyPasses(c, jit.gen.env, s, mirBody)
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
+
+  echoOutput(c.config, s, mirBody, jit.gen.env)
+  let outBody = generateIR(c.graph, c.idgen, jit.gen.env, s, mirBody)
   echoOutput(c.config, s, outBody)
 
-  try:
+  c.config.timeTracer.traceSym(tikVmCodegen, s):
     # generate the bytecode:
     result = runCodeGen(c, jit.gen, outBody): genProc(jit.gen, s, outBody)
-  except:
-    # echo render(tree)
-    raise
 
   if unlikely(result.isErr):
-    rewind(jit.discovery)
+    rewind(jit.gen.env, cp)
     return
 
-  updateEnvironment(c, jit.discovery)
+  updateEnvironment(c, jit.gen.env, cp)
 
-func isAvailable*(c: TCtx, prc: PSym): bool =
+func getGlobal*(jit: JitState, g: PSym): LinkIndex =
+  ## Returns the link index for the symbol `g`. `g` must be known to `jit`.
+  LinkIndex jit.gen.env.globals[g]
+
+func isAvailable*(jit: JitState, c: TCtx, prc: PSym): bool =
   ## Returns whether the bytecode for `prc` is already available.
-  prc.id in c.linking.symToIndexTbl and
-    c.functions[c.linking.symToIndexTbl[prc.id].int].start >= 0
+  prc in jit.gen.env.procedures and
+    c.functions[jit.gen.env.procedures[prc].int].start >= 0
 
 proc registerProcedure*(jit: var JitState, c: var TCtx, prc: PSym): FunctionIndex =
   ## If it hasn't been already, adds `prc` to the set of procedures the JIT
   ## code-generator knowns about and sets up a function-table entry. `jit` is
   ## required to not be in the process of generating code.
-  assert jit.discovery.procedures.isProcessed, "code generation in progress?"
-  var index = -1
+  if prc notin jit.gen.env.procedures:
+    let id = jit.gen.env.procedures.add(prc)
+    c.functions.add initProcEntry(c, prc)
+    assert int(id) == c.functions.high, "tables are out of sync"
 
-  register(jit.discovery, prc)
-  # if one was added, commit to the new entry now and create a function-table
-  # entry it
-  c.functions.setLen(jit.discovery.procedures.len)
-  for i, it in visit(jit.discovery.procedures):
-    assert it == prc
-    c.linking.symToIndexTbl[it.id] = LinkIndex(i)
-    c.functions[i] = initProcEntry(c, it)
-    index = i
-
-  if index == -1:
-    # no entry was added -> one must exist already
-    result = FunctionIndex(c.linking.symToIndexTbl[prc.id])
-  else:
-    result = FunctionIndex(index)
+  result = FunctionIndex jit.gen.env.procedures[prc]
 
 proc compile*(jit: var JitState, c: var TCtx, fnc: FunctionIndex): VmGenResult =
   ## Generates code for the the given function and updates the execution
@@ -397,5 +339,19 @@ proc registerCallback*(c: var TCtx; pattern: string; callback: VmCallback) =
   ## procedure at run-time will invoke the callback instead.
   # XXX: consider renaming this procedure to ``registerOverride``
   c.callbacks.add(callback) # some consumers rely on preserving registration order
-  c.linking.callbackKeys.add(IdentPattern(pattern))
-  assert c.callbacks.len == c.linking.callbackKeys.len
+  c.callbackKeys.add(IdentPattern(pattern))
+  assert c.callbacks.len == c.callbackKeys.len
+
+proc constDataToMir*(c: var TCtx, jit: var JitState, e: PNode): MirTree =
+  ## Translates the constant expression `e` to a MIR constant expression and
+  ## returns it. Entities referenced by the constant expression (e.g.,
+  ## procedures), are direclty registered with the environment.
+  let cp = checkpoint(jit.gen.env)
+  result = constDataToMir(jit.gen.env, e)
+
+  # run the discovery pass:
+  for _ in discover(jit.gen.env, cp):
+    discard "nothing to register"
+
+  # populate the VM environment with the discovered entities:
+  updateEnvironment(c, jit.gen.env, cp)

@@ -5,7 +5,7 @@ discard """
     underlying array is treated as alive afterwards
   '''
   targets: "c js vm"
-  knownIssue.vm: "`toOpenArray` is not yet supported"
+  joinable: false
 """
 
 import mhelper

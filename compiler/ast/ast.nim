@@ -22,7 +22,6 @@ import
     in_options
   ],
   compiler/utils/[
-    idioms,
     int128 # Values for integer nodes
   ],
   std/[
@@ -193,32 +192,6 @@ proc newIdentNode*(ident: PIdent, info: TLineInfo): PNode =
   result.ident = ident
   result.info = info
 
-proc newSymNode2*(sym: PSym): PNode =
-  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
-  ## is extracted from the sym and returned instead.
-  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
-  if sym.isError:
-    result = sym.ast
-  else:
-    result = newNode(nkSym)
-    result.sym = sym
-    result.typ = sym.typ
-    result.info = sym.info
-
-proc newSymNode2*(sym: PSym, info: TLineInfo): PNode =
-  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
-  ## is extracted from the sym and returned instead. In either case sets the
-  ## node info to the one provided
-  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
-  if sym.isError:
-    result = sym.ast
-    result.info = info
-  else:
-    result = newNode(nkSym)
-    result.sym = sym
-    result.typ = sym.typ
-    result.info = info
-
 proc newSymNodeIT*(sym: PSym, info: TLineInfo, typ: PType): PNode =
   ## create a new sym node with the supplied `info` and `typ`
   result = newNodeIT(nkSym, info, typ)
@@ -282,6 +255,10 @@ proc newStrNode*(kind: TNodeKind, strVal: string): PNode =
 
 proc newStrNode*(strVal: string; info: TLineInfo): PNode =
   result = newNodeI(nkStrLit, info)
+  result.strVal = strVal
+
+proc newStrNode*(strVal: sink string, typ: PType; info=unknownLineInfo): PNode =
+  result = newNodeIT(nkStrLit, info, typ)
   result.strVal = strVal
 
 proc newProcNode*(kind: TNodeKind, info: TLineInfo, body: PNode,
@@ -478,8 +455,8 @@ template copyNodeImpl(dst, src, processSonsStmt) =
     dst.floatLitBase = src.floatLitBase
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
-  of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
-  of nkEmpty, nkNone, nkNilLit, nkType, nkCommentStmt: discard "no children"
+  of nkStrLiterals: dst.strVal = src.strVal
+  of nkEmpty, nkNilLit, nkType, nkCommentStmt: discard "no children"
   of nkError: dst.diag = src.diag # do cheap copies
   of nkWithSons: processSonsStmt
 
@@ -520,7 +497,7 @@ template transitionSymKindCommon*(k: TSymKind) =
   s[] = TSym(kind: k, itemId: obj.itemId, magic: obj.magic, typ: obj.typ, name: obj.name,
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
              options: obj.options, position: obj.position, offset: obj.offset,
-             extname: obj.extname, extFlags: obj.extFlags, locId: obj.locId,
+             extname: obj.extname, extFlags: obj.extFlags,
              annex: obj.annex, constraint: obj.constraint)
   when defined(nimsuggest):
     s.allUsages = obj.allUsages

@@ -247,6 +247,7 @@ type
     rvmCacheKeyAlreadyExists
     rvmFieldNotFound
     rvmFieldInavailable
+    rvmCannotCreateNode
     rvmCannotSetChild
     rvmCannotAddChild
     rvmCannotGetChild
@@ -295,12 +296,6 @@ type
 
     # nimsuggest
     rsemSugNoSymbolAtPosition
-
-    # Global Errors
-    rsemCustomGlobalError
-      ## just like custom error, but treat it like a "raise" and fast track the
-      ## "graceful" abort of this compilation run, used by `errorreporting` to
-      ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
 
     # Module errors
     rsemSystemNeeds
@@ -355,9 +350,11 @@ type
     rsemTIsNotAConcreteType
     rsemProcIsNotAConcreteType
     rsemRangeIsEmpty
+    rsemStringRangeNotAllowed
 
     rsemCannotInstantiate
     rsemCannotInstantiateWithParameter
+    rsemCannotInstantiateForwarded
     rsemCannotGenerateGenericDestructor
     rsemUndeclaredField
     rsemExpectedOrdinal
@@ -415,12 +412,12 @@ type
     rsemIsOperatorTakes2Args
     rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
-    rsemCalleeHasAnError
     rsemNoGenericParamsAllowed
     rsemAmbiguousCall
     rsemCallingConventionMismatch
     rsemHasSideEffects
     rsemCantPassProcvar
+    rsemHookCannotRaise
     rsemUnlistedRaises
     rsemUnlistedEffects
     rsemOverrideSafetyMismatch
@@ -450,6 +447,9 @@ type
     # - https://github.com/nim-lang/Nim/issues/5325. No real tests for this
     # one of course, I mean who needs this, right?
     rsemParameterNotPointerToPartial
+
+    rsemParametersTooLarge
+    rsemParameterCannotBeIncomplete
 
     # Statements
     rsemDiscardingVoid
@@ -497,6 +497,13 @@ type
     rsemExpectedObjectForMethod
     rsemUnexpectedPragmaInDefinitionOf
     rsemMisplacedRunnableExample
+    rsemCannotReraise
+    rsemCleanupPreventsTailCall
+    rsemDeferPreventsTailCall
+    rsemExceptPreventsTailCall
+    rsemFinallyPreventsTailCall
+    rsemTryPreventsTailCall
+    rsemTrailingStatementPreventsTailCall
 
     # Expressions
     rsemConstantOfTypeHasNoValue
@@ -566,12 +573,13 @@ type
     rsemExpectedModuleNameForImportExcept
     rsemCannotExport
     rsemCannotMixTypesAndValuesInTuple
-    rsemExpectedTypelessDeferBody
     rsemInvalidBindContext
     rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
     rsemUnavailableLocation
+    rsemNoTailingExpression
+    rsemArgumentMustBorrowFromParameter
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -627,14 +635,7 @@ type
     # Codegen
     rsemRttiRequestForIncompleteObject
     rsemExpectedNimcallProc
-    rsemExpectedExhaustiveCaseForComputedGoto
-    rsemExpectedUnholyEnumForComputedGoto
-    rsemTooManyEntriesForComputedGoto
-    rsemExpectedLow0ForComputedGoto
-    rsemExpectedCaseForComputedGoto
-    rsemDisallowedRangeForComputedGoto
     rsemExpectedParameterForJsPattern
-    rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
     rsemCannotCodegenCompiletimeProc
@@ -659,6 +660,7 @@ type
       ## where dynlib pragma requires an importc pragma to exist on the same
       ## symbol
       ## xxx: pragmas shouldn't require each other, that's just bad design
+    rsemMethodCantBeTailcall
 
     rsemWrappedError
       ## there is no meaningful error to construct, but there is an error
@@ -694,6 +696,7 @@ type
     rsemPragmaRecursiveDependency
     rsemMisplacedDeprecation
     rsemNoUnionForJs
+    rsemUndeclaredSymUsed
 
     rsemThisPragmaRequires01Args
     rsemMismatchedPopPush
@@ -736,6 +739,7 @@ type
     rsemLockLevelMismatch        = "LockLevel"
     rsemTypelessParam            = "TypelessParam"
     rsemOwnedTypeDeprecated
+    rsemCodegenDeclDeprecated    = "Deprecated"
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
     ## `emitWarnings: bool` parameter which was supposedly used to control
@@ -772,6 +776,8 @@ type
     rsemUntypedParamsFollwedByMoreSpecificType
     rsemBindDeprecated
     rsemObservableStores       = "ObservableStores"
+    rsemUnknownHint            = "UnknownHint"
+    rsemUnknownWarning         = "UnknownWarning"
     rsemUseOfGc                = "GcMem" # last !
     # END !! add reports BEFORE the last enum !!
 
@@ -1058,11 +1064,11 @@ const
     rsemRedefinitionOf,
     rsemInvalidMethodDeclarationOrder, # [s, witness]
     rsemIllegalCallconvCapture, # [symbol, owner]
-    rsemDeprecated # [symbol, use-instead]
+    rsemDeprecated, # [symbol, use-instead]
+    rsemUnexpectedPragmaInDefinitionOf,
   }
 
   rsemReportOneSym* = {
-    rsemUnexpectedPragmaInDefinitionOf,
     rsemDoubleCompletionOf,
 
     rsemOverrideSafetyMismatch,

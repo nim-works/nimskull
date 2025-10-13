@@ -1,6 +1,6 @@
 discard """
 errormsg: "expression '123' is of type 'int literal(123)' and has to be used (or discarded)"
-line: 71
+line: 73
 """
 
 import macros

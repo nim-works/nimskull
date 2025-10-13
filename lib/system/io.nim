@@ -58,12 +58,12 @@ when not isNimVmTarget and not defined(js):
     stderr* {.importc: stderrName, header: "<stdio.h>".}: File
       ## The standard error stream.
 
-when defined(useStdoutAsStdmsg):
-  template stdmsg*: File = stdout
-else:
-  template stdmsg*: File = stderr
-    ## Template which expands to either stdout or stderr depending on
-    ## `useStdoutAsStdmsg` compile-time switch.
+  when defined(useStdoutAsStdmsg):
+    template stdmsg*: File = stdout
+  else:
+    template stdmsg*: File = stderr
+      ## Template which expands to either stdout or stderr depending on
+      ## `useStdoutAsStdmsg` compile-time switch.
 
 when defined(windows):
   proc c_fileno(f: File): cint {.
@@ -424,7 +424,7 @@ proc readLine*(f: File, line: var string): bool {.tags: [ReadIOEffect],
     if f.isatty:
       const numberOfCharsToRead = 2048
       var numberOfCharsRead = 0'i32
-      var buffer = newWideCString("", numberOfCharsToRead)
+      var buffer = newWideCString(numberOfCharsToRead)
       if readConsole(getOsFileHandle(f), addr(buffer[0]),
         numberOfCharsToRead, addr(numberOfCharsRead), nil) == 0:
         var error = getLastError()

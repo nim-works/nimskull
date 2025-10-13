@@ -6,6 +6,10 @@ output: '''
 hel
 lo
 my awesome concat
+1
+TRM
+10000000000.0
+-10000000000.0
 '''
 """
 
@@ -87,3 +91,24 @@ in_to_out(char, int)
 
 # This works
 proc to_out2(x: char{lit}): int = result = ord(x)
+
+# Unsigned literals
+template times3is1{`*`(u,3'u)}(u: uint): uint = 1
+var u = 3'u
+echo u * 3'u # 1
+
+# Char literals
+template dontAppendE{`&`(s, 'E')}(s: string): string = s
+var s = "T"
+echo s & 'E' & 'R' & 'M'
+
+# Floats must not be matched with float equality semantics
+template capDivPos0{`/`(f, 0.0)}(f: float): float =
+  10000000000.float
+
+template capDivNeg0{`/`(f, -0.0)}(f: float): float =
+  -10000000000.float
+
+let f = 1.0
+echo f / 0.0 # 10000000000.0
+echo f / -0.0 # -10000000000.0

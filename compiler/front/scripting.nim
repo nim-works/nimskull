@@ -45,7 +45,7 @@ import
   ]
 
 from compiler/vm/vmlegacy import legacyReportsVmTracer
-from compiler/vm/vmjit import registerCallback
+from compiler/vm/vmjit import registerCallback, initJit
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
@@ -225,7 +225,7 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   #  during `setupVM`
   # - NimScript has access to the macro/compile-time APIs
   registerAdditionalOps(vm, disallowDanger)
-  graph.vm = PEvalContext(vm: vm)
+  graph.vm = PVmCtx(context: vm)
 
   graph.compileSystemModule()
   discard graph.processModule(m, idgen, stream)

@@ -52,7 +52,7 @@ from compiler/ast/reports_sem import reportAst
 from compiler/ast/reports_backend import BackendReport
 from compiler/ast/reports_cmd import CmdReport
 from compiler/ast/reports_internal import InternalReport
-from compiler/ast/report_enums import ReportKind
+from compiler/ast/report_enums import ReportKind, rbackErrorKinds
 
 
 import
@@ -253,27 +253,35 @@ template declareClosures =
       msgKind: rst.MsgKind, arg: string
     ) {.gcsafe, used.} =
     # translate msg kind:
-    {.gcsafe.}:
-      globalReport(conf, newLineInfo(
-        conf, AbsoluteFile filename, line, col), BackendReport(
-          msg: arg,
-          kind: case msgKind:
-            of meCannotOpenFile:          rbackRstCannotOpenFile
-            of meExpected:                rbackRstExpected
-            of meGridTableNotImplemented: rbackRstGridTableNotImplemented
-            of meMarkdownIllformedTable:  rbackRstMarkdownIllformedTable
-            of meNewSectionExpected:      rbackRstNewSectionExpected
-            of meGeneralParseError:       rbackRstGeneralParseError
-            of meInvalidDirective:        rbackRstInvalidDirective
-            of meInvalidField:            rbackRstInvalidField
-            of meFootnoteMismatch:        rbackRstFootnoteMismatch
-            of mwRedefinitionOfLabel:     rbackRstRedefinitionOfLabel
-            of mwUnknownSubstitution:     rbackRstUnknownSubstitution
-            of mwBrokenLink:              rbackRstBrokenLink
-            of mwUnsupportedLanguage:     rbackRstUnsupportedLanguage
-            of mwUnsupportedField:        rbackRstUnsupportedField
-            of mwRstStyle:                rbackRstRstStyle
-      ))
+    let kind =
+      case msgKind:
+      of meCannotOpenFile:          rbackRstCannotOpenFile
+      of meExpected:                rbackRstExpected
+      of meGridTableNotImplemented: rbackRstGridTableNotImplemented
+      of meMarkdownIllformedTable:  rbackRstMarkdownIllformedTable
+      of meNewSectionExpected:      rbackRstNewSectionExpected
+      of meGeneralParseError:       rbackRstGeneralParseError
+      of meInvalidDirective:        rbackRstInvalidDirective
+      of meInvalidField:            rbackRstInvalidField
+      of meFootnoteMismatch:        rbackRstFootnoteMismatch
+      of mwRedefinitionOfLabel:     rbackRstRedefinitionOfLabel
+      of mwUnknownSubstitution:     rbackRstUnknownSubstitution
+      of mwBrokenLink:              rbackRstBrokenLink
+      of mwUnsupportedLanguage:     rbackRstUnsupportedLanguage
+      of mwUnsupportedField:        rbackRstUnsupportedField
+      of mwRstStyle:                rbackRstRstStyle
+    if kind in rbackErrorKinds:
+      # TODO: errors/events that are locally fatal have to handle aborting
+      #       where the event is emitted, not here via `globalReport`
+      {.gcsafe.}:
+        globalReport(conf,
+          newLineInfo(conf, AbsoluteFile filename, line, col),
+          BackendReport(msg: arg, kind: kind))
+    else:
+      {.gcsafe.}:
+        localReport(conf,
+          newLineInfo(conf, AbsoluteFile filename, line, col),
+          BackendReport(msg: arg, kind: kind))
 
   proc docgenFindFile(s: string): string {.gcsafe, used.} =
     result = options.findFile(conf, s).string
@@ -701,36 +709,6 @@ proc getAllRunnableExamplesImpl(d: PDoc; n: PNode, dest: var ItemPre,
     # change this to `rsStart` if you want to keep generating doc comments
     # and runnableExamples that occur after some code in routine
 
-proc getRoutineBody(n: PNode): PNode =
-  ##[
-  nim transforms these quite differently:
-
-  proc someType*(): int =
-    ## foo
-    result = 3
-=>
-  result =
-    ## foo
-    3;
-
-  proc someType*(): int =
-    ## foo
-    3
-=>
-  ## foo
-  result = 3;
-
-  so we normalize the results to get to the statement list containing the
-  (0 or more) doc comments and runnableExamples.
-  ]##
-  result = n[bodyPos]
-
-  # This won't be transformed: result.id = 10. Namely result[0].kind != nkSym.
-  if result.kind == nkAsgn and result[0].kind == nkSym and
-                               n.len > bodyPos+1 and n[bodyPos+1].kind == nkSym:
-    doAssert result.len == 2
-    result = result[1]
-
 proc getAllRunnableExamples(d: PDoc, n: PNode, dest: var ItemPre) =
   var n = n
   var state = rsStart
@@ -739,7 +717,7 @@ proc getAllRunnableExamples(d: PDoc, n: PNode, dest: var ItemPre) =
   dest.add genComment(d, n)
   case n.kind
   of routineDefs:
-    n = n.getRoutineBody
+    n = n[bodyPos]
     case n.kind
     of nkCommentStmt, nkCallKinds: fn(n, topLevel = false)
     else:
@@ -892,7 +870,7 @@ proc genDeprecationMsg(d: PDoc, n: PNode): string =
     result = getConfigVar(d.conf, "doc.deprecationmsg") % [
        "label" , "Deprecated", "message", ""]
   of 2: # Deprecated w/ a message
-    if n[1].kind in {nkStrLit..nkTripleStrLit}:
+    if n[1].kind in nkStrLiterals:
       result = getConfigVar(d.conf, "doc.deprecationmsg") % [
           "label", "Deprecated:", "message", xmltree.escape(n[1].strVal)]
   else:

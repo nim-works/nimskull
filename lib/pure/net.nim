@@ -29,11 +29,15 @@
 ## ==============
 ##
 ## On Windows the SSL library checks for valid certificates.
-## It uses the `cacert.pem` file for this purpose which was extracted
-## from `https://curl.se/ca/cacert.pem`. Besides
-## the OpenSSL DLLs (e.g. libssl-1_1-x64.dll, libcrypto-1_1-x64.dll) you
-## also need to ship `cacert.pem` with your `.exe` file.
 ##
+## It uses a Certificate Authority (CA) bundle and/or the Windows Root
+## Certificate store (only with OpenSSL >= 3.2.0) for this purpose.
+##
+## The CA bundle should be named `cacert.pem` and placed next to the
+## program `.exe` or in `PATH` and can be obtained from
+## `https://curl.se/ca/cacert.pem`. This bundle will be loaded
+## regardless of whether the Windows Certificate Root store is used,
+## but is only required when the Root Certificate store can not be used.
 ##
 ## Examples
 ## ========
@@ -518,10 +522,6 @@ proc fromSockAddr*(sa: Sockaddr_storage | SockAddr | Sockaddr_in | Sockaddr_in6,
 
 when defineSsl:
   CRYPTO_malloc_init()
-  doAssert SslLibraryInit() == 1
-  SSL_load_error_strings()
-  ERR_load_BIO_strings()
-  OpenSSL_add_all_algorithms()
 
   proc sslHandle*(self: Socket): SslPtr =
     ## Retrieve the ssl pointer of `socket`.
@@ -625,30 +625,25 @@ when defineSsl:
     var newCTX: SslCtx
     case protVersion
     of protSSLv23:
-      newCTX = SSL_CTX_new(SSLv23_method()) # SSlv2,3 and TLS1 support.
+      newCTX = SSL_CTX_new(TLS_method()) # SSLv3, TLS 1.0 and above
     of protSSLv2:
       raiseSSLError("SSLv2 is no longer secure and has been deprecated, use protSSLv23")
     of protSSLv3:
       raiseSSLError("SSLv3 is no longer secure and has been deprecated, use protSSLv23")
     of protTLSv1:
-      newCTX = SSL_CTX_new(TLSv1_method())
+      raiseSSLError("TLSv1 is no longer secure and has been deprecated, use protSSLv23")
 
     if newCTX.SSL_CTX_set_cipher_list(cipherList) != 1:
       raiseSSLError()
-    when not defined(openssl10) and not defined(libressl):
-      let sslVersion = getOpenSSLVersion()
-      if sslVersion >= 0x010101000 and not sslVersion == 0x020000000:
-        # In OpenSSL >= 1.1.1, TLSv1.3 cipher suites can only be configured via
-        # this API.
-        if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
-          raiseSSLError()
-    # Automatically the best ECDH curve for client exchange. Without this, ECDH
-    # ciphers will be ignored by the server.
-    #
-    # From OpenSSL >= 1.1.0, this setting is set by default and can't be
-    # overriden.
-    if newCTX.SSL_CTX_set_ecdh_auto(1) != 1:
-      raiseSSLError()
+    when false:
+      # TODO: this used to "work" when we only perform the config for
+      # version >= 1.1.1. However, it seems that the previous gating condition
+      # was wrong and this code was never ran, giving the impression that
+      # it worked.
+      #
+      # TLSv1.3 cipher suites can only be configured via this API.
+      if newCTX.SSL_CTX_set_ciphersuites(cipherList) != 1:
+        raiseSSLError()
 
     when defined(nimDisableCertificateValidation):
       newCTX.SSL_CTX_set_verify(SSL_VERIFY_NONE, nil)
@@ -677,7 +672,18 @@ when defineSsl:
         else:
           # Scan for certs in known locations. For CVerifyPeerUseEnvVars also scan
           # the SSL_CERT_FILE and SSL_CERT_DIR env vars
-          var found = false
+          var found =
+            when not defined(windows) or defined(openssl111):
+              false
+            else:
+              # Try loading the root certificate store on Windows.
+              #
+              # Note that we will still load cacert.pem after this, just that
+              # it won't be considered an error if we couldn't. This is because
+              # OpenSSL won't raise an error here if the store doesn't exist.
+              OpenSSL_version_num() >= 0x30200000 and
+              newCTX.SSL_CTX_load_verify_store("org.openssl.winstore:") == VerifySuccess
+
           let useEnvVars = (if verifyMode == CVerifyPeerUseEnvVars: true else: false)
           for fn in scanSSLCertificates(useEnvVars = useEnvVars):
             if newCTX.SSL_CTX_load_verify_locations(fn, nil) == VerifySuccess:
@@ -1919,52 +1925,39 @@ proc dial*(address: string, port: Port,
   let sockType = protocol.toSockType()
 
   let aiList = getAddrInfo(address, port, AF_UNSPEC, sockType, protocol)
+  defer: freeaddrinfo(aiList)
 
-  var fdPerDomain: array[low(Domain).ord..high(Domain).ord, SocketHandle]
-  for i in low(fdPerDomain)..high(fdPerDomain):
-    fdPerDomain[i] = osInvalidSocket
-  template closeUnusedFds(domainToKeep = -1) {.dirty.} =
-    for i, fd in fdPerDomain:
-      if fd != osInvalidSocket and i != domainToKeep:
-        fd.close()
-
-  var success = false
-  var lastError: OSErrorCode
   var it = aiList
-  var domain: Domain
-  var lastFd: SocketHandle
+  var lastError: OSErrorCode
   while it != nil:
     let domainOpt = it.ai_family.toKnownDomain()
     if domainOpt.isNone:
       it = it.ai_next
       continue
-    domain = domainOpt.unsafeGet()
-    lastFd = fdPerDomain[ord(domain)]
-    if lastFd == osInvalidSocket:
-      lastFd = createNativeSocket(domain, sockType, protocol)
-      if lastFd == osInvalidSocket:
-        # we always raise if socket creation failed, because it means a
-        # network system problem (e.g. not enough FDs), and not an unreachable
-        # address.
-        let err = osLastError()
-        freeaddrinfo(aiList)
-        closeUnusedFds()
-        raiseOSError(err)
-      fdPerDomain[ord(domain)] = lastFd
-    if connect(lastFd, it.ai_addr, it.ai_addrlen.SockLen) == 0'i32:
-      success = true
-      break
+
+    let domain = domainOpt.unsafeGet()
+    var fd = createNativeSocket(domain, sockType, protocol)
+    if fd == osInvalidSocket:
+      # we always raise if socket creation failed, because it means a
+      # network system problem (e.g. not enough FDs), and not an unreachable
+      # address.
+      let err = osLastError()
+      raiseOSError(err)
+    defer: close(fd)
+
+    if connect(fd, it.ai_addr, it.ai_addrlen.SockLen) == 0'i32:
+      result = newSocket(fd, domain, sockType, protocol)
+      fd = osInvalidSocket # prevents result fd from being closed by defer
+      return
+
     lastError = osLastError()
     it = it.ai_next
-  freeaddrinfo(aiList)
-  closeUnusedFds(ord(domain))
 
-  if success:
-    result = newSocket(lastFd, domain, sockType, protocol)
-  elif lastError != 0.OSErrorCode:
+  if lastError != 0.OSErrorCode:
+    # FIXME: This should be a collection of errors for each attempt, not the last one
     raiseOSError(lastError)
   else:
-    raise newException(IOError, "Couldn't resolve address: " & address)
+    raise newException(IOError, "No usable addresses found for: " & address)
 
 proc connect*(socket: Socket, address: string,
     port = Port(0)) {.tags: [ReadIOEffect].} =

@@ -18,6 +18,9 @@ import
     hashes,
     md5
   ],
+  std/private/[
+    containers
+  ],
   compiler/front/[
     options,
     msgs,
@@ -29,7 +32,6 @@ import
     idents,
   ],
   compiler/utils/[
-    containers,
     pathutils,
     btrees,
     ropes,
@@ -87,7 +89,7 @@ type
     concreteTypes*: seq[FullId]
     inst*: PInstantiation
 
-  ModuleGraph* {.acyclic.} = ref object
+  ModuleGraph* = ref object
     ifaces*: seq[Iface]  ## indexed by int32 fileIdx
     packed*: PackedModuleGraph
     encoders*: seq[PackedEncoder]
@@ -139,6 +141,9 @@ type
     passes*: seq[TPass]
     idgen*: IdGenerator
     operators*: Operators
+    noreturnType*: PType
+      ## special type used for marking statements as not returning. Currently
+      ## only used in mid-end
     when defined(nimsuggest):
       onMarkUsed*: SuggestCallback
         ## callback decouples regular compiler code `markUsed` from suggest
@@ -280,15 +285,24 @@ iterator allSyms*(g: ModuleGraph; m: PSym): PSym =
       if s != nil:
         yield s
 
-proc someSym*(g: ModuleGraph; m: PSym; name: PIdent): PSym =
-  let importHidden = optImportHidden in m.options
+proc someSym(g: ModuleGraph; m: PSym; name: PIdent, importHidden: bool): PSym =
   if isCachedModule(g, m):
     result = interfaceSymbol(g.config, g.cache, g.packed, FileIndex(m.position), name, importHidden)
   else:
     result = strTableGet(g.ifaces[m.position].interfSelect(importHidden), name)
 
+proc someSym*(g: ModuleGraph; m: PSym; name: PIdent): PSym =
+  someSym(g, m, name, optImportHidden in m.options)
+
 proc systemModuleSym*(g: ModuleGraph; name: PIdent): PSym =
   result = someSym(g, g.systemModule, name)
+
+proc systemModuleType*(g: ModuleGraph, name: PIdent): PType =
+  ## Returns the type from the system module with name `name`. If none exists,
+  ## returns nil. The search also includes non-exported symbols.
+  let s = someSym(g, g.systemModule, name, importHidden=true)
+  if s.kind == skType:
+    result = s.typ
 
 iterator systemModuleSyms*(g: ModuleGraph; name: PIdent): PSym =
   var mi: ModuleIter
@@ -522,6 +536,7 @@ proc newModuleGraph*(cache: IdentCache; config: ConfigRef): ModuleGraph =
   result.symBodyHashes = initTable[int, SigHash]()
   result.operators = initOperators(result)
   result.emittedTypeInfo = initTable[string, FileIndex]()
+  result.noreturnType = newType(tyVoid, nextTypeId(result.idgen), nil)
 
 proc resetAllModules*(g: ModuleGraph) =
   initStrTable(g.packageSyms)

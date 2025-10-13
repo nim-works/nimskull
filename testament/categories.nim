@@ -319,7 +319,7 @@ proc isJoinableSpec(spec: TSpec, targets: set[TTarget], early: TResultEnum): boo
     not fileExists(spec.file.changeFileExt("nim.cfg")) and
     not fileExists(parentDir(spec.file) / "nim.cfg") and
     spec.cmd.len == 0 and
-    early notin {reDisabled} and
+    early notin {reDisabled, reInvalidSpec} and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
@@ -360,9 +360,12 @@ proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: st
       for file in walkDirRec(testsDir / cat):
         if isTestFile(file):
           try:
-            let spec = parseSpec(file, cat.Category.defaultTargets, nativeTarget())
-            if isJoinableSpec(spec, targets, computeEarly(spec, true)):
-              specs.add spec
+            # setup a pseudo test instance for the purpose of computing
+            # whether it can be joined
+            let test = initTest(file, "", cat.Category):
+              parseSpec(file, cat.Category.defaultTargets, nativeTarget())
+            if isJoinableSpec(test.spec, targets, computeEarly(test)):
+              specs.add test.spec
           except ValueError:
             msg Undefined:
               "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file

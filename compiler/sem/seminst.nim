@@ -308,11 +308,16 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
     propagateToOwner(result, result[i])
     addDecl(c, param)
 
+  result.n[0] = originalParams[0].copyTree
+  if originalParams[0].len > effectListLen:
+    # instantiate the hidden ``Continuation`` type
+    result.n[0][effectListLen] =
+      replaceTypeVarsN(cl, originalParams[0][effectListLen])
+
   resetIdTable(cl.symMap)
   cl.isReturnType = true
   result[0] = replaceTypeVarsT(cl, result[0])
   cl.isReturnType = false
-  result.n[0] = originalParams[0].copyTree
   if result[0] != nil:
     propagateToOwner(result, result[0])
 
@@ -331,7 +336,7 @@ proc fillMixinScope(c: PContext) =
     p = p.next
 
 proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
-                      info: TLineInfo): PSym {.nosinks.} =
+                      info: TLineInfo): PSym =
   ## Generates a new instance of a generic procedure.
   ## The `pt` parameter is a type-unsafe mapping table used to link generic
   ## parameters to their concrete types within the generic instance.
@@ -360,7 +365,10 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
   let oldMatchedConcept = c.matchedConcept
   c.matchedConcept = nil
   let oldScope = c.currentScope
-  while not isTopLevel(c): c.currentScope = c.currentScope.parent
+  # instantiate the generic within the same scope it was defined in, if
+  # possible
+  while not isTopLevel(c) and not strTableContains(c.currentScope.symbols, fn):
+    c.currentScope = c.currentScope.parent
   result = copySym(fn, nextSymId c.idgen)
   incl(result.flags, sfFromGeneric)
   result.owner = fn
@@ -401,6 +409,11 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
   n[genericParamsPos] = c.graph.emptyNode
   var oldPrc = genericCacheGet(c.graph, fn, entry[], c.compilesContextId)
   if oldPrc == nil:
+    if sfForward in fn.flags and fn.itemId.module != c.module.itemId.module:
+      localReport(c.config, info, reportSem(rsemCannotInstantiateForwarded))
+      # don't abort instantiation; let it complete for the sake of error
+      # correction (check/suggest)
+
     # we MUST not add potentially wrong instantiations to the caching mechanism.
     # This means recursive instantiations behave differently when in
     # a ``compiles`` context but this is the lesser evil. See
@@ -411,19 +424,13 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     c.generics.add(makeInstPair(fn, entry))
     if n[pragmasPos].kind != nkEmpty:
       result.ast[pragmasPos] = pragmaDecl(c, result, n[pragmasPos], allRoutinePragmas)
-      # check if we got any errors and if so report them
-      for e in ifErrorWalkErrors(c.config, result.ast[pragmasPos]):
-        localReport(c.config, e)
 
     if isNil(n[bodyPos]):
       n[bodyPos] = copyTree(getBody(c.graph, fn))
     if c.inGenericContext == 0:
       instantiateBody(c, n, fn.typ.n, result, fn)
       if result.ast[bodyPos].kind == nkError:
-        # XXX: we also need to report the error here for now. Without the
-        #      ``localReport``, the error would never get reported
-        localReport(c.config, result.ast[bodyPos])
-        # compilation might continue after the report
+        # mark the whole definition as containing an error somewhere
         result.ast = c.config.wrapError(result.ast)
 
     sideEffectsCheck(c, result)

@@ -52,10 +52,9 @@ block derive_from_ref_root_obj:
   ## To convert base type back to derived, you can use object conversion
   doAssert Derived(base).f2 == 12
 
-  when (not defined(js) and not defined(vm)) or
+  when (not defined(vm)) or
        defined(tryBrokenSpecification):
     # Issue: the VM doesn't raise a user-catchable error for this conversion
-    # Bug: js target allows this conversion to happen parent ref -> child ref
     try:
       discard Derived(Base())
       doAssert false, "Should have raised defect"

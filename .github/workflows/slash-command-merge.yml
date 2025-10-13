@@ -15,13 +15,13 @@ jobs:
     name: Trim description and merge
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           sparse-checkout: |
             tools/ci_format_pr_description.js
       - id: pr-data
         name: Get PR data and trim PR body
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const pull_id = context.payload.client_payload.pull_request.node_id;
@@ -73,7 +73,7 @@ jobs:
       - if: steps.pr-data.outputs.run
         id: find-comment
         name: Find previously generated informational comment
-        uses: peter-evans/find-comment@v2
+        uses: peter-evans/find-comment@v4
         with:
           issue-number: ${{ github.event.client_payload.pull_request.number }}
           comment-author: github-actions[bot]
@@ -87,7 +87,7 @@ jobs:
           && !(steps.find-comment.outputs.comment-id
             && steps.pr-data.outputs.body-tail == '')
         name: Create or update informational comment
-        uses: peter-evans/create-or-update-comment@v3
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.client_payload.pull_request.number }}
@@ -117,16 +117,16 @@ jobs:
       - if: steps.pr-data.outputs.run
         id: token
         name: Create app token for merges
-        uses: tibdex/github-app-token@v2
+        uses: actions/create-github-app-token@v2
         with:
-          app_id: ${{ secrets.CHORE_APP_ID }}
-          private_key: ${{ secrets.CHORE_APP_KEY }}
+          app-id: ${{ secrets.CHORE_APP_ID }}
+          private-key: ${{ secrets.CHORE_APP_KEY }}
 
         # TODO: Switch to GitHub CLI once
         # https://github.com/cli/cli/issues/7213 is solved.
       - if: steps.pr-data.outputs.run
         name: Queue for merging
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const pull_id = context.payload.client_payload.pull_request.node_id;

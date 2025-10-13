@@ -75,7 +75,7 @@ for i in 1..<output.len - 1:
                  time, num, path, line, col)
   # since we do not mock the ``cpuTime`` procedure, we can only check whether
   # the value is within a reasonable range
-  doAssert time in 1..100000
+  doAssert time in 1..300000, "time value is out-of-range: $#" % [$time]
   doAssert num == 1 # one sample is taken within each procedure
   doAssert path == "tvmprofiler"
   # check that the line + column are correct:

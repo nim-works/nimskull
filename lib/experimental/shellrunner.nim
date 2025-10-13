@@ -207,7 +207,7 @@ proc exec*(
     q[i] = start(cmds[i], dir = dir, options = options)
     idxs[i] = i
     when defined(windows):
-      w[i] = q[i].fProcessHandle
+      w[i] = q[i].processHandle
     inc(i)
 
   var ecount = len(cmds)
@@ -225,8 +225,8 @@ proc exec*(
       else:
         var status: int32
         for r in 0..m-1:
-          if not isNil(q[r]) and q[r].fProcessHandle == w[ret]:
-            discard getExitCodeProcess(q[r].fProcessHandle, status)
+          if not isNil(q[r]) and q[r].processHandle == w[ret]:
+            discard getExitCodeProcess(q[r].processHandle, status)
             q[r].exitFlag = true
             q[r].exitStatus = status
             rexit = r
@@ -262,7 +262,7 @@ proc exec*(
 
     if rexit >= 0:
       when defined(windows):
-        let processHandle = q[rexit].fProcessHandle
+        let processHandle = q[rexit].processHandle
       if afterRunEvent != nil:
         afterRunEvent(idxs[rexit], q[rexit])
 
@@ -281,7 +281,7 @@ proc exec*(
         q[rexit] = start(cmds[i], options = options)
         idxs[rexit] = i
         when defined(windows):
-          w[rexit] = q[rexit].fProcessHandle
+          w[rexit] = q[rexit].processHandle
         inc(i)
       else:
         when defined(windows):

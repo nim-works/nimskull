@@ -316,7 +316,7 @@ proc verboseCmd(cmd: string) =
 
 let
   pegLineError =
-    peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error') ':' \s* {.*}"
+    peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error' / 'Fatal') ':' \s* {.*}"
   pegOtherError = peg"'Error:' \s* {.*}"
   pegOfInterest = pegLineError / pegOtherError
 
@@ -400,6 +400,8 @@ proc callNimCompiler(cmd: string): CompilerOutput =
   verboseCmd(cmd)
   var p = startProcess(command = cmd,
                        options = {poStdErrToStdOut, poUsePath, poEvalCommand})
+  # windows requires reading the the exit code (below) prior to closing
+  defer: close(p)
   let outp = p.outputStream
   var foundSuccessMsg = false
   var foundErrorMsg = false
@@ -418,7 +420,6 @@ proc callNimCompiler(cmd: string): CompilerOutput =
         foundSuccessMsg = true
     elif not running(p):
       break
-  close(p)
   result.msg = ""
   result.file = ""
   result.output = ""
@@ -1110,7 +1111,8 @@ func nativeTarget(): TTarget {.inline.} =
 func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string
-  of "lang", "lang_callable", "exception":
+  of "alias", "align", "ambsym", "arithm", "assert", "assign", "exception",
+     "lang", "lang_callable":
     {targetC, targetJs, targetVM}
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":
@@ -1144,6 +1146,9 @@ proc computeEarly(spec: TSpec, inCurrentBatch: bool): TResultEnum =
     reDisabled
   else:
     reSuccess
+
+proc computeEarly(test: TTest): TResultEnum {.inline.} =
+  computeEarly(test.spec, test.inCurrentBatch)
 
 proc produceRuns(r: var TResults, test: TTest, early: TResultEnum,
                   runs: var seq[TestRun]) =

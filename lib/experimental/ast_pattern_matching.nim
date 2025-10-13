@@ -38,7 +38,7 @@ type
     WrongIdent
     WrongCustomCondition
 
-  MatchingError = object
+  MatchingError* = object
     node*: NimNode
     expectedKind*: set[NimNodeKind]
     case kind*: MatchingErrorKind

@@ -168,6 +168,9 @@ proc createStateField(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
 
 proc createEnvObj(g: ModuleGraph; idgen: IdGenerator; owner: PSym; info: TLineInfo): PType =
   result = createObj(g, idgen, owner, info, final=false)
+  # the object needs to inherit from `RootObj` (hence final=false), but it
+  # cannot be inherited from itself
+  result.flags.incl tfFinal
 
 proc getClosureIterResult*(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
   if resultPos < iter.ast.len:
@@ -215,16 +218,6 @@ proc interestingVar(s: PSym): bool {.inline.} =
 proc isInnerProc(s: PSym): bool =
   if s.kind in {skProc, skFunc, skMethod, skConverter, skIterator} and s.magic == mNone:
     result = s.skipGenericOwner.kind in routineKinds
-
-proc newAsgnStmt(le, ri: PNode, info: TLineInfo): PNode =
-  # Bugfix: unfortunately we cannot use 'nkFastAsgn' here as that would
-  # mean to be able to capture string literals which have no GC header.
-  # However this can only happen if the capture happens through a parameter,
-  # which is however the only case when we generate an assignment in the first
-  # place.
-  result = newNodeI(nkAsgn, info, 2)
-  result[0] = le
-  result[1] = ri
 
 proc makeClosure*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; env: PNode; info: TLineInfo): PNode =
   result = newNodeIT(nkClosure, info, prc.typ)
@@ -533,41 +526,36 @@ proc getUpViaParam(g: ModuleGraph; owner: PSym): PNode =
 
 proc rawClosureCreation(graph: ModuleGraph, idgen: IdGenerator,
                         c: LiftingPass; info: TLineInfo): PNode =
-  ## Generates and returns the AST for allocating and setting up an instance
-  ## of `owner`'s lifted local environment.
-  result = newNodeI(nkStmtList, c.owner.info)
+  ## Generates and returns the var statement AST for constructing an instance
+  ## of the local environment object.
+  let
+    typ = c.envSym.typ
+    constr = newObjConstr(typ, info)
+    signature = if c.owner.kind == skMacro: c.owner.internal
+                else: c.owner.typ
 
-  var env: PNode
-  if c.owner.isIterator:
-    env = newSymNode(c.envSym)
-  else:
-    env = newSymNode(c.envSym)
-    let v = newTreeI(nkVarSection, env.info):
-      newIdentDefs(env, newObjConstr(env.typ, info))
-    result.add(v)
+  # add the initialization for captured parameters to the construction:
+  for i in 1..<signature.n.len:
+    let param = signature.n[i].sym
+    if param.id in c.capturedVars:
+      let field = getFieldFromObj(typ.base, param)
+      constr.add(newTree(nkExprColonExpr, newSymNode(field), newSymNode(param)))
+      if c.owner.kind != skMacro:
+        createTypeBoundOps(graph, nil, field.typ, c.envSym.info, idgen)
+      if tfHasAsgn in field.typ.flags or
+         optSeqDestructors in graph.config.globalOptions:
+        c.owner.flags.incl sfInjectDestructors
 
-    # add assignment statements for captured parameters:
-    for i in 1..<c.owner.typ.n.len:
-      let local = c.owner.typ.n[i].sym
-      if local.id in c.capturedVars:
-        let fieldAccess = indirectAccess(env, local, env.info)
-        # add ``env.param = param``
-        result.add(newAsgnStmt(fieldAccess, newSymNode(local), env.info))
-        if c.owner.kind != skMacro:
-          createTypeBoundOps(graph, nil, fieldAccess.typ, env.info, idgen)
-        if tfHasAsgn in fieldAccess.typ.flags or optSeqDestructors in graph.config.globalOptions:
-          c.owner.flags.incl sfInjectDestructors
-
-  let upField = lookupInRecord(
-    env.typ.base.n, getIdent(graph.cache, upName))
-
+  let upField = lookupInRecord(typ.base.n, getIdent(graph.cache, upName))
   if upField != nil:
     let up = getUpViaParam(graph, c.owner)
     graph.config.internalAssert(
       up != nil and upField.typ.base == up.typ.base,
-      env.info, "internal error: cannot create up reference")
+      c.envSym.info, "internal error: cannot create up reference")
 
-    result.add(newAsgnStmt(rawIndirectAccess(env, upField, env.info), up, env.info))
+    constr.add(newTree(nkExprColonExpr, newSymNode(upField), up))
+
+  result = newTree(nkVarSection, newIdentDefs(newSymNode(c.envSym), constr))
 
 proc accessViaEnvVar(n: PNode; c: LiftingPass): PNode =
   let access = newSymNode(c.envSym)
@@ -617,10 +605,14 @@ proc symToClosure(n: PNode; graph: ModuleGraph; idgen: IdGenerator;
 proc transformedAccess(n: PNode, graph: ModuleGraph, idgen: IdGenerator, c: LiftingPass): PNode =
   let s = n.sym
   if isInnerProc(s):
-    # don't transform closure iterator usages yet; we don't know the
-    # proper environment types at this point
-    if s.typ.callConv == ccClosure and not s.isIterator:
-      result = symToClosure(n, graph, idgen, c)
+    if s.typ.callConv == ccClosure:
+      if s.isIterator:
+        # only create a preliminary construction using the local env.
+        # A proper construction is created once the iterator's environment
+        # type is known
+        result = makeClosure(graph, idgen, s, newSymNode(c.envSym), n.info)
+      else:
+        result = symToClosure(n, graph, idgen, c)
     else:
       result = n
   elif s.id in c.capturedVars:
@@ -639,15 +631,10 @@ proc liftCapturedVars(n: PNode, graph: ModuleGraph, idgen: IdGenerator,
                       c: LiftingPass): PNode =
   ## Recursively transforms the AST `n` according to the context provided
   ## with `c`. Usages and definitions of locals are transformed into an
-  ## environment field access, and usages of closure routines (except for
-  ## iterators) are transformed into closure construction expressions.
+  ## environment field access, and usages of closure routines are transformed
+  ## into closure construction expressions.
   ##
-  ## In addition, the current enivornment (which can either be the root
-  ## routines local environment or some outer environment) is added as the
-  ## hidden parameter to each closure routine defined in the root
-  ## routine.
-  ##
-  ## `n` is assumed to be owned, and is thus modified in-place.
+  ## `n` is expected to be a production and is modified in-place.
   result = n
   case n.kind
   of nkSym:
@@ -722,9 +709,9 @@ proc liftIterToProc*(g: ModuleGraph; fn: PSym; body: PNode; ptrType: PType;
   result = liftCapturedVars(body, g, idgen, c)
 
 proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
-                  idgen: IdGenerator): tuple[body: PNode, env: PSym] =
+                  idgen: IdGenerator): PNode =
   ## Performs multiple things:
-  ## * produce an object type that contains all local variables and
+  ## * produces an object type that contains all local variables and
   ##   parameters of `fn` (with body `body`) that inner routines close
   ##   over
   ## * injects the AST for setting up an instance of the environment
@@ -769,12 +756,13 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
       param = getHiddenParam(g, fn)
     else:
       param.typ = t # replace with the correct type
+      # also update the symbol *node's* type
+      fn.ast[paramsPos][^1].typ = t
 
     prepareInnerRoutines(d, idgen, t, fn.info)
     # the environment instance is not setup here; that's done at the iterator's
     # callsite
-    result.body = liftCapturedVars(body, g, idgen, initLiftingPass(d, param))
-    result.env = param
+    result = liftCapturedVars(body, g, idgen, initLiftingPass(d, param))
   elif body.kind != nkEmpty:
     assert fn.typ.callConv != ccClosure or getEnvParam(fn) != nil,
       "missing environment parameter"
@@ -782,54 +770,62 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode;
     var d = initDetectionPass(g, fn, idgen)
     detectCapturedVars(body, fn, d)
 
-    if d.requireUp or d.accessOuter or d.closureProcCalled or
-       d.capturedVars.len > 0:
+    if d.capturedVars.len > 0 or
+       (not d.requireUp and not d.accessOuter and d.closureProcCalled):
+      # TODO: an unnecessary env is currently when there are only inner
+      #       .closure procedures that don't close over anything. Find a good
+      #       way to mark all real closures as such and then ignore all other
+      #       .closure routines during lambda lifting
       let t = produceEnvType(d, idgen, fn, fn.info)
       prepareInnerRoutines(d, idgen, t, fn.info)
-
-      let
-        c = initLiftingPass(d, newEnvVar(g.cache, fn, t, fn.info, idgen))
-        transformed = liftCapturedVars(body, g, idgen, c)
-
-      # XXX: if only the outer environment needs to be passed to inner
-      #      routines and nothing in `fn` itself needs to be lifted,
-      #      then we don't need a dedicated environment that stores just
-      #      the up reference
-      if d.requireUp or d.closureProcCalled or d.capturedVars.len > 0:
-        result.body = rawClosureCreation(g, idgen, c, body.info)
-        result.body.add transformed
-      else:
-        result.body = transformed
-
-      result.env = c.envSym
+      let c = initLiftingPass(d, newEnvVar(g.cache, fn, t, fn.info, idgen))
+      result = newTreeI(nkStmtList, body.info)
+      result.add rawClosureCreation(g, idgen, c, body.info)
+      result.add liftCapturedVars(body, g, idgen, c)
+    elif d.requireUp or d.accessOuter:
+      # the procedure only access the env parameter, without creating its
+      # own environment
+      let param = getHiddenParam(g, fn)
+      prepareInnerRoutines(d, idgen, param.typ, fn.info)
+      result = liftCapturedVars(body, g, idgen, initLiftingPass(d, param))
     else:
       # nothing to do
-      result = (body, nil)
+      result = body
   else:
     # a routine prototype or otherwise empty routine -> nothing to do
-    result = (body, nil)
+    result = body
 
 proc liftLambdasForTopLevel*(module: PSym, body: PNode): PNode =
   # XXX implement it properly
   result = body
 
-proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner, currEnv: PSym): PNode =
-  ## Transforms  ``(iter)``  to  ``(iter, newClosure[iter]())``.
-  ## This cannot happen as part of ``liftCapturedVars``, as the iterator's
-  ## environment type is not available at that point.
+proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
+  ## Transforms  ``(iter)`` into a closure iterator value construction
+  ## ``(iter, newClosure[iter]())``.
   let iter = n.sym
   assert iter.isIterator
+  let constr = newObjConstr(getHiddenParam(g, iter).typ, n.info)
+  result = makeClosure(g, idgen, iter, constr, n.info)
 
+proc transformIterConstr*(g: ModuleGraph; n: PNode, idgen: IdGenerator,
+                          owner: PSym): PNode =
+  ## Transforms a preliminary closure iterator value construction generated
+  ## during lambda lifting into a proper construction, now that the iterator's
+  ## environment type is known.
+  assert n.kind == nkClosure
+  let iter = n[0].sym
+  assert iter.isIterator
   let
-    hp = getHiddenParam(g, iter)
-    envTyp = hp.typ # the environment's ``ref`` type
+    envTyp = getHiddenParam(g, iter).typ
     constr = newObjConstr(envTyp, n.info)
 
   let upField = lookupInRecord(envTyp.base.n, getIdent(g.cache, upName))
   if upField != nil:
-    # the iterator has an 'up' field, and we have to initialize it here
-    let access = accessEnv(currEnv, upField.typ, n.info, g)
-    constr.add newTree(nkExprColonExpr, [newSymNode(upField), access])
+    g.config.internalAssert(n[1].kind == nkSym,
+      "iterator construction is missing the up value")
+    constr.add nkExprColonExpr.newTree(
+      newSymNode(upField),
+      accessEnv(n[1].sym, upField.typ, n.info, g))
 
   result = makeClosure(g, idgen, iter, constr, n.info)
 

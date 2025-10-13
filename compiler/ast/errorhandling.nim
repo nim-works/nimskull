@@ -44,17 +44,14 @@ import
     options,
   ]
 
-when defined(nimDebugUnreportedErrors):
-  import std/tables
-
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
-  of nkEmpty..nkNilLit:
-    result = nil
   of nkError:
     result = n
-  else:
+  of nkWithoutSons - nkError:
+    result = nil
+  of nkWithSons:
     result = nil
     for s in n.items:
       if s.isNil: continue
@@ -118,9 +115,9 @@ proc newError*(
   if diag.instLoc.filename in ["???", ""]:
     diag.instLoc = inst # compilerInfoPos
 
-  when defined(nimDebugUnreportedErrors):
-    if diag.kind != adWrappedError:
-      conf.unreportedErrors[result.diag.diagId] = result
+  if diag.kind notin {adWrappedError, adWrappedSymError}:
+    # emit the diagnostic/report right away
+    conf.emit(conf.astDiagToLegacyReport(conf, diag), inst)
 
 template newError*(
     conf: ConfigRef,
@@ -165,15 +162,12 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from most specific to least specific
   ## by traversing the the error tree in a depth-first-search.
   case n.kind
-  of nkEmpty .. nkNilLit, nkCommentStmt:
+  of nkWithoutSons - nkError:
     discard
   of nkError:
     buildErrorList(config, n.diag.wrongNode, errs)
-    when defined(nimDebugUnreportedErrors):
-      if n.errorKind == adWrappedError and errs.len == 0:
-        echo "Empty WrappedError: ", config $ n.info
     errs.add n
-  else:
+  of nkWithSons:
     for i in 0..<n.len:
       buildErrorList(config, n[i], errs)
 
@@ -189,7 +183,7 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   for i in 0..<errNodes.len:
     # reverse index so we go from the innermost to outermost
     let e = errNodes[i]
-    if e.diag.kind == adWrappedError:
+    if e.diag.kind in {adWrappedError, adWrappedSymError}:
       continue
 
     assert(

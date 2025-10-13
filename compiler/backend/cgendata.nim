@@ -11,19 +11,25 @@
 
 import
   std/[
-    hashes,
     intsets,
     tables,
     sets
+  ],
+  std/private/[
+    containers
   ],
   compiler/ast/[
     ast,
     lineinfos,
     ndi,
-    types
   ],
   compiler/backend/[
     cgir
+  ],
+  compiler/mir/[
+    mirenv,
+    mirtrees,
+    mirtypes
   ],
   compiler/modules/[
     modulegraphs
@@ -32,25 +38,13 @@ import
     options
   ],
   compiler/utils/[
-    containers,
-    idioms,
     ropes,
     pathutils
   ]
 
+import std/options as std_options
 
 type
-  SymbolMap*[T] = object
-    ## Associates extra location-related data with symbols. This is
-    ## temporary scaffolding until each entity (type, local, procedure,
-    ## etc.) is consistently represented as an index-like handle in the
-    ## code generator, at which point a ``Store`` (or ``SeqMap``) can be
-    ## used directly.
-    ##
-    ## Mapping from a symbol to the associated data currently happens via
-    ## ``TSym.locId``.
-    store: Store[range[0'u32..high(uint32)-1], T]
-
   TLocKind* = enum
     locNone,                  ## no location
     locTemp,                  ## temporary location
@@ -76,7 +70,6 @@ type
     lfEnforceDeref           ## a copyMem is required to dereference if this a
                              ## ptr array due to C array limitations.
                              ## See #1181, #6422, #11171
-    lfPrepareForMutation     ## string location is about to be mutated
     lfWantLvalue             ## on empty locs, signals that a C lvalue is
                              ## expected
 
@@ -90,16 +83,7 @@ type
   ProcLoc* = object
     name*: string             ## the name of the C function in the generated
                               ## code
-    sym*: PSym                ## the source symbol. Only needed for NDI file
-                              ## generation XXX: unnecessary once there's a
-                              ## one-to-one correspondence between
-                              ## ``DiscoverData`` and ``ProcLoc``
     params*: seq[TLoc]        ## the locs of the parameters
-
-  ConstrTree* = distinct CgNode
-    ## A ``CgNode`` tree that represents a literal primitive/aggregate value
-    ## construction expression. A ``distinct`` alias for ``CgNode`` is used
-    ## such that special equality and hash operations can be attached.
 
   TLabel* = Rope              ## for the C generator a label is just a rope
   TCFileSection* = enum       ## the sections a generated C file consists of
@@ -140,15 +124,7 @@ type
   BModule* = ref TCGen
   BProc* = ref TCProc
   TBlock* = object
-    id*: int                  ## the ID of the label; positive means that it
-    blk*: int                 ## the ``BlockId`` + 1 of the block.
-                              ## '0' if the ``TBlock`` doesn't correspond to a
-                              ## ``cnkBlockStmt``
-    label*: Rope              ## generated text for the label
-                              ## nil if label is not used
     sections*: TCProcSections ## the code belonging
-    nestedTryStmts*: int16    ## how many try statements is it nested into
-    nestedExceptStmts*: int16 ## how many except statements is it nested into
     frameLen*: int16
 
   TCProcFlag* = enum
@@ -164,20 +140,17 @@ type
     flags*: set[TCProcFlag]
     lastLineInfo*: TLineInfo  ## to avoid generating excessive 'nimln' statements
     currLineInfo*: TLineInfo  ## AST codegen will make this superfluous
-    nestedTryStmts*: seq[tuple[fin: CgNode, inExcept: bool, label: Natural]]
-                              ## in how many nested try statements we are
-                              ## (the vars must be volatile then)
-                              ## bool is true when are in the except part of a try block
     labels*: Natural          ## for generating unique labels in the C proc
     blocks*: seq[TBlock]      ## nested blocks
     options*: TOptions        ## options that should be used for code
                               ## generation; this is the same as prc.options
                               ## unless prc == nil
     module*: BModule          ## used to prevent excessive parameter passing
-    withinLoop*: int          ## > 0 if we are within a loop
-    withinTryWithExcept*: int ## required for goto based exception handling
-    withinBlockLeaveActions*: int ## complex to explain
     sigConflicts*: CountTable[string]
+
+    specifier*: Option[uint32]
+    # XXX: `specifier` is a hack. Some parts of the code generator manually
+    #      emit gotos, and thus need a label specifier, but they shouldn't
 
     body*: Body               ## the procedure's full body
     locals*: OrdinalSeq[LocalId, TLoc]
@@ -216,16 +189,19 @@ type
                             ## nimtvDeps is VERY hard to cache because it's
                             ## not a list of IDs nor can it be made to be one.
 
-    globals*: SymbolMap[TLoc]
+    env*: MirEnv
+      ## the project-wide MIR environment
+
+    globals*: SeqMap[GlobalId, TLoc]
       ## the locs for all alive globals of the program
-    consts*: SymbolMap[TLoc]
+    consts*: SeqMap[ConstId, TLoc]
       ## the locs for all alive constants of the program
-    procs*: SymbolMap[ProcLoc]
+    procs*: SeqMap[ProcedureId, ProcLoc]
       ## the locs for all alive procedure of the program
-    fields*: SymbolMap[string]
+    fields*: Table[FieldId, string]
       ## stores the C name for each field
 
-    hooks*: seq[(BModule, PSym)]
+    hooks*: seq[(BModule, ProcedureId)]
       ## late late-dependencies. Generating code for a procedure might lead
       ## to the RTTI setup code for some type from a foreign module (i.e., one
       ## different from the module that acts as the current context) to be
@@ -245,21 +221,25 @@ type
     cfilename*: AbsoluteFile  ## filename of the module (including path,
                               ## without extension)
     tmpBase*: Rope            ## base for temp identifier generation
-    typeCache*: TypeCache     ## cache the generated types
-    typeABICache*: HashSet[SigHash] ## cache for ABI checks; reusing typeCache
-                              ## would be ideal but for some reason enums
-                              ## don't seem to get cached so it'd generate
-                              ## 1 ABI check per occurence in code
-    forwTypeCache*: TypeCache ## cache for forward declarations of types
+    typeCache*: Table[TypeId, Rope] ## cache the generated types
+    forwTypeCache*: Table[TypeId, Rope] ## cache for forward declarations of types
     declaredThings*: IntSet   ## things we have declared in this .c file
     declaredProtos*: IntSet   ## prototypes we have declared in this .c file
     headerFiles*: seq[string] ## needed headers to include
     typeInfoMarker*: TypeCache ## needed for generating type information
     typeInfoMarkerV2*: TypeCache
-    typeStack*: TTypeSeq      ## used for type generation
-    dataCache*: Table[ConstrTree, int] ## maps a value construction
-                              ## expression to the label of the C constant
-                              ## created for it
+    defaultCache*: Table[SigHash, int]
+      ## maps a type hash to the name of a C constant storing the type's
+      ## default value
+    strCache*: Table[StringId, int]
+      ## associates a string with the label of the C constant generated
+      ## for it
+      ## TODO: strings should be turned into data-only constants (``DataId``)
+      ##       during the MIR phase
+    dataNames*: Table[DataId, int]
+      ## associates each constant expression for which a C constant was
+      ## emitted with a label. The name of the C constant can be derived from
+      ## the label
     typeNodes*: int ## used for type info generation
     typeNodesName*: Rope ## used for type info generation
     labels*: Natural          ## for generating unique module-scope names
@@ -267,7 +247,7 @@ type
     g*: BModuleList
     ndi*: NdiFile
 
-    extra*: seq[PSym]
+    extra*: seq[ProcedureId]
       ## communicates dependencies introduced by the code-generator
       ## back to the caller. The caller is responsible for clearing the list
       ## after it's done with processing it. The code-generator only ever
@@ -281,14 +261,12 @@ template fields*(m: BModule): untyped  = m.g.fields
 template globals*(m: BModule): untyped = m.g.globals
 template consts*(m: BModule): untyped  = m.g.consts
 
-template fieldName*(p: BProc, field: PSym): string =
-  ## Returns the C name for the given `field`.
-  p.module.fields[field]
+template env*(p: BProc): untyped = p.module.g.env
 
 template params*(p: BProc): seq[TLoc] =
   ## Returns the mutable list with the locs of `p`'s
   ## parameters.
-  p.module.procs[p.prc].params
+  p.module.procs[p.env.procedures[p.prc]].params
 
 proc includeHeader*(this: BModule; header: string) =
   if not this.headerFiles.contains header:
@@ -309,113 +287,21 @@ proc newProc*(prc: PSym, module: BModule): BProc =
   result.options = if prc != nil: prc.options
                    else: module.config.options
   newSeq(result.blocks, 1)
-  result.nestedTryStmts = @[]
   result.sigConflicts = initCountTable[string]()
 
 proc newModuleList*(g: ModuleGraph): BModuleList =
   BModuleList(typeInfoMarker: initTable[SigHash, tuple[str: Rope, owner: int32]](),
-    config: g.config, graph: g, nimtvDeclared: initIntSet())
+    config: g.config, graph: g, nimtvDeclared: initIntSet(),
+    env: initMirEnv(g))
 
 iterator cgenModules*(g: BModuleList): BModule =
   for m in g.modulesClosed:
     # iterate modules in the order they were closed
     yield m
 
-proc put*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
-  ## Adds `it` to `m` and registers a mapping between the item and
-  ## `sym`. `sym` must have no mapping registered yet.
-  assert sym.locId == 0, "symbol already registered"
-  sym.locId = uint32(m.store.add(it)) + 1
+func isFilled*(x: TLoc): bool {.inline.} =
+  x.k != locNone
 
-proc forcePut*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.} =
-  ## Adds `it` to `m` and register a mapping between the item and
-  ## `sym`, overwriting any existing mappings of `sym`.
-  sym.locId = uint32(m.store.add(it)) + 1
-
-func assign*[T](m: var SymbolMap[T], sym: PSym, it: sink T) {.inline.}  =
-  ## Sets the value of the item in `m` with which `sym` is associated. This is
-  ## only meant as a workaround.
-  assert sym.locId > 0
-  m.store[sym.locId - 1] = it
-
-func `[]`*[T](m: SymbolMap[T], sym: PSym): lent T {.inline.} =
-  m.store[sym.locId - 1]
-
-func `[]`*[T](m: var SymbolMap[T], sym: PSym): var T {.inline.} =
-  m.store[sym.locId - 1]
-
-func contains*[T](m: SymbolMap[T], sym: PSym): bool {.inline.} =
-  sym.locId > 0 and m.store.nextId().uint32 > sym.locId - 1
-
-iterator items*[T](m: SymbolMap[T]): lent T =
-  for it in m.store.items:
-    yield it
-
-proc hash(n: ConstrTree): Hash =
-  ## Computes a hash over the structure of a tree (`n`). The hash function is
-  ## intended to be used with ``Table``, so two different trees are not
-  ## guaranteed to produce a different hash, but the same hash *must* be
-  ## produced for two structurally equal trees.
-  proc hashTree(n: CgNode): Hash =
-    result = ord(n.kind)
-    case n.kind
-    of cnkEmpty, cnkNilLit, cnkType:
-      discard
-    of cnkProc:
-      result = result !& n.sym.id
-    of cnkIntLit, cnkUIntLit:
-      result = result !& hash(n.intVal)
-    of cnkFloatLit:
-      # we'll be comparing the bit patterns later on, meaning that
-      # they're what we have to compute the hash for
-      result = result !& hash(cast[BiggestInt](n.floatVal))
-    of cnkStrLit:
-      result = result !& hash(n.strVal)
-    of cnkWithItems:
-      for it in n.items:
-        result = result !& hashTree(it)
-    of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-       cnkWithOperand, cnkLocal, cnkLabel, cnkField, cnkConst, cnkGlobal:
-      unreachable()
-    result = !$result
-
-  result = hashTree(CgNode(n))
-
-proc `==`(a, b: ConstrTree): bool =
-  ## Computes and returns whether `a` and `b` are structurally equal *and*
-  ## have equal types.
-  proc treesEquivalent(a, b: CgNode): bool =
-    if a == b:
-      result = true
-    elif a.kind == b.kind:
-      case a.kind
-      of cnkEmpty, cnkNilLit, cnkType:
-        result = true
-      of cnkProc:
-        result = a.sym.id == b.sym.id
-      of cnkIntLit, cnkUIntLit:
-        result = a.intVal == b.intVal
-      of cnkFloatLit:
-        result = cast[BiggestInt](a.floatVal) == cast[BiggestInt](b.floatVal)
-      of cnkStrLit:
-        result = a.strVal == b.strVal
-      of cnkWithItems:
-        if a.len == b.len:
-          for i in 0..<a.len:
-            if not treesEquivalent(a[i], b[i]): return
-          result = true
-      of cnkInvalid, cnkAstLit, cnkPragmaStmt, cnkReturnStmt, cnkMagic,
-         cnkWithOperand, cnkLocal, cnkLabel, cnkField, cnkConst, cnkGlobal:
-        # nodes that cannot appear in construction trees
-        unreachable()
-
-      # we also want equal types:
-      if result:
-        result = sameTypeOrNil(a.typ, b.typ)
-
-  treesEquivalent(CgNode(a), CgNode(b))
-
-proc getOrPut*(t: var Table[ConstrTree, int], n: CgNode, label: int): int =
-  ## Fetches the label for the given data AST, or adds the AST + label to the
-  ## table first if they're not present yet.
-  mgetOrPut(t, ConstrTree(n), label)
+func isFilled*(x: ProcLoc): bool {.inline.} =
+  # has a name -> is initialized
+  x.name.len > 0

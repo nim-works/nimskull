@@ -225,38 +225,36 @@ macro `.`*(obj: JsObject, field: untyped): JsObject =
     let obj = newJsObject()
     obj.a = 20
     assert obj.a.to(int) == 20
+  let helper = genSym(nskProc, "helper")
   if validJsName($field):
     let importString = "#." & $field
     result = quote do:
-      proc helper(o: JsObject): JsObject
-        {.importjs: `importString`, gensym.}
-      helper(`obj`)
+      proc `helper`(o: JsObject): JsObject {.importjs: `importString`.}
+      `helper`(`obj`)
   else:
     if not mangledNames.hasKey($field):
       mangledNames[$field] = $mangleJsName($field)
     let importString = "#." & mangledNames[$field]
     result = quote do:
-      proc helper(o: JsObject): JsObject
-        {.importjs: `importString`, gensym.}
-      helper(`obj`)
+      proc `helper`(o: JsObject): JsObject {.importjs: `importString`.}
+      `helper`(`obj`)
 
 macro `.=`*(obj: JsObject, field, value: untyped): untyped =
   ## Experimental dot accessor (set) for type JsObject.
   ## Sets the value of a property of name `field` in a JsObject `x` to `value`.
+  let helper = genSym(nskProc, "helper")
   if validJsName($field):
     let importString = "#." & $field & " = #"
     result = quote do:
-      proc helper(o: JsObject, v: auto)
-        {.importjs: `importString`, gensym.}
-      helper(`obj`, `value`)
+      proc `helper`(o: JsObject, v: auto) {.importjs: `importString`.}
+      `helper`(`obj`, `value`)
   else:
     if not mangledNames.hasKey($field):
       mangledNames[$field] = $mangleJsName($field)
     let importString = "#." & mangledNames[$field] & " = #"
     result = quote do:
-      proc helper(o: JsObject, v: auto)
-        {.importjs: `importString`, gensym.}
-      helper(`obj`, `value`)
+      proc `helper`(o: JsObject, v: auto) {.importjs: `importString`.}
+      `helper`(`obj`, `value`)
 
 macro `.()`*(obj: JsObject,
              field: untyped,
@@ -284,10 +282,12 @@ macro `.()`*(obj: JsObject,
     if not mangledNames.hasKey($field):
       mangledNames[$field] = $mangleJsName($field)
     importString = "#." & mangledNames[$field] & "(@)"
+
+  let helper = genSym(nskProc, "helper")
   result = quote:
-    proc helper(o: JsObject): JsObject
-      {.importjs: `importString`, gensym, discardable.}
-    helper(`obj`)
+    proc `helper`(o: JsObject): JsObject
+      {.importjs: `importString`, discardable.}
+    `helper`(`obj`)
   for idx in 0 ..< args.len:
     let paramName = newIdentNode("param" & $idx)
     result[0][3].add newIdentDefs(paramName, newIdentNode("JsObject"))
@@ -304,10 +304,11 @@ macro `.`*[K: cstring, V](obj: JsAssoc[K, V],
     if not mangledNames.hasKey($field):
       mangledNames[$field] = $mangleJsName($field)
     importString = "#." & mangledNames[$field]
+
+  let helper = genSym(nskProc, "helper")
   result = quote do:
-    proc helper(o: type(`obj`)): `obj`.V
-      {.importjs: `importString`, gensym.}
-    helper(`obj`)
+    proc `helper`(o: type(`obj`)): `obj`.V {.importjs: `importString`.}
+    `helper`(`obj`)
 
 macro `.=`*[K: cstring, V](obj: JsAssoc[K, V],
                                     field: untyped,
@@ -321,10 +322,11 @@ macro `.=`*[K: cstring, V](obj: JsAssoc[K, V],
     if not mangledNames.hasKey($field):
       mangledNames[$field] = $mangleJsName($field)
     importString = "#." & mangledNames[$field] & " = #"
+
+  let helper = genSym(nskProc, "helper")
   result = quote do:
-    proc helper(o: type(`obj`), v: `obj`.V)
-      {.importjs: `importString`, gensym.}
-    helper(`obj`, `value`)
+    proc `helper`(o: type(`obj`), v: `obj`.V) {.importjs: `importString`.}
+    `helper`(`obj`, `value`)
 
 macro `.()`*[K: cstring, V: proc](obj: JsAssoc[K, V],
                                            field: untyped,
@@ -447,10 +449,11 @@ macro `{}`*(typ: typedesc, xs: varargs[untyped]): auto =
   body.add quote do:
     return `a`
 
+  let inner = genSym(nskProc, "inner")
   result = quote do:
-    proc inner(): `typ` {.gensym.} =
+    proc `inner`(): `typ` =
       `body`
-    inner()
+    `inner`()
 
 # Macro to build a lambda using JavaScript's `this`
 # from a proc, `this` being the first argument.

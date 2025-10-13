@@ -79,9 +79,9 @@ proc checkNode(c: var CheckedContext; tree: PackedTree; n: NodePos) =
     checkLocalSym(c, tree.nodes[n.int].operand)
   of directIntLit:
     discard
-  of externIntLit, nkFloatLit..nkFloat64Lit:
+  of externIntLit, nkFloatLiterals:
     assert c.g.packed[c.thisModule].fromDisk.numbers.hasLitId n.litId
-  of nkStrLit..nkTripleStrLit:
+  of nkStrLiterals:
     assert c.g.packed[c.thisModule].fromDisk.strings.hasLitId n.litId
   of nkModuleRef:
     let (n1, n2) = sons2(tree, n)

@@ -13,7 +13,7 @@ when not defined(nimcore):
   {.error: "nimcore MUST be defined for Nim's core tooling".}
 
 import
-  std/[sequtils, strutils, os, times, tables, sha1, with, json],
+  std/[sequtils, strutils, streams, os, times, tables, sha1, with, json],
   compiler/ast/[
     llstream,    # Input data stream
     ast,
@@ -51,7 +51,8 @@ import
     nversion,
     pathutils,   # Input file handling
     astrepr,     # Output parsed data, for compiler development
-    idioms,
+    tracer,
+    trace_dump
   ],
   compiler/vm/[
     compilerbridge, # Configuration file evaluation, `nim e`
@@ -83,19 +84,6 @@ when not defined(leanCompiler):
   import
     compiler/backend/jsbackend,
     compiler/tools/[docgen, docgen2]
-
-when defined(nimDebugUnreportedErrors):
-  import std/exitprocs
-  import compiler/utils/astrepr
-
-  proc echoAndResetUnreportedErrors(conf: ConfigRef) =
-    if conf.unreportedErrors.len > 0:
-      echo "Unreported errors:"
-      for nodeId, node in conf.unreportedErrors:
-        var reprConf = defaultTReprConf
-        reprConf.flags.incl trfShowNodeErrors
-        echo conf.treeRepr(node)
-      conf.unreportedErrors.clear
 
 type
   InternalStateDump = ref object
@@ -211,7 +199,8 @@ proc commandCompileToC(graph: ModuleGraph) =
   if not extccomp.ccHasSaneOverflow(conf):
     conf.defineSymbol("nimEmulateOverflowChecks")
 
-  compileProject(graph)
+  graph.config.timeTracer.traceStr("compile"):
+    compileProject(graph)
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
@@ -223,7 +212,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     # graph.backend can be nil under IC when nothing changed at all:
     if graph.backend != nil:
       cgenWriteModules(graph.backend, conf)
-  if conf.cmd != cmdTcc and graph.backend != nil:
+  if graph.backend != nil:
     extccomp.callCCompiler(conf)
     extccomp.writeJsonBuildInstructions(conf)
     if conf.depfile.string.len != 0:
@@ -505,7 +494,7 @@ proc mainCommand*(graph: ModuleGraph) =
 
   ## command prepass
   if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
-  if conf.cmd notin cmdBackends + {cmdTcc, cmdNimscript}:
+  if conf.cmd notin cmdBackends + {cmdNimscript, cmdInteractive}:
     customizeForBackend(graph, conf, backendC)
   if conf.outDir.isEmpty:
     # doc like commands can generate a lot of files (especially with --project)
@@ -516,22 +505,24 @@ proc mainCommand*(graph: ModuleGraph) =
     if conf.cmd in cmdDocLike + {cmdRst2html, cmdRst2tex}: ret = ret / htmldocsDir
     conf.outDir = ret
 
-  when defined(nimDebugUnreportedErrors):
-    addExitProc proc = echoAndResetUnreportedErrors(conf)
+  when defined(gcOrc) and not defined(leakTest):
+    # Compilation is currently very taxing on ORC due to frequent
+    # creations and destructions of ref objects with potential cycles.
+    #
+    # Disable ORC to reduce overhead from the cycle collector at the
+    # cost of memory usage.
+    #
+    # We don't collect cycles afterwards as the command is one-shot and
+    # memory should be freed once the program stops.
+    #
+    # An exception is made for when running the leak test, as not running the
+    # cycle collector would mean that all reference cycles stay reachable
+    # (through the potential cycle root list).
+    GC_disableOrc()
 
   ## process all commands
   case conf.cmd
   of cmdBackends: compileToBackend()
-  of cmdTcc:
-    when hasTinyCBackend:
-      let cc = extccomp.setCC(conf, "tcc")
-      doAssert cc == ccTcc, "what happened to tcc?"
-      if conf.backend != backendC:
-        conf.logError("'run' requires c backend, got: '$1'" % $conf.backend)
-      else:
-        compileToBackend()
-    else:
-      conf.logError("'run' command not available; rebuild with -d:tinyc")
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
@@ -660,7 +651,9 @@ proc mainCommand*(graph: ModuleGraph) =
     wantMainModule(conf)
     commandView(graph)
     #msgWriteln(conf, "Beware: Indentation tokens depend on the parser's state!")
-  of cmdInteractive: commandInteractive(graph)
+  of cmdInteractive:
+    customizeForBackend(graph, conf, backendNimVm)
+    commandInteractive(graph)
   of cmdNimscript:
     if conf.inputMode == pimFile and not fileExists(conf.projectFull):
       localReport(conf, InternalReport(
@@ -687,12 +680,17 @@ proc mainCommand*(graph: ModuleGraph) =
   if optProfileVM in conf.globalOptions:
     conf.writeln cmdOutUserProf, dumpVmProfilerData(graph)
 
-  if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
+  if optTimeTrace in conf.globalOptions:
+    conf.timeTracer.finish()
+    let suffix = now().format("YYYY-MM-dd'T'HH-mm-ss")
+    let name = RelativeFile(conf.projectName & "_trace" & suffix & ".json")
+    let f = newFileStream(string(conf.projectPath / name), fmWrite)
+    writeToStream(conf.timeTracer, f)
+    f.close()
+
+  if conf.errorCounter == 0 and conf.cmd notin {cmdDump, cmdNop}:
     if conf.isEnabled(rintSuccessX):
       conf.writeln(cmdOutStatus, $genSuccessX(conf))
-
-  when defined(nimDebugUnreportedErrors):
-    echoAndResetUnreportedErrors(conf)
 
   when PrintRopeCacheStats:
     echo "rope cache stats: "

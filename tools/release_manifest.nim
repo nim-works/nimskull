@@ -255,6 +255,23 @@ proc addCommand(manifest: string, archiveData: varargs[string]) =
   # Serialize a new manifest
   writeFile(manifest, $database.serialize())
 
+proc getCommand(manifest, target: string): int =
+  ## Implementation for the `get` subcommand.
+  ##
+  ## :manifest:
+  ##   The filename of the release manifest to inspect.
+  ##
+  ## :target:
+  ##   The triplet of interest.
+  let database = json.parseFile(manifest).deserialize()
+
+  let idx = database.triplet.find(target)
+  if idx < 0:
+    stderr.writeLine("error: target $1 could not be found in database")
+    return 1
+
+  stdout.writeLine(database.file[idx])
+
 func escapeDataForGithubActions(s: string): string =
   ## Escape the string `s` so that it can be used as data for workflow commands.
   # The list is obtained from here:
@@ -314,6 +331,7 @@ type
     Help = "help"
     Add = "add"
     FilesToUpload = "files-to-upload"
+    Get = "get"
     Version = "version"
 
   Flag {.pure.} = enum
@@ -363,6 +381,7 @@ Usage: $app <command> [args]...
 Commands:
   add              Add artifacts to the manifest
   files-to-upload  List the files to be uploaded
+  get              Get release artifact for a target
   version          Print the release version
   help             Display help for any subcommand
 
@@ -392,6 +411,15 @@ Options:
                                   The github-actions format encodes the text
                                   format such that it can be used in workflow
                                   commands (ie. set-output) without losing data.
+
+$globalOpt
+"""
+
+  GetHelp = """
+Usage: $app get [options] [--] <target>
+
+Print the artifact file name of the given target triplet. An error will be raised
+if no artifact can be found for the given target.
 
 $globalOpt
 """
@@ -432,6 +460,8 @@ proc printHelp(action: Action) =
     stdout.write(AddHelp % defaultHelpFormat)
   of FilesToUpload:
     stdout.write(FilesToUploadHelp % defaultHelpFormat)
+  of Get:
+    stdout.write(GetHelp % defaultHelpFormat)
   of Version:
     stdout.write(VersionHelp % defaultHelpFormat)
 
@@ -504,6 +534,16 @@ proc dispatch(cli: Cli): int =
           result = 1
         else:
           filesToUploadCommand(manifest, format.get)
+      of Get:
+        let manifest = cli.flags.getOrDefault(Flag.File, DefaultManifestFile)
+        if cli.args.len == 1:
+          result = getCommand(manifest, cli.args[0])
+        else:
+          # No or more than one targets were given, print the help text and set failure.
+          if cli.args.len > 1:
+            stderr.writeLine("error: only one target is expected")
+          printHelp(cli.action)
+          result = 1
       of Version:
         let manifest = cli.flags.getOrDefault(Flag.File, DefaultManifestFile)
         versionCommand(manifest)

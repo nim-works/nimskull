@@ -75,12 +75,12 @@ proc skipConvCastAndClosure*(n: PNode): PNode =
 proc sameValue*(a, b: PNode): bool =
   result = false
   case a.kind
-  of nkCharLit..nkUInt64Lit:
-    if b.kind in {nkCharLit..nkUInt64Lit}: result = getInt(a) == getInt(b)
-  of nkFloatLit..nkFloat64Lit:
-    if b.kind in {nkFloatLit..nkFloat64Lit}: result = a.floatVal == b.floatVal
-  of nkStrLit..nkTripleStrLit:
-    if b.kind in {nkStrLit..nkTripleStrLit}: result = a.strVal == b.strVal
+  of nkIntLiterals:
+    if b.kind in nkIntLiterals: result = getInt(a) == getInt(b)
+  of nkFloatLiterals:
+    if b.kind in nkFloatLiterals: result = a.floatVal == b.floatVal
+  of nkStrLiterals:
+    if b.kind in nkStrLiterals: result = a.strVal == b.strVal
   else:
     # don't raise an internal error for 'nim check':
     #InternalError(a.info, "SameValue")
@@ -90,19 +90,19 @@ proc leValue*(a, b: PNode): bool =
   # a <= b?
   result = false
   case a.kind
-  of nkCharLit..nkUInt64Lit:
-    if b.kind in {nkCharLit..nkUInt64Lit}: result = getInt(a) <= getInt(b)
-  of nkFloatLit..nkFloat64Lit:
-    if b.kind in {nkFloatLit..nkFloat64Lit}: result = a.floatVal <= b.floatVal
-  of nkStrLit..nkTripleStrLit:
-    if b.kind in {nkStrLit..nkTripleStrLit}: result = a.strVal <= b.strVal
+  of nkIntLiterals:
+    if b.kind in nkIntLiterals: result = getInt(a) <= getInt(b)
+  of nkFloatLiterals:
+    if b.kind in nkFloatLiterals: result = a.floatVal <= b.floatVal
+  of nkStrLiterals:
+    if b.kind in nkStrLiterals: result = a.strVal <= b.strVal
   else:
     # don't raise an internal error for 'nim check':
     #InternalError(a.info, "leValue")
     discard
 
 proc weakLeValue*(a, b: PNode): TImplication =
-  if a.kind notin nkLiterals or b.kind notin nkLiterals:
+  if a.kind notin nkLiterals - nkNilLit or b.kind notin nkLiterals - nkNilLit:
     result = impUnknown
   else:
     result = if leValue(a, b): impYes else: impNo
@@ -127,6 +127,29 @@ proc lookupInRecord(n: PNode, field: PIdent): PSym =
   of nkSym:
     if n.sym.name.id == field.id: result = n.sym
   else: return nil
+
+func lookupInRecord*(n: PNode, pos: int): PSym =
+  ## Searches record AST `n` for a symbol with position `pos`, returning
+  ## the symbol if one is found.
+  case n.kind
+  of nkSym:
+    if n.sym.position == pos:
+      return n.sym
+  of nkRecList:
+    for it in n.items:
+      result = lookupInRecord(it, pos)
+      if result != nil:
+        return
+  of nkRecCase:
+    if n[0].sym.position == pos:
+      return n[0].sym
+
+    for i in 1..<n.len:
+      result = lookupInRecord(n[i][^1], pos)
+      if result != nil:
+        return
+  else:
+    unreachable(n.kind)
 
 proc getModule*(s: PSym): PSym =
   ## if it's a module returns itself, otherwise looks through `s`' owners, may
@@ -573,13 +596,8 @@ proc iiTablePut(t: var TIITable, key, val: int) =
     iiTableRawInsert(t.data, key, val)
     inc(t.counter)
 
-proc isAddrNode*(n: PNode): bool =
-  case n.kind
-    of nkAddr, nkHiddenAddr: true
-    of nkCallKinds:
-      if n[0].kind == nkSym and n[0].sym.magic == mAddr: true
-      else: false
-    else: false
+func isAddrNode*(n: PNode): bool =
+  n.kind in {nkAddr, nkHiddenAddr}
 
 proc listSymbolNames*(symbols: openArray[PSym]): string =
   for sym in symbols:

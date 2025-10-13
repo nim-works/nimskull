@@ -116,7 +116,7 @@ func fac*(n: int): int =
 
 {.push checks: off, line_dir: off, stack_trace: off.}
 
-when defined(posix):
+when defined(posix) and not defined(macosx):
   {.passl: "-lm".}
 
 const
@@ -161,7 +161,7 @@ func isNaN*(x: SomeFloat): bool {.inline, since: (1,5,1).} =
   template fn: untyped = result = x != x
   when nimvm: fn()
   else:
-    when defined(js): fn()
+    when defined(js) or defined(vm) or defined(nimscript): fn()
     else: result = c_isnan(x)
 
 when defined(js):
@@ -196,11 +196,22 @@ proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
     doAssert signbit(-0.1)
     doAssert not signbit(0.1)
 
-  when defined(js):
-    let uintBuffer = toBitsImpl(x)
-    result = (uintBuffer[1] shr 31) != 0
+  template signbitCastImpl: bool =
+    when x is float32:
+      (cast[uint32](x) shr 31) != 0
+    else:
+      (cast[uint64](x) shr 63) != 0
+
+  when nimvm:
+    result = signbitCastImpl()
   else:
-    result = c_signbit(x) != 0
+    when defined(js):
+      let uintBuffer = toBitsImpl(x)
+      result = (uintBuffer[1] shr 31) != 0
+    elif defined(vm) or defined(nimscript):
+      result = signbitCastImpl()
+    else:
+      result = c_signbit(x) != 0
 
 func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
   ## Returns a value with the magnitude of `x` and the sign of `y`;
@@ -211,21 +222,26 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
     doAssert copySign(-Inf, -0.0) == -Inf
     doAssert copySign(NaN, 1.0).isNaN
     doAssert copySign(1.0, copySign(NaN, -1.0)) == -1.0
-
   # TODO: use signbit for examples
-  when defined(js):
-    let uintBuffer = toBitsImpl(y)
-    let sgn = (uintBuffer[1] shr 31) != 0
-    result = jsSetSign(x, sgn)
+
+  template copySignImpl: T =
+    when T is float32:
+      const signMask = 1'u32 shl 31
+      type U = uint32
+    else:
+      const signMask = 1'u64 shl 63
+      type U = uint64
+    cast[T]((cast[U](x) and not signMask) or (cast[U](y) and signMask))
+
+  when nimvm:
+    result = copySignImpl()
   else:
-    when nimvm: # not exact but we have a vmops for recent enough nim
-      if y > 0.0 or (y == 0.0 and 1.0 / y > 0.0):
-        result = abs(x)
-      elif y <= 0.0:
-        result = -abs(x)
-      else: # must be NaN
-        result = abs(x)
-    else: result = c_copysign(x, y)
+    when defined(js):
+      result = jsSetSign(x, sgn = (toBitsImpl(y)[1] shr 31) != 0)
+    elif defined(vm) or defined(nimscript):
+      result = copySignImpl()
+    else:
+      result = c_copysign(x, y)
 
 func classify*(x: float): FloatClass =
   ## Classifies a floating point value.
@@ -987,7 +1003,40 @@ func ceilDiv*[T: SomeInteger](x, y: T): T {.inline, since: (1, 5, 1).} =
   # `x + (y - 1)` can overflow.
   ((x.UT + (y.UT - 1.UT)) div y.UT).T
 
-func frexp*[T: float32|float64](x: T): tuple[frac: T, exp: int] {.inline.} =
+func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.}
+
+template pureLog2Impl[T: SomeFloat](x: T): T =
+  # ln(2)
+  const Ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
+  var (frac, exp) = frexp(x)
+  # Make sure exact powers of two give an exact answer.
+  # Don't depend on Log(0.5)*(1/Ln2)+exp being exactly exp-1.
+  if frac == 0.5: return T(exp - 1)
+  log10(frac) * (1 / Ln2) + T(exp)
+
+when not defined(js):
+  when windowsCC89:
+    func log2*(x: float32): float32 = pureLog2Impl(x)
+    func log2*(x: float64): float64 = pureLog2Impl(x)
+  else:
+    func log2*(x: float32): float32 {.importc: "log2f", header: "<math.h>".} =
+      pureLog2Impl(x)
+
+    func log2*(x: float64): float64 {.importc: "log2", header: "<math.h>".} =
+      ## Computes the binary logarithm (base 2) of `x`.
+      ##
+      ## **See also:**
+      ## * `log func <#log,T,T>`_
+      ## * `log10 func <#log10,float64>`_
+      ## * `ln func <#ln,float64>`_
+      runnableExamples:
+        doAssert almostEqual(log2(8.0), 3.0)
+        doAssert almostEqual(log2(1.0), 0.0)
+        doAssert almostEqual(log2(0.0), -Inf)
+        doAssert log2(-2.0).isNaN
+      pureLog2Impl(x)
+
+func frexp*[T: SomeFloat](x: T): tuple[frac: T, exp: int] {.inline.} =
   ## Splits `x` into a normalized fraction `frac` and an integral power of 2 `exp`,
   ## such that `abs(frac) in 0.5..<1` and `x == frac * 2 ^ exp`, except for special
   ## cases shown below.
@@ -1002,19 +1051,14 @@ func frexp*[T: float32|float64](x: T): tuple[frac: T, exp: int] {.inline.} =
       doAssert frexp(Inf).frac == Inf # +- Inf preserved
       doAssert frexp(NaN).frac.isNaN
 
-  when not defined(js):
-    var exp: cint
-    result.frac = c_frexp(x, exp)
-    result.exp = exp
-  else:
+  template frexpImpl: untyped =
     if x == 0.0:
       # reuse signbit implementation
-      let uintBuffer = toBitsImpl(x)
-      if (uintBuffer[1] shr 31) != 0:
+      if x.signbit:
         # x is -0.0
-        result = (-0.0, 0)
+        result = (T(-0.0), 0)
       else:
-        result = (0.0, 0)
+        result = (T(0.0), 0)
     elif x < 0.0:
       result = frexp(-x)
       result.frac = -result.frac
@@ -1028,7 +1072,17 @@ func frexp*[T: float32|float64](x: T): tuple[frac: T, exp: int] {.inline.} =
       if result.exp == 1024 and result.frac == 0.0:
         result.frac = 0.99999999999999988898
 
-func frexp*[T: float32|float64](x: T, exponent: var int): T {.inline.} =
+  when nimvm:
+    frexpImpl()
+  else:
+    when defined(js) or defined(vm) or defined(nimscript):
+      frexpImpl()
+    else:
+      var exp: cint
+      result.frac = c_frexp(x, exp)
+      result.exp = exp
+
+func frexp*[T: SomeFloat](x: T, exponent: var int): T {.inline.} =
   ## Overload of `frexp` that calls `(result, exponent) = frexp(x)`.
   runnableExamples:
     var x: int
@@ -1036,39 +1090,6 @@ func frexp*[T: float32|float64](x: T, exponent: var int): T {.inline.} =
     doAssert x == 3
 
   (result, exponent) = frexp(x)
-
-
-when not defined(js):
-  when windowsCC89:
-    # taken from Go-lang Math.Log2
-    const ln2 = 0.693147180559945309417232121458176568075500134360255254120680009
-    template log2Impl[T](x: T): T =
-      var exp: int
-      var frac = frexp(x, exp)
-      # Make sure exact powers of two give an exact answer.
-      # Don't depend on Log(0.5)*(1/Ln2)+exp being exactly exp-1.
-      if frac == 0.5: return T(exp - 1)
-      log10(frac) * (1 / ln2) + T(exp)
-
-    func log2*(x: float32): float32 = log2Impl(x)
-    func log2*(x: float64): float64 = log2Impl(x)
-      ## Log2 returns the binary logarithm of x.
-      ## The special cases are the same as for Log.
-
-  else:
-    func log2*(x: float32): float32 {.importc: "log2f", header: "<math.h>".}
-    func log2*(x: float64): float64 {.importc: "log2", header: "<math.h>".} =
-      ## Computes the binary logarithm (base 2) of `x`.
-      ##
-      ## **See also:**
-      ## * `log func <#log,T,T>`_
-      ## * `log10 func <#log10,float64>`_
-      ## * `ln func <#ln,float64>`_
-      runnableExamples:
-        doAssert almostEqual(log2(8.0), 3.0)
-        doAssert almostEqual(log2(1.0), 0.0)
-        doAssert almostEqual(log2(0.0), -Inf)
-        doAssert log2(-2.0).isNaN
 
 func splitDecimal*[T: float32|float64](x: T): tuple[intpart: T, floatpart: T] =
   ## Breaks `x` into an integer and a fractional part.

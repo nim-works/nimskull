@@ -51,7 +51,7 @@ block:
   env.dbgSyms = @[(LitId(1), LitId(2)), (LitId(3), LitId(4))]
 
   env.nodes = @[PackedDataNode(kind: pdkInt), PackedDataNode(kind: pdkFloat)]
-  env.consts = @[(cnstFloat, 1'u32), (cnstString, 2'u32)]
+  env.consts = @[(cnstFloat, 1'u32), (cnstInt, 2'u32)]
   env.cconsts = @[(typId1, 6'u32)]
 
 

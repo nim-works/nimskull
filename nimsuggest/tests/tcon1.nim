@@ -16,7 +16,7 @@ test("hello here", #[!]#)
 testB(#[!]#
 
 # dot expressions
-"from behind".test(#[!]#
+"from behind".test(#[!]#)
 
 # two params matched, so disqualify the lower airity `test`
 # TODO: this doesn't work, because dot exprs, overloads, etc aren't currently

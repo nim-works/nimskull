@@ -35,20 +35,16 @@ proc sameMethodDispatcher(a, b: PSym): bool =
 
 proc pickBestCandidate(c: PContext,
                        headSymbol: PNode,
-                       n: PNode,
+                       n, nOrig: PNode,
                        startScope: PScope,
                        filter: TSymKinds,
+                       diags: DiagContext,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch]) =
   var
     o: TOverloadIter
     sym = initOverloadIter(o, c, startScope, headSymbol)
     scope = o.lastOverloadScope
-  
-  if sym.isError:
-    # xxx: this should be in the loop below but it's not that simple as we'll
-    #      end up with lots of excessive reports, need a bigger rethink
-    localReport(c.config, sym.ast)
 
   while sym != nil:
     if sym.kind in filter:
@@ -70,7 +66,7 @@ proc pickBestCandidate(c: PContext,
                             "missing type information")
     initCallCandidate(c, z, sym, scope)
     block:
-      matches(c, n, z)
+      matches(c, n, nOrig, diags, z)
       if z.state == csMatch:
         # little hack so that iterators are preferred over everything else:
         if sym.kind == skIterator:
@@ -122,14 +118,6 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   ## only in case of an error).
   ## returns an nkError
   addInNimDebugUtils(c.config, "notFoundError", n, result)
-  if c.config.m.errorOutputs == {}:
-    # xxx: this is a hack to detect we're evaluating a constant expression or
-    #      some other vm code, it seems
-    # fail fast:
-    result = c.config.newError(n, PAstDiag(kind: adSemRawTypeMismatch))
-    return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
-           #      which means `doRaise`, but that made sense because we did a
-           #      double pass, now we simply return for fast exit.
   if errors.len == 0:
     # no further explanation available for reporting
     #
@@ -290,7 +278,7 @@ proc semGenericArgs(c: PContext, n: PNode): PNode =
   if hasError:
     result = c.config.wrapError(result)
 
-proc resolveOverloads(c: PContext, n: PNode,
+proc resolveOverloads(c: PContext, n, nOrig: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var seq[SemCallMismatch]): TCandidate =
   addInNimDebugUtils(c.config, "resolveOverloads", n, filter, errors, result)
@@ -321,8 +309,27 @@ proc resolveOverloads(c: PContext, n: PNode,
   # the original scope
   c.openShadowScope()
 
+  proc push(c: PContext, diags: DiagContext): DiagHandler {.nimcall.} =
+    # pushing the handler is moved into a separate procedure in order to
+    # get around an env copy (which would add unecessary pressure to the cycle
+    # collector)
+    result = move c.config.diagHandler
+    let oldHandler = result
+    c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
+      if rep.category == repSem:
+        if rep.semReport.location.isSome:
+          rep.semReport.context =
+            conf.getContext(rep.semReport.location.unsafeGet)
+        diags.record(rep.semReport)
+      else:
+        oldHandler(conf, rep) # pass on to the outer handler
+
+  let diags = newDiagContext(n.len)
+  let oldHandler = push(c, diags)
+
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, scope, filter, result, alt, errors)
+    pickBestCandidate(c, headSymbol, n, nOrig, scope, filter, diags,
+                      result, alt, errors)
   pickBest(f)
 
   let overloadsState = result.state
@@ -330,6 +337,7 @@ proc resolveOverloads(c: PContext, n: PNode,
     template tryOp(x) =
       let op = newIdentNode(getIdent(c.cache, x), n.info)
       n[0] = op
+      nOrig[0] = op
       pickBest(op)
 
     if nfDotField in n.flags:
@@ -339,6 +347,8 @@ proc resolveOverloads(c: PContext, n: PNode,
         # leave the op head symbol empty,
         # we are going to try multiple variants
         n.sons[0..1] = [nil, n[1], f]
+        nOrig.sons[0..1] = [nil, nOrig[1], f]
+        shift(diags)
 
         if nfExplicitCall in n.flags:
           tryOp ".()"
@@ -350,9 +360,12 @@ proc resolveOverloads(c: PContext, n: PNode,
       # we need to strip away the trailing '=' here:
       let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
       n.sons[0..1] = [nil, n[1], calleeName]
+      nOrig.sons[0..1] = [nil, nOrig[1], calleeName]
+      shift(diags)
       tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
+      c.config.setDiagHandler(oldHandler)
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
           let sym = n[1].typ.typSym
@@ -374,8 +387,14 @@ proc resolveOverloads(c: PContext, n: PNode,
       if {nfDotField, nfDotSetter} * n.flags != {}:
         # clean up the inserted ops
         n.sons.delete(2)
+        nOrig.sons.delete(2)
         n[0] = f
+        nOrig[0] = f
+      # make sure that all recorded diagnostics are emitted, by adding them to
+      # the no-match candidate
+      result.addAllDiagnostics(diags)
       c.closeShadowScope()
+      c.config.setDiagHandler(oldHandler)
       return
 
   # a match was found; commit the created symbols to the symbol table. Note
@@ -383,15 +402,17 @@ proc resolveOverloads(c: PContext, n: PNode,
   # ambiguous
   assert result.state == csMatch
   c.mergeShadowScope()
+  c.config.setDiagHandler(oldHandler)
 
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
     c.config.internalAssert result.state == csMatch
     #writeMatches(result)
     #writeMatches(alt)
-    if c.config.m.errorOutputs == {}:
-      # quick error message for performance of 'compiles' built-in:
-      globalReport(c.config, n.info, reportSem(rsemAmbiguous))
+    if result.fauxMatch == tyError:
+      # don't report an ambiguity error when the candidates both only matched
+      # due to errors
+      assert alt.fauxMatch == tyError
 
     elif c.config.errorCounter == 0:
       localReport(c.config, n.info, reportSymbols(
@@ -525,7 +546,10 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   if x.hasFauxMatch:
     result = x.call
     result[0] = newSymNode(finalCallee, getCallLineInfo(result[0]))
-    if containsGenericType(result.typ) or x.fauxMatch == tyUnknown:
+    if x.fauxMatch == tyError:
+      # at least one argument expression was erroneous
+      result = c.config.wrapError(result)
+    elif containsGenericType(result.typ) or x.fauxMatch == tyUnknown:
       result.typ = newTypeS(x.fauxMatch, c)
       if result.typ.kind == tyError: incl result.typ.flags, tfCheckedForDestructor
     return
@@ -560,12 +584,13 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   result.typ = finalCallee.typ[0]
   result = updateDefaultParams(c.config, result)
 
-proc semOverloadedCall(c: PContext, n: PNode,
-                       filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+proc semOverloadedCall(c: PContext, n, nOrig: PNode,
+                       filter: TSymKinds, flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semOverloadedCall", n, result)
   var errors: seq[SemCallMismatch]
 
-  var r = resolveOverloads(c, n, filter, flags, errors)
+  var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+  emitDiagnostics(c, r) # always emit all captured diags for the match
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
     if errors.len > 0:
@@ -590,9 +615,11 @@ proc semOverloadedCall(c: PContext, n: PNode,
     result =
       case r.calleeSym.ast.kind
       of nkError:
-        # the symbol refers to an erroneous entity
-        c.config.newError(r.call):
-          PAstDiag(kind: adSemCalleeHasAnError, callee: r.calleeSym)
+        # the definition has an error; don't attempt to fully resolve the call
+        let x = r.call
+        x[0] = newSymNodeOrError(c.config, r.calleeSym, getCallLineInfo(x[0]))
+        #      ^^ will return an error node
+        c.config.wrapError(x)
       else:
         semResolvedCall(c, r, n, flags)
 
@@ -737,11 +764,8 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     call.add(newNodeIT(nkEmpty, fn.info, x))
   if hasDistinct:
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
-    var resolved = semOverloadedCall(c, call, filter, {})
+    var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
-      if resolved.kind == nkError:
-        localReport(c.config, resolved)
-
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):
         result = nil

@@ -241,10 +241,6 @@ block varargs_arguments_no_converter:
 
     doAssert impl(1) == (@[1], newSeq[bool]())
 
-    if false:
-      # Right nor results in `(@[1, 2, 0], @[true, false, false])`
-      doAssert impl(1, 2, false) == (@[1, 2], @[false])
-
     ## It is not possible to entirely omit leading varargs arguments; however, it
     ## is possible to explicitly pass values to the other varargs (if present)
     doAssert impl(va2 = true) == (newSeq[int](), @[true])
