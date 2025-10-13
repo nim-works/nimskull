@@ -21,7 +21,8 @@ import
 
 # legacy reports stupidity
 from compiler / ast / reports import Report, location, kind
-from compiler / front / cli_reporter import reportFull
+from compiler / front / cli_reporter import reportFull, legacyReportBridge
+from compiler / front / msgs import defaultDiagHandler
 
 import std/options as std_options # due to legacy reports stupidity
 
@@ -33,6 +34,8 @@ template semcheck(body: untyped) {.dirty.} =
   ## perform the complete setup and compilation process
   cache = newIdentCache()
   config = newConfigRef(uhoh)
+  config.diagHandler = msgs.defaultDiagHandler
+  config.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   graph = newModuleGraph(cache, config)
   graph.loadConfig(filename)
 
