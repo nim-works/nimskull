@@ -591,8 +591,7 @@ proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   assert inReport.kind != repNone, "Cannot write out empty report"
   assert(conf.structuredReportHook != nil,
          "Cannot write report with empty report hook")
-  if conf.structuredReportHook != nil:
-    return conf.structuredReportHook(conf, inReport)
+  return conf.structuredReportHook(conf, inReport)
 
 proc canReport*(conf: ConfigRef, id: NodeId): bool =
   ## Check whether report with given ID can actually be written out, or it
