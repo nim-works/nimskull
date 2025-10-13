@@ -589,9 +589,8 @@ proc setDiagHandler*(conf: ConfigRef, handler: sink DiagHandler) {.inline.} =
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
-  # TODO: use a no-op structuredHook in dust instead of nil
-  # assert(conf.structuredReportHook != nil,
-  #        "Cannot write report with empty report hook")
+  assert(conf.structuredReportHook != nil,
+         "Cannot write report with empty report hook")
   if conf.structuredReportHook != nil:
     return conf.structuredReportHook(conf, inReport)
 
@@ -614,8 +613,8 @@ template report*[R: ReportTypes](
 
 template report*[R: ReportTypes](
     conf: ConfigRef, tinfo: TLineInfo, inReport: R): TErrorHandling =
-  ## Write out new report, updating it's location info using `tinfo` and
-  ## it's instantiation info with `instantiationInfo()` of the template.
+  ## Write out new report, updating its location info using `tinfo` and
+  ## its instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
