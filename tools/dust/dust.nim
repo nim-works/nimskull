@@ -60,6 +60,9 @@ proc calculateScore(config: ConfigRef; n: PNode): int =
   else:
     result = size(n)
 
+proc dustReportHook(conf: ConfigRef, report: Report): TErrorHandling =
+  doDefault
+
 proc dust*(filename: AbsoluteFile) =
   var
     graph: ModuleGraph
@@ -80,7 +83,7 @@ proc dust*(filename: AbsoluteFile) =
         if errorKind == repNone:
           errorKind = rep.kind
         elif errorKind == rep.kind:
-          config.structuredReportHook = nil
+          config.structuredReportHook = dustReportHook
 
   # in the first pass, we add the program to our cache
   semcheck:
@@ -121,7 +124,7 @@ proc dust*(filename: AbsoluteFile) =
       echo "(unexpected errors)"
     # if we didn't unhook the errors,
     # it means we didn't find the error we were looking for
-    elif config.structuredReportHook != nil:
+    elif config.structuredReportHook != dustReportHook:
       echo "(uninteresting errors)"
     # i guess this node is a viable reproduction
     else:
