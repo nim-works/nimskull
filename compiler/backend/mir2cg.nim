@@ -3023,8 +3023,6 @@ proc needsErrorFlag(tree): bool =
       result = true
       break
 
-import compiler/mir/utils
-
 proc procToCgir(c; env; sym: PSym): StringId =
   ## Implements the
   result = symToName(c, sym)
@@ -3189,29 +3187,25 @@ proc procToCgir(c; env; sym: PSym): StringId =
 
   # create the structured control-flow view and use it to guide translation
   var list = toStructured(c.prc.body.code)
-  try:
-    optimize(list)
-    if hasExit(c.prc.body.code):
-      # the body is wrapped in a block, which is used as the target for both
-      # `Return` and `Unwind`
-      c.prc.unwindLabel = c.prc.newLabel()
-      stmts.addStmt bu, Block(
-        ^labelRef(c.prc.unwindLabel),
-        ^wrap(stmts, toTree(c, env, c.prc.body.code, list, 0, stmts, bu)))
-      if useStackTrace:
-        stmts.addStmt bu, Call(
-          ^bu.useCompilerProc(c, env, "popFrame"))
-      if c.prc.body[resultId].typ != VoidType:
-        stmts.addStmt bu, Return(
-          Use(^c.prc.body[resultId].typ,
-            ^localRef(c.prc.localMap[resultId])))
-      else:
-        stmts.addStmt bu, Return()
+  optimize(list)
+  if hasExit(c.prc.body.code):
+    # the body is wrapped in a block, which is used as the target for both
+    # `Return` and `Unwind`
+    c.prc.unwindLabel = c.prc.newLabel()
+    stmts.addStmt bu, Block(
+      ^labelRef(c.prc.unwindLabel),
+      ^wrap(stmts, toTree(c, env, c.prc.body.code, list, 0, stmts, bu)))
+    if useStackTrace:
+      stmts.addStmt bu, Call(
+        ^bu.useCompilerProc(c, env, "popFrame"))
+    if c.prc.body[resultId].typ != VoidType:
+      stmts.addStmt bu, Return(
+        Use(^c.prc.body[resultId].typ,
+          ^localRef(c.prc.localMap[resultId])))
     else:
-      toTree(c, env, c.prc.body.code, list, 0, stmts, bu)
-  except:
-    writeFile("error.txt", render(c.prc.body.code, addr env, addr c.prc.body))
-    return
+      stmts.addStmt bu, Return()
+  else:
+    toTree(c, env, c.prc.body.code, list, 0, stmts, bu)
 
   assert stmts.len > 0
   # assemble into the final definition and it to the module:
