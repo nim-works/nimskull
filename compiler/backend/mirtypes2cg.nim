@@ -108,6 +108,18 @@ proc translate(c; env; m; id: TypeId, bu) =
   else:
     c.translate(env, m, desc, bu)
 
+proc emitPointer(c; env; m; target: TypeId, bu) =
+  ## Emits a pointer type with target type `target`.
+  case env.headerFor(target, Lowered).kind
+  of tkArray:
+    # XXX: accommodate the C code generator by not using identified array
+    #      types as pointer targets
+    bu.subTree cnkPtrTy:
+      c.translate(env, m, env.headerFor(target, Lowered), bu)
+  else:
+    bu.subTree cnkPtrTy:
+      c.translate(env, m, target, bu)
+
 proc translateProcType(c; env; m; desc: TypeHeader, bu) =
   bu.subTree cnkProcTy:
     bu.add intNode(ord(CallingConvMap[desc.callConv(env)]), m)
@@ -120,8 +132,7 @@ proc translateProcType(c; env; m; desc: TypeHeader, bu) =
       # ignore compile-time-only parameters
       if env.canonical(typ) != VoidType:
         if pfByRef in flags:
-          bu.subTree cnkPtrTy:
-            c.translate(env, m, typ, bu)
+          c.emitPointer(env, m, typ, bu)
         elif env.headerFor(env.canonical(typ), Canonical).kind == tkOpenArray:
           # TODO: only unpack the tuple when the procedure uses the C-interop
           #       ABI -- keep it as a tuple otherwise
@@ -196,16 +207,14 @@ proc translate(c; env; m; desc: TypeHeader, bu) =
     bu.subTree cnkPtrTy:
       bu.add node(cnkVoidTy)
   of tkPtr, tkRef, tkVar, tkLent:
-    let elem = env.canonical(desc.elem)
-    if env.headerFor(elem, Lowered).kind == tkUncheckedArray:
-      bu.subTree cnkPtrToArrayTy:
-        c.translate(env, m, env.headerFor(elem, Lowered).elem, bu)
-    else:
-      bu.subTree cnkPtrTy:
-        c.translate(env, m, elem, bu)
+    c.emitPointer(env, m, desc.elem, bu)
   of tkArray:
     bu.subTree cnkArrayTy:
       bu.add intNode(desc.arrayLen(env), m)
+      c.translate(env, m, desc.elem(), bu)
+  of tkUncheckedArray:
+    bu.subTree cnkArrayTy:
+      bu.add intNode(0, m)
       c.translate(env, m, desc.elem(), bu)
   of tkProc:
     c.translateProcType(env, m, desc, bu)
@@ -244,11 +253,6 @@ proc translate(c; env; m; desc: TypeHeader, bu) =
         inc idx
 
         case fdesc.kind
-        of tkUncheckedArray:
-          bu.subTree cnkFlexField:
-            c.translate(env, m, fdesc.elem, bu)
-            bu.add intNode(recf.align, m)
-            bu.add node(cnkString, name)
         of tkVoid:
           # TODO: this must not happen. Change `sem` to drop all void fields
           #       early on
@@ -265,12 +269,14 @@ proc translate(c; env; m; desc: TypeHeader, bu) =
   of tkCstring:
     # the only compatible strings reaching here are C strings. A C string is a
     # pointer to an unbounded C character array
-    bu.subTree cnkPtrToArrayTy:
-      bu.subTree cnkOpaqueTy:
-        bu.add strNode("char", m)
-        bu.add strNode("", m)
+    bu.subTree cnkPtrTy:
+      bu.subTree cnkArrayTy:
+        bu.add intNode(0, m)
+        bu.subTree cnkOpaqueTy:
+          bu.add strNode("char", m)
+          bu.add strNode("", m)
   of tkVoid, tkClosure, tkSet, tkOpenArray, tkSeq,
-     tkString, tkUncheckedArray, tkImported:
+     tkString, tkImported:
     unreachable(desc.kind)
 
 proc typeToCgir*(c; env; m; typ: TypeId): StringId =
