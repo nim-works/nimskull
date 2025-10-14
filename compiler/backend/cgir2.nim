@@ -80,8 +80,8 @@ type
     cnkGlobalImp, cnkGlobalDef, cnkGlobalExp
     cnkVoidTy, cnkBoolTy, cnkCharTy, cnkUIntTy, cnkIntTy, cnkFloatTy
     cnkOpaqueTy, cnkStructTy, cnkUnionTy, cnkArrayTy
-    cnkPtrTy, cnkPtrToArrayTy, cnkProcTy
-    cnkField, cnkFlexField
+    cnkPtrTy, cnkProcTy
+    cnkField
     cnkVarargs
 
   CgTypeKind* = range[cnkVoidTy..cnkProcTy]

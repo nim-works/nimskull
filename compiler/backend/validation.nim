@@ -70,8 +70,7 @@ const
   ErrorType = Type(kind: tkError)
   BoolType  = Type(kind: tkSimple, nt: cnkBoolTy)
   ValueType = {cnkBoolTy, cnkCharTy, cnkIntTy, cnkUIntTy, cnkFloatTy,
-               cnkPtrTy, cnkPtrToArrayTy, cnkStructTy, cnkUnionTy,
-               cnkArrayTy, cnkOpaqueTy}
+               cnkPtrTy, cnkStructTy, cnkUnionTy, cnkArrayTy, cnkOpaqueTy}
 
 using
   c: var ProcContext
@@ -468,12 +467,11 @@ genGrammar(checkTypeBody, body, tast):
   extern bool, checkBool
 
   field = Field(typ, int, {CgLocAttrib}, int, string)
-  last_field = field or FlexField(typ, int, string)
   typ = tref or body
   param = tref or body or Varargs()
   body = VoidTy() or IntTy(int) or FloatTy(int) or UIntTy(int) or
-         CharTy() or BoolTy() or PtrTy(typ) or PtrToArrayTy(typ) or
-         StructTy(bool, ...field, last_field) or
+         CharTy() or BoolTy() or PtrTy(typ) or
+         StructTy(bool, ...field, field) or
          UnionTy(bool, ...field, field) or
          ArrayTy(int, typ) or
          OpaqueTy(string, string) or
@@ -523,7 +521,7 @@ proc width(typ: Type, m): int =
 
 proc elemType(m; typ: Type): Type =
   case typeKind(m, typ)
-  of cnkPtrTy, cnkPtrToArrayTy:
+  of cnkPtrTy:
     m.readType(m.tast.child(typ.n, 0))
   else:
     ErrorType
@@ -548,11 +546,11 @@ proc param(typ: Type, i: Natural, m): Type =
   else:
     ErrorType
 
-proc member(typ: Type, i: int64, m): (Type, bool) =
+proc member(typ: Type, i: int64, m): Type =
   ## Retrieves the `i`-th member of struct/union type `typ`.
   case typ.kind
   of tkError, tkSimple, tkNil:
-    (ErrorType, false)
+    ErrorType
   of tkNominal:
     member(Type(kind: tkComplex, n: m.types[typ.name]), i, m)
   of tkComplex:
@@ -560,9 +558,9 @@ proc member(typ: Type, i: int64, m): (Type, bool) =
     if m.tast[typ.n].kind in {cnkStructTy, cnkUnionTy} and
        idx in 1..<len(m.tast[typ.n]):
       let pos = m.tast.child(typ.n, idx)
-      (readType(m, m.tast.child(pos, 0)), m.tast[pos].kind == cnkFlexField)
+      readType(m, m.tast.child(pos, 0))
     else:
-      (ErrorType, false)
+      ErrorType
 
 proc arrayElem(t: Type, m): Type =
   m.readType(m.tast.child(resolved(m, t).n, 1))
@@ -570,10 +568,21 @@ proc arrayElem(t: Type, m): Type =
 proc arrayLen(t: Type, m): int64 =
   m.unpackInt(m.tast[resolved(m, t).n, 0].val)
 
-proc isStatic(m; typ: Type): bool =
-  assert typeKind(m, typ) == cnkStructTy
-  let n = if typ.kind == tkNominal: m.types[typ.name] else: typ.n
-  m.tast[m.tast.last(n)].kind != cnkFlexField
+proc isDynArray(m; typ: Type): bool =
+  typeKind(m, typ) == cnkArrayTy and arrayLen(typ, m) == 0
+
+proc isSized(m; typ: Type): bool =
+  ## Computes whether `typ` has a statically known size.
+  case typeKind(m, typ)
+  of cnkArrayTy:
+    arrayLen(typ, m) > 0
+  of cnkStructTy:
+    let n = if typ.kind == tkNominal: m.types[typ.name] else: typ.n
+    isSized(m, m.readType(m.tast.child(m.tast.last(n), 0)))
+  of cnkVoidTy, cnkProcTy:
+    false
+  else:
+    true ## all other types have a known static size
 
 proc equal(m; a, b: Type): bool =
   ## Compares two types for equality.
@@ -593,7 +602,7 @@ proc equal(m; a, b: Type): bool =
       true
     of cnkIntTy, cnkUIntTy, cnkFloatTy:
       m.tast[a, 0] == m.tast[b, 0] # width must be the same
-    of cnkPtrTy, cnkPtrToArrayTy:
+    of cnkPtrTy:
       equal(m.tast.child(a, 0), m.tast.child(b, 0))
     of cnkArrayTy:
       m.tast[a, 0] == m.tast[b, 0] and
@@ -625,7 +634,7 @@ proc match(m; a, b: Type): bool =
   ## Computes whether a value of type `b` is also a value of type `a`.
   if a.kind == tkError or b.kind == tkError:
     true # the error type acts as both a top and bottom type
-  elif typeKind(m, a) in {cnkPtrTy, cnkPtrToArrayTy} and b.kind == tkNil:
+  elif typeKind(m, a) == cnkPtrTy and b.kind == tkNil:
     true # nil is part of every pointer type
   elif typeKind(m, a) == cnkVarargs:
     true # varargs fit everything
@@ -701,8 +710,7 @@ proc expect(typ: var Type, kind: set[CgTypeKind], m, err) =
     typ = ErrorType
 
 proc expectStatic(typ: var Type, m, err) =
-  if typ.kind != tkError and
-     typeKind(m, typ) == cnkStructTy and not isStatic(m, typ):
+  if typ.kind != tkError and not isSized(m, typ):
     err.emit m, fmt"expected statically-sized type, but got '{typ}'"
     typ = ErrorType
 
@@ -712,9 +720,8 @@ proc requireTypeKind(m; typ: Type, kinds: set[CgTypeKind], err) =
       fmt"expected type of kind '{kinds}', but got '{typeKind(m, typ)}'"
 
 proc requireStaticType(m; typ: Type, err) =
-  if typ.kind != tkError and
-      typeKind(m, typ) == cnkStructTy and not isStatic(m, typ):
-    err.emit m, "struct type must have static size in this context"
+  if typ.kind != tkError and not isSized(m, typ):
+    err.emit m, fmt"expected statically-sized type, but got '{typ}'"
 
 proc expectType(m; pos): Type =
   let n = advance(m.ast, pos)
@@ -768,7 +775,7 @@ proc checkInlineType(m; pos; err): Type =
     result = m.readType(pos)
     validateTypeBody(m, pos, err)
 
-proc checkField(m; pos; names: var PackedSet[StringId], err) =
+proc checkField(m; pos; names: var PackedSet[StringId], isLast: bool, err) =
   context err, pos, at
   let n = m.tast.advance(pos)
   case n.kind
@@ -776,7 +783,8 @@ proc checkField(m; pos; names: var PackedSet[StringId], err) =
     let tpos = pos
     let typ = checkInlineType(m, pos, err)
     requireTypeKind(m, typ, ValueType, err)
-    requireStaticType(m, typ, err)
+    if not isLast or not isDynArray(m, typ):
+      requireStaticType(m, typ, err)
     checkAlign(m, advance(m.tast, pos), err)
     skip(m.tast, pos)
     skip(m.tast, pos)
@@ -784,16 +792,6 @@ proc checkField(m; pos; names: var PackedSet[StringId], err) =
     if m.get(name) == "":
       if m.tast[tpos].kind notin {cnkStructTy, cnkUnionTy}:
         err.emit m, at, "anonymous field must use inline struct/union type"
-    elif containsOrIncl(names, name):
-      err.emit m, at, "duplicate field name"
-  of cnkFlexField:
-    let typ = checkTypeUse(m, pos, err)
-    requireTypeKind(m, typ, ValueType, err)
-    requireStaticType(m, typ, err)
-    checkAlign(m, advance(m.tast, pos), err)
-    let name = advance(m.tast, pos).val.StringId
-    if m.get(name) == "":
-      err.emit m, at, "a flexible array field must have a name"
     elif containsOrIncl(names, name):
       err.emit m, at, "duplicate field name"
   else:
@@ -814,15 +812,12 @@ proc validateTypeBody(m; pos; err) =
     if i notin [4'i64, 8'i64]:
       err.emit m, at, "the only supported widths for floats are 4 and 8"
   of cnkPtrTy:
-    let got = checkTypeUse(m, pos, err)
-    requireTypeKind(m, got, ValueType + {cnkProcTy, cnkVoidTy}, err)
-  of cnkPtrToArrayTy:
-    let got = checkTypeUse(m, pos, err)
-    requireTypeKind(m, got, ValueType, err)
+    # no restrictions on the target type
+    discard checkTypeUse(m, pos, err)
   of cnkArrayTy:
     let len = m.unpackInt(advance(m.tast, pos).val)
-    if len <= 0:
-      err.emit m, at, "array length must be larget than 0"
+    if len < 0:
+      err.emit m, at, "array length must be >= 0"
     let got = checkTypeUse(m, pos, err)
     requireTypeKind(m, got, ValueType, err)
     requireStaticType(m, got, err)
@@ -833,20 +828,17 @@ proc validateTypeBody(m; pos; err) =
     var names: PackedSet[StringId]
     skip(m.tast, pos)
     for i in 1..<len(n):
-      if m.tast[pos].kind == cnkFlexField:
-        if i != len(n)-1:
-          err.emit m, at, "flex field may only come last"
-      checkField(m, pos, names, err)
+      checkField(m, pos, names, (i == len(n) - 1), err)
   of cnkUnionTy:
     var names: PackedSet[StringId]
     skip(m.tast, pos)
     for _ in 1..<len(n):
-      checkField(m, pos, names, err)
+      checkField(m, pos, names, false, err)
   of cnkProcTy:
     skip(m.tast, pos)
     let ret = checkTypeUse(m, pos, err)
-    requireTypeKind(m, ret, ValueType + {cnkVoidTy}, err)
-    requireStaticType(m, ret, err)
+    if typeKind(m, ret) != cnkVoidTy:
+      requireStaticType(m, ret, err)
     for p in 2..<len(n):
       if p == len(n) - 1 and m.tast[pos].kind == cnkVarargs:
         skip(m.tast, pos)
@@ -919,10 +911,9 @@ proc typeCall(c; m; pos; args: int, err): Type =
 
   result = callee.retType(m)
 
-proc typePath(c; m; pos; base: Type, isArray: bool, len: int, err): Type =
+proc typePath(c; m; pos; base: Type, len: int, err): Type =
   ## Makes sure the path operands at `pos` are well formed, returning the
   ## computed type of the path expression.
-  var isArray = isArray
   var typ = base
   for _ in 0..<len:
     if typ.kind == tkError:
@@ -933,33 +924,24 @@ proc typePath(c; m; pos; base: Type, isArray: bool, len: int, err): Type =
     of cnkInt:
       let at = pos
       let index = m.unpackInt(advance(m.ast, pos).val)
-      if isArray:
-        isArray = false
-        continue
-
       case typeKind(m, typ)
       of cnkStructTy, cnkUnionTy:
-        (typ, isArray) = member(typ, index, m)
+        typ = member(typ, index, m)
         if typ.kind == tkError:
           err.emit m, at, "struct/union has no member with given index"
       of cnkArrayTy:
-        if index < 0 or index >= arrayLen(typ, m):
-          err.emit m, at, "index out of array bounds"
+        if not isDynArray(m, typ) and (index < 0 or index >= arrayLen(typ, m)):
+          err.emit m, at, "index outside of array bounds"
         typ = arrayElem(typ, m)
       else:
-        err.emit m, at, "cannot statically index into " & render(m, typ)
+        err.emit m, at, fmt"cannot statically index into '{typ}'"
         typ = ErrorType
     of cnkExtField:
-      if isArray:
-        err.emit m, pos, "external field access is not valid for arrays"
-
       discard advance(m.ast, pos)
       typ = expectType(m, pos)
       skip(m.ast, pos)
     of cnkExprs:
-      if isArray:
-        isArray = false
-      elif typeKind(m, typ) == cnkArrayTy:
+      if typeKind(m, typ) == cnkArrayTy:
         typ = arrayElem(typ, m)
       else:
         err.emit m, pos, "dynamic index is only valid for array types"
@@ -968,16 +950,15 @@ proc typePath(c; m; pos; base: Type, isArray: bool, len: int, err): Type =
     else:
       unreachable()
 
-  if typ.kind != tkError and isArray:
-    err.emit m, "a flexible member must not be accessed directly"
   result = typ
 
 proc typeValue(m; pos; allowArr: bool, err): Type =
   result = expectType(m, pos)
   case typeKind(m, result)
-  of cnkPtrToArrayTy:
-    case typeKind(m, elemType(m, result))
-    of cnkOpaqueTy:
+  of cnkPtrTy:
+    # special rule to allow for cstring values
+    if isDynArray(m, elemType(m, result)) and
+       typeKind(m, arrayElem(elemType(m, result), m)) == cnkOpaqueTy:
       expectNode(m, m.ast, pos, cnkString, err)
     else:
       err.emit m, pos, "invalid data for value"
@@ -1007,22 +988,16 @@ proc typeValue(m; pos; allowArr: bool, err): Type =
     err.emit m, pos, "invalid data for value"
     pos = m.ast.next(pos)
 
-proc typePathRoot(c; m; pos; err): (QualType, bool) =
-  let at = pos # insert manually; it's simpler
+proc typePathRoot(c; m; pos; err): QualType =
+  let at = pos
   let got = typeExpr(c, m, pos, err)
-  var base: QualType
-  var isArray = false
   case typeKind(m, got.typ)
-  of cnkPtrToArrayTy:
-    isArray = true
-    base = elemType(m, got.typ) + {Lval, Mut}
   of cnkPtrTy:
-    base = elemType(m, got.typ) + {Lval, Mut}
-    if typeKind(m, base.typ) == cnkPtrToArrayTy:
-      err.emit m, at, "path root must not be pointer to pointer-to-array"
+    result = elemType(m, got.typ) + {Lval, Mut}
+    if typeKind(m, result.typ) == cnkPtrTy:
+      err.emit m, at, "path root must not be pointer to pointer"
   else:
-    base = got
-  result = (base, isArray)
+    result = got
 
 proc typeExpr(c; m; pos, err): QualType =
   ## Checks an expression for well-formedness, returning its type.
@@ -1070,7 +1045,7 @@ proc typeExpr(c; m; pos, err): QualType =
   of cnkOffsetof:
     let target = expectType(m, pos, {cnkUIntTy, cnkIntTy}, err)
     let start = expectType(m, pos, {cnkStructTy, cnkUnionTy, cnkArrayTy}, err)
-    discard typePath(c, m, pos, start, false, len(n) - 2, err)
+    discard typePath(c, m, pos, start, len(n) - 2, err)
     target + {}
   of cnkLoad:
     let target = expectType(m, pos, ValueType, err)
@@ -1081,7 +1056,10 @@ proc typeExpr(c; m; pos, err): QualType =
       err.emit m, fmt"expected '(Ptr {target})', but got '{got}'"
     target + {}
   of cnkAddr:
-    let target = expectType(m, pos, {cnkPtrTy, cnkPtrToArrayTy}, err)
+    let target = expectType(m, pos, {cnkPtrTy}, err)
+    var elem = elemType(m, target)
+    if isDynArray(m, elem):
+      elem = elemType(m, elem)
     var got: QualType
     if m.ast[pos].kind in cnkSyms:
       got = sym(c, m, pos, err)
@@ -1089,13 +1067,13 @@ proc typeExpr(c; m; pos, err): QualType =
       got = typeExpr(c, m, pos, err)
     if Lval notin got.qual:
       err.emit m, "expected lvalue operand for Addr"
-    if not match(m, elemType(m, target), got.typ):
-      err.emit m, typeMismatchMsg(m, elemType(m, target), got.typ)
+    if not match(m, elem, got.typ):
+      err.emit m, typeMismatchMsg(m, elem, got.typ)
     target + {}
   of cnkPath:
     let target = expectType(m, pos)
-    let (base, isArray) = typePathRoot(c, m, pos, err)
-    let ret = typePath(c, m, pos, base.typ, isArray, len(n) - 2, err)
+    let base = typePathRoot(c, m, pos, err)
+    let ret = typePath(c, m, pos, base.typ, len(n) - 2, err)
     if not match(m, target, ret):
       err.emit m, "path type doesn't match actual type"
     target + base.qual
@@ -1119,7 +1097,7 @@ proc typeExpr(c; m; pos, err): QualType =
       err.emit m, "bitcast target and source type must have the same width"
     target + {}
   of cnkPtrCast:
-    const PtrCastType = {cnkIntTy, cnkUIntTy, cnkPtrTy, cnkPtrToArrayTy}
+    const PtrCastType = {cnkIntTy, cnkUIntTy, cnkPtrTy}
     let target = expectType(m, pos, PtrCastType, err)
     let src = require(c, m, pos, PtrCastType, err)
     if target.kind != tkError and src.kind != tkError and
@@ -1129,7 +1107,7 @@ proc typeExpr(c; m; pos, err): QualType =
     target + {}
   of cnkConv:
     const ConvType = {cnkIntTy, cnkUIntTy, cnkFloatTy, cnkBoolTy, cnkCharTy,
-                      cnkPtrTy, cnkPtrToArrayTy, cnkOpaqueTy}
+                      cnkPtrTy, cnkOpaqueTy}
     let target = expectType(m, pos, ConvType, err)
     let src = require(c, m, pos, ConvType, err)
     if target.kind != tkError and src.kind != tkError and
@@ -1180,8 +1158,7 @@ proc typeExpr(c; m; pos, err): QualType =
     require(c, m, pos, target, err)
     target + {}
   of cnkLe, cnkLt:
-    const Allowed = {cnkIntTy, cnkUIntTy, cnkFloatTy, cnkOpaqueTy, cnkPtrTy,
-                     cnkPtrToArrayTy}
+    const Allowed = {cnkIntTy, cnkUIntTy, cnkFloatTy, cnkOpaqueTy, cnkPtrTy}
     let target = expectType(m, pos, {cnkBoolTy}, err)
     let typ = expectType(m, pos, Allowed, err)
     require(c, m, pos, typ, err)
@@ -1189,7 +1166,7 @@ proc typeExpr(c; m; pos, err): QualType =
     target + {}
   of cnkEq:
     const Allowed = {cnkBoolTy, cnkCharTy, cnkIntTy, cnkUIntTy, cnkFloatTy,
-                     cnkOpaqueTy, cnkPtrTy, cnkPtrToArrayTy}
+                     cnkOpaqueTy, cnkPtrTy}
     let target = expectType(m, pos, {cnkBoolTy}, err)
     let typ = expectType(m, pos, Allowed, err)
     require(c, m, pos, typ, err)
@@ -1260,8 +1237,7 @@ proc checkStmt*(c; m; pos; err): bool =
     let attribs = readSet[CgLocAttrib](m, m.ast, pos)
     var typ = expectType(m, pos, ValueType, err)
     typ.expectStatic(m, err)
-    if CgLocAttrib.NoAlias in attribs and
-       typeKind(m, typ) notin {cnkPtrTy, cnkPtrToArrayTy}:
+    if CgLocAttrib.NoAlias in attribs and typeKind(m, typ) != cnkPtrTy:
       err.emit m, "noalias attribute is only allowed for pointer locations"
     let name = advance(m.ast, pos).val.StringId
     c.addLocal(m, name, typ, err)
@@ -1395,7 +1371,7 @@ proc typeConst(m; pos; err): Type =
     for i in 1..<len(n):
       context at:
         let got = typeConst(m, pos, err)
-        let (expect, _) = member(result, i - 1, m)
+        let expect = member(result, i - 1, m)
         if not match(m, expect, got):
           err.emit m, at, typeMismatchMsg(m, expect, got)
   of cnkRecConstr:
@@ -1404,7 +1380,7 @@ proc typeConst(m; pos; err): Type =
       context at:
         let field = advance(m.ast, pos)
         var c = ProcContext()
-        let expect = typePath(c, m, pos, result, false, len(field)-1, err)
+        let expect = typePath(c, m, pos, result, len(field)-1, err)
         let got = typeConst(m, pos, err)
         if not match(m, expect, got):
           err.emit m, at, typeMismatchMsg(m, expect, got)
@@ -1509,8 +1485,7 @@ proc checkSemantics*(m: CgModule, handler: ErrorHandler) =
         pos = m.ast.child(pos, 0)
         let attribs = readSet[CgParamAttrib](m, m.ast, pos)
         let param = param(typ, i, m)
-        if CgParamAttrib.NoAlias in attribs and
-           typeKind(m, param) notin {cnkPtrTy, cnkPtrToArrayTy}:
+        if CgParamAttrib.NoAlias in attribs and typeKind(m, param) != cnkPtrTy:
           err.emit m, "'noalias' attribute is only valid for pointer parameters"
 
         c.addLocal(m, advance(m.ast, pos).val.StringId, param, err)
