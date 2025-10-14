@@ -780,7 +780,7 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
         for (id, strf) in env.types.fields(desc):
           path.shrink(start)
           if strf.isTagged:
-            let discr = env.types.lookupDiscr(desc, id)
+            let discr = env.types.lookupTag(desc, id)
             # the discriminator might have a non-zero value
             var val = Zero
             if discr in preproc:
@@ -3267,15 +3267,13 @@ proc defineProc*(c; env: var MirEnv, id: ProcedureId, body: sink MirBody): Strin
   result = procToCgir(c, env, s)
   reset(c.prc) # free the memory associated with the context
 
-proc translateTopLevelEmit*(c; env: var MirEnv, s: MirTree): cgir2.NodeIndex =
+proc translateTopLevelEmit*(c; env: var MirEnv, s: sink MirBody): cgir2.NodeIndex =
   ## Translates the top-level emit or asm statement `s` to the corresponding
   ## CGIR statement, returning its position in the AST.
-  assert s.len > 0 and s[0].kind in {mnkEmit, mnkAsm}
+  assert s.code.len > 0 and s.code[0].kind in {mnkEmit, mnkAsm}
+  c.prc.body = s
   var bu = initBuilder()
-  # there's no "none" source ID at the MIR level. Add a mapping so that
-  # lookup can succeed
-  discard c.prc.body.source.add(c.graph.emptyNode)
-  let r = emitToCgir(c, env, s, NodePosition(0), bu)
+  let r = emitToCgir(c, env, c.prc.body.code, NodePosition(0), bu)
   result = c.module.ast.append(bu, r)
   c.prc.reset()
 
