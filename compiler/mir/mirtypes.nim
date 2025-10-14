@@ -822,7 +822,13 @@ proc procTypeToMir(env: var TypeEnv, kind: TypeKind, t: PType,
 
   var prc: ProcBuilder
   let ret =
-    if isEmptyType(t[0]):
+    if t.callConv == ccTailcall:
+      # FIXME: using the Continuation type as the return type is wrong when
+      #        portable tailcalls are *not* enabled
+      # XXX: this also makes the actual types of MIR expressions not match
+      #      their declared types prior to tailcall lowering
+      typeref(t.n[0][3].typ)
+    elif isEmptyType(t[0]):
       VoidType
     else:
       typeref(t[0])
