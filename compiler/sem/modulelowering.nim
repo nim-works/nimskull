@@ -171,8 +171,8 @@ proc group(n: PNode, decl, imperative: var seq[PNode]) =
     # of nested scopes (those inside ``if``, ``block``, etc. statements)
     imperative.add(n)
 
-proc splitEmitAndAsm(stmts: var seq[PNode]): seq[PNode] =
-  ## Splits all top-level emit and emit statements from `n` into a separate
+proc extractEmitAndAsm(stmts: var seq[PNode]): seq[PNode] =
+  ## Extracts all top-level emit and emit statements from `n` into a separate
   ## list.
   var i = 0
   while i < stmts.len:
@@ -505,8 +505,8 @@ proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
 
   var emit: seq[PNode]
   if graph.config.backend == backendC:
-    # top-level emit splitting only makes sense when compiling to C
-    emit = splitEmitAndAsm(c.imperative)
+    # only the C code generator supports top-level emit/asm statements
+    emit = extractEmitAndAsm(c.imperative)
 
   list.modules[pos] = setupModule(graph, c.idgen, c.module, c.decls,
                                   c.imperative, emit)

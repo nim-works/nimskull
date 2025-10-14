@@ -168,6 +168,8 @@ proc createStateField(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =
 
 proc createEnvObj(g: ModuleGraph; idgen: IdGenerator; owner: PSym; info: TLineInfo): PType =
   result = createObj(g, idgen, owner, info, final=false)
+  # the object needs to inherit from `RootObj` (hence final=false), but it
+  # cannot be inherited from itself
   result.flags.incl tfFinal
 
 proc getClosureIterResult*(g: ModuleGraph; iter: PSym; idgen: IdGenerator): PSym =

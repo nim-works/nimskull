@@ -822,3 +822,15 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
   result = Body()
   result.code = tb(body, env, cl, NodePosition 0)
   result.locals = cl.locals
+
+proc topLevelEmitToIr*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
+                       owner: PSym, stmt: sink MirBody): CgNode =
+  ## Translates a MIR top-level emit/asm statement to its CGIR analogue.
+  assert stmt.code.len > 0 and stmt.code[0].kind in {mnkEmit, mnkAsm}
+  var
+    cl = TranslateCl(graph: graph, idgen: idgen, env: addr env, owner: owner)
+    cr = TreeCursor(pos: 0)
+  var tmp: seq[CgNode]
+  stmtToIr(stmt, env, cl, cr, tmp)
+  assert tmp.len == 1
+  result = tmp[0]

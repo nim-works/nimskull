@@ -504,8 +504,8 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   assert r[0], "field not in type"
   result = r[1]
 
-proc lookupDiscr*(env: TypeEnv, desc: TypeHeader, id: FieldId): FieldId =
-  ## Returns the discriminator field for the union stored by the field
+proc lookupTag*(env: TypeEnv, desc: TypeHeader, id: FieldId): FieldId =
+  ## Returns the discriminator/tag field for the union stored by the field
   ## with `id`.
   assert desc.kind == tkStruct
   assert (env.fields[ord id].extra and TaggedFlag) != 0, "not a tagged field"
@@ -564,8 +564,8 @@ proc getBranch*(env: TypeEnv, outer, typ: TypeId, id: FieldId,
   # in this case
   let
     inst  = env.symbols[outer].inst.skipTypes(Skip)
-    discr = env.lookupDiscr(env.headerFor(typ, Lowered), id)
-    n     = findCase(inst.n, env.idents[env.fields[ord discr].ident])
+    tag   = env.lookupTag(env.headerFor(typ, Lowered), id)
+    n     = findCase(inst.n, env.idents[env.fields[ord tag].ident])
     pos   = uint32 findBranch(n, val)
   result = FieldId(env.headerFor(env.fields[ord id].typ, Lowered).a + pos)
 
@@ -665,7 +665,7 @@ proc addTaggedField(b: var StructBuilder, env: var TypeEnv, s: PSym,
     typ: typ)
 
 proc addEmbedded(b: var StructBuilder, typ: TypeId) =
-  ## Adds an embedded struct/union to the record.
+  ## Adds an embedded struct/union to the struct/union.
   inc b.header.b
   b.fields.add StructField(extra: EmbeddedFlag, typ: typ)
 
@@ -822,11 +822,7 @@ proc procTypeToMir(env: var TypeEnv, kind: TypeKind, t: PType,
 
   var prc: ProcBuilder
   let ret =
-    if t.callConv == ccTailcall:
-      # FIXME: using the Continuation type as the return type is wrong when
-      #        portable tailcalls are *not* enabled
-      typeref(t.n[0][3].typ)
-    elif isEmptyType(t[0]):
+    if isEmptyType(t[0]):
       VoidType
     else:
       typeref(t[0])
@@ -1182,13 +1178,14 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # now add the symbol and mapping:
     result = env.symbols.add TypeSym(inst: t, canon: prev,
                                      desc: [orig, canon, lowered])
-    env.map[t] = result
+    if t.sym.isNil or sfImportc notin t.sym.flags:
+      env.map[t] = result
 
 proc handleImported(env: var TypeEnv, t: PType): TypeId =
   if t.sym != nil and sfImportc in t.sym.flags:
-    # add and register a preliminary symbol first, so that recursion terminates
-    result = env.symbols.add:
-      TypeSym(inst: t, canon: env.symbols.nextId())
+    # add and register a preliminary symbol first, so that recursive types
+    # work correctly
+    result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
     env.map[t] = result
 
     let base =
@@ -1208,8 +1205,6 @@ proc handleImported(env: var TypeEnv, t: PType): TypeId =
                                env.canonical(base))
 
     env.symbols[result].desc = [orig, canon, canon]
-    # when `base` == `t`, the mapping changed; correct it:
-    env.map[t] = result
   else:
     result = typeSymToMir(env, t)
 
@@ -1301,9 +1296,9 @@ func newTuple*(env: var TypeEnv, elems: varargs[TypeId]): TypeId =
 
   result = env.newType(header)
 
-func newPtr*(env: var TypeEnv, elem: TypeId): TypeId =
-  ## Generates a pointer type with target `elem`.
-  newPtrTy(env, elem)
+func newPtr*(env: var TypeEnv, target: TypeId): TypeId =
+  ## Creates and returns a pointer type with target type `target`.
+  env.newPtrTy(target)
 
 func newPtrToArray*(env: var TypeEnv, elem: TypeId): TypeId =
   ## Generates a type representing a pointer to an unbounded array with

@@ -2702,7 +2702,7 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
   bu.pop(bu.push(constToMirAux(bu, env, n)))
   bu.finish()[0]
 
-proc topLevelEmitToMir*(graph: ModuleGraph, env: var MirEnv, n: PNode): MirTree =
+proc topLevelEmitToMir*(graph: ModuleGraph, env: var MirEnv, n: PNode): MirBody =
   ## Translate a top-level emit or asm statement to a MIR tree.
   # create a pseudo context that's enough to do the translation with
   var c = initCtx(graph, TranslationConfig(), nil, move env)
@@ -2725,7 +2725,4 @@ proc topLevelEmitToMir*(graph: ModuleGraph, env: var MirEnv, n: PNode): MirTree 
   graph.config.internalAssert(body.code[0].kind in {mnkEmit, mnkAsm}, n.info)
 
   env = move c.env
-  result = body.code
-  # clear out the source location information:
-  for it in result.mitems:
-    it.info = SourceId(0)
+  result = body

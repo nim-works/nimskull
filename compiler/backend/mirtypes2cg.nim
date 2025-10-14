@@ -264,7 +264,7 @@ proc translate(c; env; m; desc: TypeHeader, bu) =
           #       early on
           discard "ignore"
         elif isEmbedded(recf):
-          embedTaggedUnion(c, env, m, fdesc, env.lookupDiscr(desc, f), bu)
+          embedTaggedUnion(c, env, m, fdesc, env.lookupTag(desc, f), bu)
         else:
           bu.subTree cnkField:
             c.translate(env, m, recf.typ, bu)

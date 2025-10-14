@@ -121,7 +121,7 @@ type
         ## XXX: only here for convenience, remove it once feasible
       body*: MirBody
     of bekEmit:
-      stmt*: MirTree
+      stmt*: MirBody
         ## a single emit or asm statement
       section*: EmitSection
 
@@ -834,6 +834,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
       yield evt
     yield BackendEvent(module: id, kind: bekModule)
     postActions(queue, discovery, env)
+
+    # translate and report the emit sections:
+    for it in m.emit:
+      yield BackendEvent(kind: bekEmit, module: id,
+                         stmt: topLevelEmitToMir(graph, env, it),
+                         section: determineSection(it))
 
     # translate and report the emit sections:
     for it in m.emit:

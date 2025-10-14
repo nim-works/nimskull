@@ -1506,8 +1506,10 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
   of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
      tyString, tyCstring, tyVoid:
     result = false
-  of tyDistinct, tyGenericInst, tyAlias, tyUserTypeClass, tyUserTypeClassInst,
-     tyInferred:
+  of tyDistinct, tyGenericInst, tyAlias, tyInferred:
+    result = productReachable(marker, g, t.lastSon, search, isInd)
+  of tyUserTypeClasses:
+    assert t.isResolvedUserTypeClass
     result = productReachable(marker, g, t.lastSon, search, isInd)
   of tyError:
     # ``productReachable`` returning true usually means more work for the

@@ -189,6 +189,8 @@ func add(result: var string, id: LabelId) =
   result.add 'L'
   result.addInt id.uint32
 
+proc constToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx)
+
 proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
   case n.kind
   of mnkParam:
@@ -197,7 +199,12 @@ proc singleToStr(n: MirNode, result: var string, c: RenderCtx) =
     result.addLocalName(n.local, "<L", c)
   of mnkConst:
     if isAnon(n.cnst):
-      idToStr(result, extract(n.cnst), "<D") # "D" for "Data"
+      if c.env.isNil:
+        idToStr(result, extract(n.cnst), "<D") # "D" for "Data"
+      else:
+        result.add "<const> "
+        var i = 0
+        constToStr(c.env[][extract(n.cnst)], i, result, c)
     else:
       result.addName(n.cnst, "<C", c)
   of mnkGlobal:
@@ -493,6 +500,62 @@ proc exprToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
 
 template exprToStr() =
   exprToStr(nodes, i, result, c)
+
+proc constToStr(nodes: MirTree, i: var int, result: var string, c: RenderCtx) =
+  template arg() =
+    inc i # skip the operand descriptor
+    constToStr(nodes, i, result, c)
+
+  template tree(start: string, body: untyped) =
+    result.add start
+    body
+
+  let n {.cursor.} = next(nodes, i)
+  case n.kind
+  of mnkNilLit, mnkIntLit, mnkUIntLit, mnkFloatLit, mnkStrLit, mnkProcVal,
+     mnkAstLit:
+    singleToStr(n, result, c)
+  of mnkObjConstr, mnkRefConstr:
+    let typ = n.typ
+    tree "(":
+      commaSeparated n.len:
+        tree "":
+          fieldToStr(next(nodes, i).field, typ, result, c)
+          result.add ": "
+          constToStr(nodes, i, result, c)
+      result.add ")"
+  of mnkArrayConstr:
+    tree "[":
+      commaSeparated n.len:
+        arg()
+      result.add "]"
+  of mnkSeqConstr:
+    tree "@[":
+      commaSeparated n.len:
+        arg()
+      result.add "]"
+  of mnkTupleConstr:
+    tree "(":
+      commaSeparated n.len:
+        arg()
+      result.add ")"
+  of mnkClosureConstr:
+    tree "closure (":
+      commaSeparated n.len:
+        arg()
+      result.add ")"
+  of mnkSetConstr:
+    tree "{":
+      commaSeparated n.len:
+        constToStr(nodes, i, result, c)
+      result.add "}"
+  of mnkRange:
+    tree "":
+      constToStr(nodes, i, result, c)
+      result.add " .. "
+      constToStr(nodes, i, result, c)
+  else:
+    result.error(n)
 
 proc renderNameWithType(tree: MirTree, i: var int, result: var string,
                         c: RenderCtx) =

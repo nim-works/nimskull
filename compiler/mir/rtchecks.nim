@@ -567,7 +567,7 @@ proc emitCheckedFloatOp(tree; call; graph; env; bu): Value =
 proc emitBoundCheck(tree; call; graph; env; bu) =
   ## Emits the lowered version of a bound check.
   case env.types.headerFor(tree[tree.argument(call, 0)].typ, Canonical).kind
-  of tkSeq, tkString, tkOpenArray, tkCstring:
+  of tkSeq, tkString, tkOpenArray:
     let len = bu.wrapTemp env.types.sizeType:
       # note: lengthOpenArray works for all containers
       bu.buildMagicCall mLengthOpenArray, env.types.sizeType:
@@ -580,6 +580,16 @@ proc emitBoundCheck(tree; call; graph; env; bu) =
         bu.emitFrom(tree, NodePosition tree.argument(call, 1))
       bu.subTree mnkArg:
         bu.emitFrom(tree, NodePosition tree.argument(call, 2))
+  of tkCstring:
+    # TODO: don't emit a ``mChckBounds`` call for cstrings in the first place
+    if tree[call].kind == mnkCheckedCall and
+       tree[tree.last(call)].kind != mnkUnwind:
+      # emit ``if false: raise``, so that the target label isn't unused
+      bu.buildIf (bu.use env.makeLiteral(mnkUIntLit, Zero, BoolType)):
+        bu.subTree mnkRaise:
+          bu.emitFrom(tree, tree.last(call))
+    else:
+      discard "no local handler -> nothing to do"
   else:
     unreachable()
 
