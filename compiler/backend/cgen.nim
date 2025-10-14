@@ -8,7 +8,6 @@
 import
   std/[
     math, # for float classification
-    options,
     packedsets,
     strutils,
     tables
@@ -49,6 +48,8 @@ const
     Cdecl:   "N_CDECL",    Safecall: "N_SAFECALL",
     Syscall: "N_SYSCALL",  Fastcall: "N_FASTCALL"
   ]
+  PreferIdentified = {cnkStructTy, cnkUnionTy, cnkArrayTy, cnkProcTy}
+    ## types that must not be inlined where a name exists
 
 func `==`(a, b: Datum): bool {.borrow.}
 
@@ -168,45 +169,57 @@ proc closeBlock(r: var Writer) =
 
 proc typeToC(m; pos; r: var Writer)
 
+proc genQualDecl(m; name: StringId, attribs: set[CgLocAttrib], bitsize: int,
+                 r: var Writer) =
+  ## Emits a qualified non-function C declaration without a type specifier.
+  if Volatile in attribs:
+    r.add "volatile "
+  if CgLocAttrib.NoAlias in attribs:
+    r.add "NIM_NOALIAS "
+  r.add m.get(name)
+  if bitsize > 0:
+    r.add ":"
+    r.addInt bitsize
+
+proc genDecl(m; pos; name: StringId, attribs: set[CgLocAttrib], bitsize: int,
+             r: var Writer) =
+  ## Emits a full non-function C declaration with the type at `pos`, the
+  ## declarator `name`, and with qualifiers computed from `attribs` and
+  ## `bitsize`.
+  case m.tast[pos].kind
+  of cnkArrayTy:
+    inc pos
+    let len = m.readInt(m.tast, pos)
+    genDecl(m, pos, name, attribs, bitsize, r)
+    r.add "["
+    if len > 0:
+      r.addInt len
+    r.add "]"
+  else:
+    typeToC(m, pos, r)
+    r.add " "
+    genQualDecl(m, name, attribs, bitsize, r)
+
 proc memberToC(m; pos; r: var Writer) =
   ## Emits the code for a struct/union member declaration.
   discard advance(m.tast, pos)
-  typeToC(m, pos, r)
-  r.add " "
+  var tpos = pos
+  skip(m.tast, pos)
 
   let align = readInt(m, m.tast, pos)
-  let flags = readSet(m, m.tast, pos, CgLocAttrib)
+  let attribs = readSet(m, m.tast, pos, CgLocAttrib)
   let bitsize = readInt(m, m.tast, pos)
+  let name = advance(m.tast, pos).val.StringId
 
   if align > 0:
     r.add "NIM_ALIGN("
     r.addInt align
     r.add ") "
-  if CgLocAttrib.NoAlias in flags:
-    r.add "NIM_NOALIAS "
 
-  r.add m.get(advance(m.tast, pos).val.StringId)
-  if bitsize > 0:
-    r.add ":"
-    r.addInt bitsize
+  genDecl(m, tpos, name, attribs, bitsize.int, r)
   r.add ";"
 
-proc flexMemberToC(m; pos; r: var Writer) =
-  ## Emits the code for a flexible struct member declaration.
-  discard advance(m.tast, pos)
-  typeToC(m, pos, r)
-
-  let align = readInt(m, m.tast, pos)
-  if align > 0:
-    r.add " NIM_ALIGN("
-    r.addInt align
-    r.add ")"
-
-  r.add " "
-  r.add m.get(advance(m.tast, pos).val.StringId)
-  r.add "[SEQ_DECL_SIZE];"
-
-proc structToC(m; pos; name: Option[StringId], r: var Writer) =
+proc structToC(m; pos; name: string, r: var Writer) =
   ## Translates and emits a struct/union definition.
   let n = advance(m.tast, pos)
   let packed = readInt(m, m.tast, pos) == 1
@@ -216,18 +229,15 @@ proc structToC(m; pos; name: Option[StringId], r: var Writer) =
     r.add "union "
   if packed:
     r.add "N_PACKED_START "
-  if name.isSome:
-    r.add m.get(name.unsafeGet)
+  if name.len > 0:
+    r.add name
     r.add " {"
   else:
     r.add "{"
   inc r.indent
   for i in 1..<len(n):
     r.newLineRaw()
-    if m.tast[pos].kind == cnkFlexField:
-      flexMemberToC(m, pos, r)
-    else:
-      memberToC(m, pos, r)
+    memberToC(m, pos, r)
   dec r.indent
   r.newLineRaw()
   r.add "}"
@@ -243,7 +253,7 @@ proc typeToC(m; pos; r: var Writer) =
   of cnkStructTy, cnkUnionTy:
     # an anonymous inline struct/union
     dec pos # go back to the header
-    structToC(m, pos, none(StringId), r)
+    structToC(m, pos, "", r)
   of cnkVoidTy:
     r.add "void"
   of cnkVarargs:
@@ -263,7 +273,9 @@ proc typeToC(m; pos; r: var Writer) =
     r.addInt readInt(m, m.tast, pos) * 8
   of cnkType:
     typeRefToC(m, n.val.StringId, r)
-  of cnkPtrTy, cnkPtrToArrayTy:
+  of cnkPtrTy:
+    if m.tast[pos].kind == cnkArrayTy:
+      pos = m.tast.child(pos, 1)
     typeToC(m, pos, r)
     r.add "*"
   of cnkOpaqueTy:
@@ -275,17 +287,29 @@ proc typeToC(m; pos; r: var Writer) =
 proc typeRefToC(m; typ: StringId, r: var Writer) =
   ## Emits the C code for a type reference.
   case m.tast[m.types[typ]].kind
-  of cnkStructTy, cnkUnionTy, cnkArrayTy, cnkProcTy:
+  of PreferIdentified:
     r.add m.get(typ)
   else:
     # inline the type expression
     var pos = m.types[typ]
     typeToC(m, pos, r)
 
-proc typeRefToC(m: CgModule, pos: var NodeIndex, r: var Writer) =
+proc typeRefToC(m; pos; r: var Writer) =
   let n = advance(m.ast, pos)
   assert n.kind == cnkType
   typeRefToC(m, n.val.StringId, r)
+
+proc genDecl(m; typ, name: StringId, attribs: set[CgLocAttrib], bitsize: int,
+             r: var Writer) =
+  ## Convenience wrapper.
+  var pos = m.types[typ]
+  case m.tast[pos].kind
+  of PreferIdentified:
+    typeRefToC(m, typ, r)
+    r.add " "
+    genQualDecl(m, name, attribs, bitsize, r)
+  else:
+    genDecl(m, pos, name, attribs, bitsize, r)
 
 proc exprToC(m; pos; r: var Writer)
 
@@ -319,19 +343,13 @@ proc pathToC(m; pos; tn: NodeIndex, count: int, r: var Writer) =
     case m.tast[tn].kind
     of cnkStructTy, cnkUnionTy:
       tn = m.tast.child(tn, 1 + readInt(m, m.ast, pos))
-      if m.tast[tn].kind == cnkField:
-        let str = m.get(m.tast[tn, 4].val.StringId)
-        # don't add a dot access for anonymous fields
-        if str.len != 0:
-          r.add Access[deref]
-          r.add str
-          deref = false
-        tn = m.tast.child(tn, 0)
-      else:
-        # must be a flex field
+      let str = m.get(m.tast[tn, 4].val.StringId)
+      # don't add a dot access for anonymous fields
+      if str.len != 0:
         r.add Access[deref]
-        r.add m.get(m.tast[tn, 2].val.StringId)
+        r.add str
         deref = false
+      tn = m.tast.child(tn, 0)
     of cnkOpaqueTy:
       discard advance(m.ast, pos)
       tn = m.types[advance(m.ast, pos).val.StringId]
@@ -339,17 +357,11 @@ proc pathToC(m; pos; tn: NodeIndex, count: int, r: var Writer) =
       r.add m.get(advance(m.ast, pos).val.StringId)
       deref = false
     of cnkArrayTy:
-      r.add Access[deref]
-      r.add "arr["
+      r.add "["
       indexToC(m, pos, r)
       r.add "]"
       tn = m.tast.child(tn, 1)
       deref = false
-    of cnkPtrToArrayTy, cnkFlexField:
-      r.add "["
-      indexToC(m, pos, r)
-      r.add "]"
-      tn = m.tast.child(tn, 0)
     else:
       unreachable(m.tast[tn].kind)
     tn = resolve(m, tn)
@@ -397,7 +409,7 @@ proc valueToC(m; pos; r: var Writer) =
       r.add "-INF"
     of fcNormal, fcSubnormal:
       r.output.addFloatRoundtrip(f)
-  of cnkPtrToArrayTy, cnkArrayTy:
+  of cnkPtrTy, cnkArrayTy:
     # can only be a character string
     r.addEscaped m.get(v.val.StringId)
   of cnkOpaqueTy:
@@ -534,10 +546,16 @@ proc exprToC(m; pos; r: var Writer) =
     exprToC(m, pos, r)
     r.add ")"
   of cnkAddr:
-    skip(m.ast, pos)
-    r.add "(&"
-    exprToC(m, pos, r)
-    r.add ")"
+    let tn = m.types[advance(m.ast, pos).val.StringId]
+    if m.tast[tn, 0].kind == cnkArrayTy and
+       m.unpackInt(m.tast[m.tast.child(tn, 0), 0].val) > 0:
+      # don't take the address of array lvalues; let them implicitly convert to
+      # pointers to their first element
+      exprToC(m, pos, r)
+    else:
+      r.add "(&"
+      exprToC(m, pos, r)
+      r.add ")"
   of cnkCall:
     exprToC(m, pos, r)
     argsToC(m, pos, len(n) - 1, r)
@@ -602,17 +620,13 @@ proc stmtToC(m; pos; r: var Writer) =
       r.addInt align
       r.add ") "
 
-    typeRefToC(m, pos, r)
-    r.add " "
-
     if Register in flags:
-      r.add "register "
-    if Volatile in flags:
-      r.add "volatile "
-    if CgLocAttrib.NoAlias in flags:
-      r.add "NIM_NOALIAS "
+      r.add "register " # a specifier, not a qualfiier
 
-    r.add m.get(advance(m.ast, pos).val.StringId)
+    genDecl(m,
+      advance(m.ast, pos).val.StringId, # type
+      advance(m.ast, pos).val.StringId, # name
+      flags, 0, r)
     r.add ";"
   of cnkUnreachable:
     r.newLine(m, n.info)
@@ -770,18 +784,13 @@ proc constrToC(m; pos; r: var Writer) =
   of cnkNilLit:
     r.add "NIM_NIL"
   of cnkConstr:
-    let typ = m.types[advance(m.ast, pos).val.StringId]
-    let isArr = m.tast[typ].kind == cnkArrayTy
-    # arrays are wrapped in structs, therefore a second pair of
-    # braces is needed
-    if isArr: r.add "{"
+    skip(m.ast, pos)
     r.add "{"
     for i in 1..<len(n):
       if i > 1:
         r.add ", "
       constrToC(m, pos, r)
     r.add "}"
-    if isArr: r.add "}"
   of cnkRecConstr:
     let typ = m.types[advance(m.ast, pos).val.StringId]
     r.add "{"
@@ -921,7 +930,7 @@ proc initModuleDesc*(m: CgModule, procs, globals: seq[StringId],
   proc scanType(m; pos; weak: bool, res: var ModuleDesc) =
     let n = advance(m.tast, pos)
     case n.kind
-    of cnkPtrTy, cnkPtrToArrayTy:
+    of cnkPtrTy:
       # the pointed-to element doesn't require a definition
       scanType(m, pos, true, res)
     of cnkProcTy:
@@ -931,8 +940,7 @@ proc initModuleDesc*(m: CgModule, procs, globals: seq[StringId],
       require(m, n.val.StringId, weak, res)
     of cnkArrayTy:
       skip(m.tast, pos)
-      # arrays are wrapped in structs and always require a full element type
-      scanType(m, pos, false, res)
+      scanType(m, pos, weak, res)
     of cnkStructTy, cnkUnionTy:
       skip(m.tast, pos)
       for _ in 1..<len(n):
@@ -959,12 +967,17 @@ proc initModuleDesc*(m: CgModule, procs, globals: seq[StringId],
   proc require(m; name: StringId, weak: bool, res: var ModuleDesc) =
     var pos = m.types[name]
     case m.tast[pos].kind
-    of cnkStructTy, cnkUnionTy, cnkArrayTy:
+    of cnkStructTy, cnkUnionTy:
       if not decls.containsOrIncl(name):
         res.tdecls.add name
       if not weak and not defs.containsOrIncl(name):
         # also mark as declared, so that no additional declaration is emitted
         scanType(m, pos, false, res)
+        res.tdefs.add name
+    of cnkArrayTy:
+      # an array typedef always needs a defined element type
+      scanType(m, pos, false, res)
+      if not defs.containsOrIncl(name):
         res.tdefs.add name
     of cnkProcTy:
       if not decls.containsOrIncl(name):
@@ -1034,7 +1047,7 @@ proc initModuleDesc*(m: CgModule, procs, globals: seq[StringId],
       var tn = getType(m, pos)
       # the root may be a pointer, which is automatically dereferenced first,
       # requiring a full definition
-      if m.tast[tn].kind in {cnkPtrTy, cnkPtrToArrayTy}:
+      if m.tast[tn].kind == cnkPtrTy:
         tn = m.tast.child(tn, 0)
         scanType(m, tn, false, res)
       for _ in 1..<len(n):
@@ -1206,7 +1219,7 @@ proc moduleToC*(m: CgModule, desc: ModuleDesc, preamble: string,
     r.newLineRaw()
     let pos = m.types[name]
     case m.tast[pos].kind
-    of cnkStructTy, cnkArrayTy:
+    of cnkStructTy:
       r.add "typedef struct "
       r.add m.get(name)
       r.add " "
@@ -1230,18 +1243,12 @@ proc moduleToC*(m: CgModule, desc: ModuleDesc, preamble: string,
     r.newLineRaw()
     var pos = m.types[name]
     case m.tast[pos].kind
-    of cnkArrayTy:
-      r.add "struct "
-      r.add m.get(name)
-      r.add " { "
-      pos = m.tast.child(pos, 0)
-      let idx = readInt(m, m.tast, pos)
-      typeToC(m, pos, r)
-      r.add " arr["
-      r.addInt idx
-      r.add "]; };"
     of cnkStructTy, cnkUnionTy:
-      structToC(m, pos, some(name), r)
+      structToC(m, pos, m.get(name), r)
+      r.add ";"
+    of cnkArrayTy:
+      r.add "typedef "
+      genDecl(m, pos, name, {}, 0, r)
       r.add ";"
     else:
       unreachable(m.tast[pos].kind)
