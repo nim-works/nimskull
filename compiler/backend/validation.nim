@@ -1137,8 +1137,10 @@ proc typeExpr(c; m; pos, err): QualType =
        not match(m, pointeeType(m, p), argt):
       err.emit m, fmt"expected type '(PtrTy {argt})', but got '{p}'"
     target + {}
-  of cnkMod, cnkBitAnd, cnkBitOr, cnkBitXor, cnkShl, cnkShr:
+  of cnkMod, cnkBitAnd, cnkBitOr, cnkBitXor, cnkShr:
     binaryOp(c, m, pos, {cnkIntTy, cnkUIntTy}, err) + {}
+  of cnkShl:
+    binaryOp(c, m, pos, {cnkUIntTy}, err) + {}
   of cnkZext, cnkSext:
     promotion(c, m, pos, {cnkIntTy, cnkUIntTy}, err) + {}
   of cnkTrunc:
