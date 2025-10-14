@@ -242,6 +242,9 @@ proc makeExpr(typ: TypeId, n: NodeRef): Expr {.inline.} =
 template buildExpr(bu: var Builder, t: TypeId, e: untyped): Expr =
   Expr(mode: emValue, typ: t, n: bu.build(e))
 
+template buildLval(bu: var Builder, t: TypeId, e: untyped): Expr =
+  Expr(mode: emLvalue, typ: t, n: bu.build(e))
+
 template buildInd(bu: var Builder, t: TypeId, e: untyped): Expr =
   Expr(mode: emIndirect, typ: t, n: bu.build(e))
 
@@ -582,6 +585,12 @@ proc fieldAccess(c; env; e: Expr; pos: int32, bu): NodeRef =
   var acc: seq[NodeRef]
   let typ = c.rawFieldAccess(env, e.typ, pos, acc, bu)
   bu.build Path(typ, *root(e), acc)
+
+proc fieldAccessExpr(c; env; e: Expr; pos: int32, bu): Expr =
+  ## Builds an access of the field of `e` with position `pos`.
+  var acc: seq[NodeRef]
+  let typ = c.rawFieldAccess(env, e.typ, pos, acc, bu)
+  bu.buildLval typ, Path(typ, *root(e), acc)
 
 proc genConstDefault(c; env; typ: TypeId, bu): NodeRef =
   ## Generates a constructor expression for constructing the default value
@@ -1332,7 +1341,10 @@ proc emitDefault(c; env; dest: Expr, stmts; bu) =
       let got = c.buildDatum(^c.genConstDefault(env, typ, bu))
       c.defaults[typ] = got
 
-    stmts.putInto bu, dest, Use(typ, ^datumRef(c.defaults[typ]))
+    # might need a blit copy, so use `genAsgn`
+    stmts.add c.genAsgn(env, dest,
+      Expr(mode: emSym, typ: typ, n: NodeRef(datumRef(c.defaults[typ]))),
+      bu)
   elif hasRttiHeader(env.types, typ):
     # zero-fill the location and then initialize the type header
     c.emitClear(env, dest, stmts, bu)
@@ -1744,12 +1756,14 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     if len < 10:
       let src = bu.root(arge(0))
       for i in 0..<len:
-        stmts.addStmt bu, Asgn(
-          Path(elem,
-            Path(^payloadPtrType(env.types, seqType), *root(dest), 1),
-            1,
-            i),
-          Path(elem, src, i))
+        stmts.add c.genAsgn(env,
+          bu.buildLval(elem,
+            Path(elem,
+              Path(^payloadPtrType(env.types, seqType), *root(dest), 1),
+              1,
+              i)),
+          bu.buildLval(elem, Path(elem, src, i)),
+          bu)
     else:
       # too many elements. Use a blit copy in order to not explode code size
       stmts.addStmt bu, Call(
@@ -2209,11 +2223,12 @@ proc emitPostCall(c; env; tree; n; stmts; bu) =
 proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
   ## Translates a MIR assignment RHS into an analogous CGIR assignment,
   ## lowering where appropriate.
+  template operand(n: NodePosition): Expr =
+    c.valueToCgir(env, tree, n, bu)
   template value(n: NodePosition): NodeRef =
-    bu.use c.valueToCgir(env, tree, n, bu)
-
+    bu.use operand(n)
   template root(n: NodePosition): NodeRef =
-    bu.root c.valueToCgir(env, tree, n, bu)
+    bu.root operand(n)
 
   template takeAddr(n: NodePosition): NodeRef =
     c.genAddr(env, c.valueToCgir(env, tree, n, bu), bu)
@@ -2221,18 +2236,21 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
   template wrapAsgn(body: untyped) =
     stmts.putInto bu, dest, body
 
+  template asgn(dest, src: Expr) =
+    stmts.add c.genAsgn(env, dest, src, bu)
+
   c.useSourceLoc(tree[n].info, bu)
   let typ = tree[n].typ
   case tree[n].kind
   of LvalueExprKinds, LiteralDataNodes, mnkProcVal:
-    stmts.putInto bu, dest, ^value(n)
+    asgn dest, operand(n)
   of mnkConv, mnkStdConv:
     # the high-level MIR conversions are lowered into the more specific
     # operations of the target IL
     let input = c.valueToCgir(env, tree, tree.child(n, 0), bu)
     stmts.putInto bu, dest, ^c.genConv(env, input, typ, bu)
   of mnkCopy, mnkMove, mnkSink:
-    stmts.putInto bu, dest, ^value(tree.child(n, 0))
+    asgn dest, operand(tree.child(n, 0))
   of mnkCall, mnkCheckedCall:
     let callee = tree.callee(n)
     if tree[callee].kind == mnkMagic:
@@ -2276,17 +2294,14 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     c.emitClear(env, dest, stmts, bu)
     # note: initialization for the RTTI headers is handled at the MIR level
     for it in tree.items(n, 0, ^1):
-      stmts.addStmt bu, Asgn(
-        ^c.fieldAccess(env, dest, tree[it, 0].field, bu),
-        ^value(tree.last(tree.child(it, 1))))
+      asgn c.fieldAccessExpr(env, dest, tree[it, 0].field, bu),
+        operand(tree.last(tree.child(it, 1)))
   of mnkTupleConstr:
     # TODO: omit the zeromem if there's no padding in the tuple
     c.emitClear(env, dest, stmts, bu)
     var i = 0
     for it in tree.items(n, 0, ^1):
-      stmts.addStmt bu, Asgn(
-        ^c.fieldAccess(env, dest, int32 i, bu),
-        ^value(tree.last(it)))
+      asgn c.fieldAccessExpr(env, dest, int32 i, bu), operand(tree.last(it))
       inc i
   of mnkClosureConstr:
     # .nimcall procedure pointers are cast into .closure pointers
@@ -2311,9 +2326,8 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     let elem = env.types.headerFor(typ, Canonical).elem
     var i = 0
     for it in tree.items(n, 0, ^1):
-      stmts.addStmt bu, Asgn(
-        Path(elem, *root(dest), i),
-        ^value(tree.last(it)))
+      asgn bu.buildLval(elem, Path(elem, *root(dest), i)),
+        operand(tree.last(it))
       inc i
   of mnkSeqConstr:
     let
@@ -2339,12 +2353,12 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     # element initialization:
     var i = 0
     for it in tree.items(n, 0, ^1):
-      stmts.addStmt bu, Asgn(
-        Path(elem,
-          Path(payloadPtrTy, *root(dest), 1),
-          1,
-          i),
-        ^value(tree.child(it, 0)))
+      asgn bu.buildLval(elem,
+          Path(elem,
+            Path(payloadPtrTy, *root(dest), 1),
+            1,
+            i)),
+        operand(tree.child(it, 0))
       inc i
 
   of mnkToMutSlice, mnkToSlice:
