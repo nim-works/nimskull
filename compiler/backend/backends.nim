@@ -833,13 +833,12 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     for evt in flush(queue, env, discovery, id):
       yield evt
     yield BackendEvent(module: id, kind: bekModule)
-    postActions(queue, discovery, env)
-
     # translate and report the emit sections:
     for it in m.emit:
       yield BackendEvent(kind: bekEmit, module: id,
                          stmt: topLevelEmitToMir(graph, env, it),
                          section: determineSection(it))
+    postActions(queue, discovery, env)
 
   template reportBody(prc: ProcedureId, m: FileIndex, evt: BackendEventKind,
                       frag: MirBody) =
