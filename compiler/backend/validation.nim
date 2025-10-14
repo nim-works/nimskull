@@ -519,7 +519,7 @@ proc width(typ: Type, m): int =
   else:
     int m.unpackInt(m.tast[resolved(m, typ).n, 0].val)
 
-proc elemType(m; typ: Type): Type =
+proc pointeeType(m; typ: Type): Type =
   case typeKind(m, typ)
   of cnkPtrTy:
     m.readType(m.tast.child(typ.n, 0))
@@ -893,7 +893,7 @@ proc typeCall(c; m; pos; args: int, err): Type =
   ## `pos` is expected to point to the callee expression.
   var callee = unqual typeExpr(c, m, pos, err)
   if typeKind(m, callee) == cnkPtrTy:
-    callee = elemType(m, callee)
+    callee = pointeeType(m, callee)
   callee.expect(cnkProcTy, m, err)
   for i in 0..<args:
     context at:
@@ -957,8 +957,8 @@ proc typeValue(m; pos; allowArr: bool, err): Type =
   case typeKind(m, result)
   of cnkPtrTy:
     # special rule to allow for cstring values
-    if isDynArray(m, elemType(m, result)) and
-       typeKind(m, arrayElem(elemType(m, result), m)) == cnkOpaqueTy:
+    if isDynArray(m, pointeeType(m, result)) and
+       typeKind(m, arrayElem(pointeeType(m, result), m)) == cnkOpaqueTy:
       expectNode(m, m.ast, pos, cnkString, err)
     else:
       err.emit m, pos, "invalid data for value"
@@ -993,9 +993,11 @@ proc typePathRoot(c; m; pos; err): QualType =
   let got = typeExpr(c, m, pos, err)
   case typeKind(m, got.typ)
   of cnkPtrTy:
-    result = elemType(m, got.typ) + {Lval, Mut}
-    if typeKind(m, result.typ) == cnkPtrTy:
-      err.emit m, at, "path root must not be pointer to pointer"
+    const Roots = {cnkStructTy, cnkUnionTy, cnkOpaqueTy, cnkArrayTy}
+    result = pointeeType(m, got.typ) + {Lval, Mut}
+    if typeKind(m, result.typ) notin Roots:
+      err.emit m, at,
+        fmt"pointer target must be one of {Roots}, but type is '{result.typ}'"
   else:
     result = got
 
@@ -1052,14 +1054,14 @@ proc typeExpr(c; m; pos, err): QualType =
     requireStaticType(m, target, err)
     let got = unqual typeExpr(c, m, pos, err)
     if got.kind != tkError and not
-       (typeKind(m, got) == cnkPtrTy and match(m, target, elemType(m, got))):
+       (typeKind(m, got) == cnkPtrTy and match(m, target, pointeeType(m, got))):
       err.emit m, fmt"expected '(Ptr {target})', but got '{got}'"
     target + {}
   of cnkAddr:
     let target = expectType(m, pos, {cnkPtrTy}, err)
-    var elem = elemType(m, target)
+    var elem = pointeeType(m, target)
     if isDynArray(m, elem):
-      elem = elemType(m, elem)
+      elem = pointeeType(m, elem)
     var got: QualType
     if m.ast[pos].kind in cnkSyms:
       got = sym(c, m, pos, err)
@@ -1132,7 +1134,7 @@ proc typeExpr(c; m; pos, err): QualType =
     require(c, m, pos, argt, err)
     let p = unqual typeExpr(c, m, pos, err)
     if p.kind != tkError and typeKind(m, p) != cnkPtrTy or
-       not match(m, elemType(m, p), argt):
+       not match(m, pointeeType(m, p), argt):
       err.emit m, fmt"expected type '(PtrTy {argt})', but got '{p}'"
     target + {}
   of cnkMod, cnkBitAnd, cnkBitOr, cnkBitXor, cnkShl, cnkShr:
@@ -1270,7 +1272,7 @@ proc checkStmt*(c; m; pos; err): bool =
     true
   of cnkStore:
     var dst = require(c, m, pos, {cnkPtrTy}, err)
-    dst = elemType(m, dst)
+    dst = pointeeType(m, dst)
     dst.expect(ValueType, m, err)
     dst.expectStatic(m, err)
     require(c, m, pos, dst, err)
