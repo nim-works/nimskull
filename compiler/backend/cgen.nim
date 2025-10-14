@@ -827,6 +827,8 @@ proc genProcDecl(m; typ, name: StringId; r: var Writer) =
       r.add " _"
       r.addInt i
 
+  if L == 0:
+    r.add "void"
   r.add ")"
 
 proc genProcDecl(m; typ, name: StringId, params: NodeIndex; r: var Writer) =
@@ -855,6 +857,8 @@ proc genProcDecl(m; typ, name: StringId, params: NodeIndex; r: var Writer) =
 
   if numParams < L:
     r.add "..."
+  if L == 0:
+    r.add "void"
   r.add ")"
 
 proc globalToC(m; pos; r: var Writer) =
