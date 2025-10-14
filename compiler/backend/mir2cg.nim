@@ -754,14 +754,16 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
       proc traverse(c; env; curr, typ: TypeId, bu) =
         let start = path.len
         let desc = env.types.headerFor(typ, Lowered)
-        let base = desc.base(env.types)
-        if base != VoidType:
-          path.add bu.build(0)
-          traverse(c, env, base, base, bu)
-        elif hasRttiHeader(env.types, typ):
-          path.add bu.build(0)
-          elems.add bu.build do:
-            FieldInit(path, *use(^c.getTypeInfoV2(env, env.types[outer], bu)))
+        if desc.kind == tkStruct:
+          let base = desc.base(env.types)
+          if base != VoidType:
+            path.add bu.build(0)
+            traverse(c, env, base, base, bu)
+          elif hasRttiHeader(env.types, typ):
+            path.add bu.build(0)
+            elems.add bu.build do:
+              FieldInit(path,
+                *use(^c.getTypeInfoV2(env, env.types[outer], bu)))
 
         proc field(c; env; curr: TypeId, id: FieldId, strf: StructField, bu) =
           if strf.isEmbedded:
