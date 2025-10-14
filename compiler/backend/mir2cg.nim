@@ -360,23 +360,6 @@ proc genArrayAddr(c; env; e: Expr, bu): NodeRef =
   let pt = env.newPtrToArrayType(elem)
   bu.build Addr(pt, Path(elem, ^c.root(env, e, bu), 0))
 
-proc genAsgn(c; env: MirEnv, dest: Expr, src: NodeRef, bu): NodeRef =
-  if dest.typ == VoidType:
-    bu.build Drop(src)
-  elif dest.mode == emIndirect:
-    bu.build Store(^dest.n, src)
-  elif dest.mode == emSym:
-    bu.build Asgn(^dest.n, src)
-  else:
-    bu.build Asgn(*use(dest), src)
-
-proc genAsgn(c; env: MirEnv, dest, src: Expr, bu): NodeRef =
-  genAsgn(c, env, dest, bu.use(src), bu)
-
-template asgn(bu: var Builder, dest: Expr, src: NodeRef): NodeRef =
-  mixin c, env
-  genAsgn(c, env, dest, src, bu)
-
 proc pushSourceLoc(c; id: SourceId, bu): (uint32, TLineInfo) =
   ## Sets the source location `bu` uses when creating nodes to that associated
   ## with `id`, returning the previous state.
@@ -408,10 +391,6 @@ template addStmt(stmts; bu; body: untyped) =
   let got = bu.build body
   # don't use as LHS directly to allow for `stmts` being modified in between
   stmts.add got
-
-template putInto(stmts; bu; dest: Expr, e: untyped) =
-  let r = bu.build(e)
-  stmts.add asgn(bu, dest, r)
 
 proc mangledName(g: ModuleGraph, s: PSym): string =
   ## Computes the mangled name for `s`, which is a name within the
@@ -504,6 +483,36 @@ proc findType(env: TypeEnv, typ: TypeId, pos: int32): (TypeId, int) =
     result[1] += 1
   else:
     result = (typ, 0)
+
+proc genAsgn(c; env; dest: Expr, src: NodeRef, bu): NodeRef =
+  if dest.typ == VoidType:
+    bu.build Drop(src)
+  elif dest.mode == emIndirect:
+    bu.build Store(^dest.n, src)
+  elif dest.mode == emSym:
+    bu.build Asgn(^dest.n, src)
+  else:
+    bu.build Asgn(*use(dest), src)
+
+proc genAsgn(c; env; dest, src: Expr, bu): NodeRef =
+  if env.types.headerFor(dest.typ, Lowered).kind == tkArray:
+    # XXX: C code generator accommodation. In C, using expressions of array
+    #      type on the left of an assignment is not possible
+    bu.build Call(
+      ^bu.useCompilerProc(c, env, "nimCopyMem"),
+      PtrCast(PointerType, ^c.genAddr(env, dest, bu)),
+      PtrCast(PointerType, ^c.genAddr(env, src, bu)),
+      Sizeof(^env.types.sizeType, ^dest.typ))
+  else:
+    genAsgn(c, env, dest, bu.use(src), bu)
+
+template asgn(bu: var Builder, dest: Expr, src: NodeRef): NodeRef =
+  mixin c, env
+  genAsgn(c, env, dest, src, bu)
+
+template putInto(stmts; bu; dest: Expr, e: untyped) =
+  let r = bu.build(e)
+  stmts.add asgn(bu, dest, r)
 
 proc rawFieldAccess(c; env: MirEnv; typ: TypeId, id: FieldId,
                     to: var seq[NodeRef], bu) =
