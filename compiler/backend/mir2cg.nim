@@ -2461,7 +2461,7 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
       let tmp = c.newTemp(env, env.types.sizeType, stmts, bu)
       c.emitLength(env, tmp, arg, stmts, bu)
       stmts.addStmt bu, If(
-        Le(BoolType, ^env.types.sizeType,
+        Lt(BoolType, ^env.types.sizeType,
           ^c.genInt(env, 0, env.types.sizeType, bu),
           *use(tmp)),
         StmtList(
