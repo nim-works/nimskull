@@ -606,7 +606,7 @@ proc equal(m; a, b: Type): bool =
       equal(m.tast.child(a, 0), m.tast.child(b, 0))
     of cnkArrayTy:
       m.tast[a, 0] == m.tast[b, 0] and
-      equal(m.tast.child(a, 0), m.tast.child(b, 0))
+        equal(m.tast.child(a, 1), m.tast.child(b, 1))
     of cnkOpaqueTy:
       # header and name must be equal
       m.tast[a, 0] == m.tast[b, 0] and m.tast[a, 1] == m.tast[b, 1]
