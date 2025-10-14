@@ -1,7 +1,7 @@
 discard """
   matrix: "-d:nimTtlsemulationCase1 --threads --tlsEmulation:on; -d:nimTtlsemulationCase2 --threads --tlsEmulation:off; -d:nimTtlsemulationCase3 --threads"
   targets: "c"
-  knownIssue: "TLS emulation is not implemented"
+  disabled: true # TLS emulation is not implemented
 """
 
 #[
