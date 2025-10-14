@@ -43,7 +43,7 @@ when defined(windows) and (appType == "gui" or appType == "lib"):
 elif appType == "lib":
   # on non-Windows system, use the GCC constructor facility for running the
   # shared object's entry point
-  {.emit: "/*PROCSECTION*/void NIM_POSIX_INIT NimMainInit() { `nimMain`() }".}
+  {.emit: "/*PROCSECTION*/void NIM_POSIX_INIT NimMainInit() { `nimMain`(); }".}
 
   proc c_entry() {.compilerproc, importc: "NimMainInit", noconv.}
 
