@@ -986,19 +986,20 @@ proc moveUnscoped(tree: MirTree, changes: var Changeset) =
   while it < tree.len.NodePosition:
     case tree[it].kind
     of mnkIf:
-      if tree[tree.sibling(it)].kind != mnkScope:
-        # found an 'if' with an unscoped body
-        if stack.len == 0 or stack[^1][0] != depth:
-          # make sure to move to the start of the *outermost* unscoped 'if':
-          #   if ...:         # <- move to before here
-          #     if ...:       # <- not before here
-          #       def x = ...
-          stack.add (depth, it, tree[it, 1].label)
+      stack.add (depth, it, tree[it, 1].label)
     of mnkDef, mnkDefCursor:
       if stack.len > 0 and stack[^1][0] == depth:
         # the def is part of an 'if' and there's no (unclosed) scope start
-        # in-between them -> move
-        changes.insert(tree, stack[^1][1], it, bu):
+        # in-between them -> move the def, but make sure to move to the start
+        # of the *outermost* unscoped 'if':
+        #   if ...:         # <- move to before here
+        #     if ...:       # <- not before here
+        #       def x = ...
+        var i = stack.len - 2
+        while i >= 0 and stack[i][0] == depth:
+          dec i
+
+        changes.insert(tree, stack[i + 1][1], it, bu):
           bu.subTree tree[it].kind:
             bu.add tree[it, 0]
             bu.add MirNode(kind: mnkNone)
