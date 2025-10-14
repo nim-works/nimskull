@@ -1653,8 +1653,11 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
     # always passed by reference
     # XXX: this is a C code generator implementation detail leaking into the
     #      language semantics
-    # TODO: use the same rules for arrays as for tuples
     result = true
+  of tySet:
+    # XXX: also a C code generator implementation detail
+    # passed by reference when its a large set (which is an array underneath)
+    result = lengthOrd(conf, pt) > 64
   else:
     result = false
 
