@@ -841,12 +841,6 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
                          stmt: topLevelEmitToMir(graph, env, it),
                          section: determineSection(it))
 
-    # translate and report the emit sections:
-    for it in m.emit:
-      yield BackendEvent(kind: bekEmit, module: id,
-                         stmt: topLevelEmitToMir(graph, env, it),
-                         section: determineSection(it))
-
   template reportBody(prc: ProcedureId, m: FileIndex, evt: BackendEventKind,
                       frag: MirBody) =
     ## Reports a procedure-related event (by yielding it).
