@@ -123,10 +123,13 @@ proc emitPointer(c; env; m; target: TypeId, bu) =
 proc translateProcType(c; env; m; desc: TypeHeader, bu) =
   bu.subTree cnkProcTy:
     bu.add intNode(ord(CallingConvMap[desc.callConv(env)]), m)
-    if desc.retType(env) == VoidType:
+    let ret = desc.retType(env)
+    # XXX: C code generator accommodation: return arrays via an out parameter
+    let hasArrayResult = env.headerFor(ret, Lowered).kind == tkArray
+    if ret == VoidType or hasArrayResult:
       bu.subTree cnkVoidTy: discard
     else:
-      c.translate(env, m, desc.retType(env), bu)
+      c.translate(env, m, ret, bu)
 
     for (i, typ, flags) in env.params(desc):
       # ignore compile-time-only parameters
@@ -140,6 +143,9 @@ proc translateProcType(c; env; m; desc: TypeHeader, bu) =
           c.translate(env, m, env[env.lookupField(typ, 1)].typ, bu)
         else:
           c.translate(env, m, typ, bu)
+
+    if hasArrayResult:
+      c.emitPointer(env, m, ret, bu)
 
     if desc.callConv(env) in {ccClosure, ccTailcall}:
       # TODO: this is wrong. There should be no concept of "closure" this far

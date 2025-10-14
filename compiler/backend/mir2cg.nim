@@ -208,6 +208,11 @@ func isObject(env: TypeEnv, typ: TypeId): bool =
 func isPointerLike(env: TypeEnv, typ: TypeId): bool =
   env.headerFor(typ, Canonical).kind in {tkRef, tkPtr, tkVar, tkLent}
 
+proc isVoidReturn(env: TypeEnv, typ: TypeId): bool =
+  ## Whether the procedure type `typ` has a 'void' return type at the
+  ## CGIR level.
+  typ == VoidType or env.headerFor(typ, Lowered).kind == tkArray
+
 func isPassByRef(env: TypeEnv; desc: TypeHeader, i: int): bool =
   ## Whether the `i`-th parameter of proc/closure type `desc` is a pass-by-
   ## reference parameter.
@@ -2162,7 +2167,7 @@ proc callToCgir(c; env; tree; n; dest: Expr, callee: NodeRef,
   ## exception handling.
   case tree[n].kind
   of mnkCall:
-    if tree[n].typ == VoidType:
+    if env.types.isVoidReturn(tree[n].typ):
       bu.build Call(callee, args)
     else:
       bu.build *asgn(dest, Call(callee, args))
@@ -2171,7 +2176,7 @@ proc callToCgir(c; env; tree; n; dest: Expr, callee: NodeRef,
   of mnkCheckedCall:
     if capExceptions in c.caps:
       let exit = bu.exit(tree[tree.last(n)])
-      if tree[n].typ == VoidType:
+      if env.types.isVoidReturn(tree[n].typ):
         bu.build CheckedCall(callee, args, exit)
       elif dest.mode == emIndirect:
         # `dest` cannot be used directly. Go through a temporary
@@ -2185,7 +2190,7 @@ proc callToCgir(c; env; tree; n; dest: Expr, callee: NodeRef,
     else:
       # turn into a normal call + error flag test. The error flag test is
       # emitted separately
-      if tree[n].typ == VoidType:
+      if env.types.isVoidReturn(tree[n].typ):
         bu.build Call(callee, args)
       else:
         bu.build *asgn(dest, Call(callee, args))
@@ -2258,6 +2263,11 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     else:
       let cc = c.calleeToCgir(env, tree, tree.callee(n), bu)
       var args = c.argsToCgir(env, tree, n, cc.typ, stmts, bu)
+      # XXX: C code generator accommodation: arrays are returned via an
+      #      out parameter
+      if env.types.headerFor(dest.typ, Lowered).kind == tkArray:
+        # in-place return is possible
+        args.add c.genAddr(env, dest, bu)
       # closures require special handling, as the dynamic callee might not have
       # an env parameter. If the closure's env value is non-nil, the dynamic
       # callee must have one, otherwise it must not
@@ -3138,7 +3148,7 @@ proc procToCgir(c; env; sym: PSym): StringId =
       Call(^bu.useCompilerProc(c, env, "nimErrorFlag")))
 
   # add the def for the result variable
-  if c.prc.body[resultId].typ != VoidType:
+  if not env.types.isVoidReturn(c.prc.body[resultId].typ):
     stmts.add c.genLocalDef(env, resultId, bu)
 
   let procTypeDesc = env.types.headerFor(procType, Canonical)
@@ -3185,6 +3195,12 @@ proc procToCgir(c; env; sym: PSym): StringId =
         let name = c.defineLocal(env, id, typ, false, bu)
         params.add param(isNoAlias, name)
 
+  # out parameter:
+  if env.types.headerFor(c.prc.body[resultId].typ, Lowered).kind == tkArray:
+    let typ = env.newPtrType(c.prc.body[resultId].typ)
+    let name = c.defineLocal(env, resultId, typ, true, bu)
+    params.add param(true, name)
+
   # handle the extra parameter(s):
   case procTypeDesc.callConv(env.types)
   of ccTailcall:
@@ -3221,12 +3237,12 @@ proc procToCgir(c; env; sym: PSym): StringId =
     if useStackTrace:
       stmts.addStmt bu, Call(
         ^bu.useCompilerProc(c, env, "popFrame"))
-    if c.prc.body[resultId].typ != VoidType:
+    if env.types.isVoidReturn(c.prc.body[resultId].typ):
+      stmts.addStmt bu, Return()
+    else:
       stmts.addStmt bu, Return(
         Use(^c.prc.body[resultId].typ,
           ^localRef(c.prc.localMap[resultId])))
-    else:
-      stmts.addStmt bu, Return()
   else:
     toTree(c, env, c.prc.body.code, list, 0, stmts, bu)
 
