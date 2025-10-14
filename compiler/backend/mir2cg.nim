@@ -1629,9 +1629,24 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     wrapAsgn BitNot(^tree[n].typ, ^arg(0))
   of mShlI:
     let typ = tree[n].typ
-    wrapAsgn Shl(typ,
-      ^arg(0),
-      ^c.shiftRhsToCgir(env, tree, argp(1), typ, bu))
+    if env.types.headerFor(typ, Lowered).kind == tkInt:
+      # left-shifting is only allowed on unsigned integers. Bitcast to uint,
+      # shift, then bitcast back
+      let unsigned =
+        case env.types.headerFor(typ, Lowered).size(env.types)
+        of 1: UInt8Type
+        of 2: UInt16Type
+        of 4: UInt32Type
+        of 8: UInt64Type
+        else: unreachable()
+      wrapAsgn Bitcast(typ,
+        Shl(unsigned,
+          Bitcast(unsigned, ^arg(0)),
+          Bitcast(unsigned, ^c.shiftRhsToCgir(env, tree, argp(1), typ, bu))))
+    else:
+      wrapAsgn Shl(typ,
+        ^arg(0),
+        ^c.shiftRhsToCgir(env, tree, argp(1), typ, bu))
   of mAshrI, mShrI:
     let typ = tree[n].typ
     wrapAsgn Shr(typ,
