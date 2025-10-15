@@ -1946,7 +1946,8 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
           ^bu.useCompilerProc(c, env, "alignedDealloc"),
           PtrCast(PointerType,
             Path(ptrTyp, *root(target), 1)),
-          ^c.genInt(env, env.types.headerFor(typ, Canonical).align, env.types.sizeType, bu))
+          Alignof(^env.types.sizeType,
+            ^env.types.headerFor(typ, Canonical).elem))
       else:
         unreachable("destroy was not lowered?")
 
