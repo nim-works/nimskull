@@ -702,8 +702,9 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
     if env.types.headerFor(typ, Canonical).kind == tkClosure:
       # TODO: this is too late. Lower the value earlier
       bu.build Constr(typ,
-        Addr(^env.types.getFieldType(typ, 0),
-          ^access(c, env, tree[n].prc, bu)),
+        PtrCast(^env.types.getFieldType(typ, 0),
+          Addr(^env.types.add(env[tree[n].prc].typ),
+            ^access(c, env, tree[n].prc, bu))),
         NilLit())
     else:
       bu.build Addr(typ, ^access(c, env, tree[n].prc, bu))
