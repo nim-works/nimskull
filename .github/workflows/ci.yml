@@ -156,7 +156,7 @@ jobs:
           echo "metadata=build/archive/source.json" >> $GITHUB_OUTPUT
 
       - name: Publish source archive to artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: source archive
           path: |
@@ -209,14 +209,14 @@ jobs:
           filter: tree:0
 
       - name: Download binaries built from source archive
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           pattern: binaries from source archive*
           path: binary-from-source
           merge-multiple: true
 
       - name: Download release package
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           # Download all release binaries to the same folder
           pattern: release binaries*
@@ -224,7 +224,7 @@ jobs:
           merge-multiple: true
 
       - name: Download release source archive
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: source archive
           path: source-archive
@@ -246,7 +246,7 @@ jobs:
       - name: Upload diffoscope output on failure
         id: diffoscope-output
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: differences between git and source binaries
           path: build/diffoscope.html
@@ -283,7 +283,7 @@ jobs:
       # This allow the publisher to run the tool directly without having to
       # clone the compiler.
       - name: Upload release manifest tool
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: release manifest tool
           path: tools/release_manifest
