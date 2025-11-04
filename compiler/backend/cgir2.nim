@@ -150,7 +150,8 @@ type
     ast*: Ast
       ## all AST for everything that's not types
     data*: Store[Datum, NodeIndex]
-      ## anonymous constants represented as construction expressions
+      ## ID of constant -> index of construction expression AST in `ast`
+      ## representing the constant/datum
     types*: Table[StringId, NodeIndex]
       ## type name -> index of corresponding body in `tast`
     globals*: Table[StringId, NodeIndex]
