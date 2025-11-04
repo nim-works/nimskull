@@ -182,6 +182,8 @@ template prepareForCodegen(g: ModuleGraph) =
   # the backend / code generation phase generally expects errors to terminate
   # the compiler, so make sure that they do
   g.config.errorMax = 1
+  # the VM instance is not needed anymore. Free it to save memory
+  g.vm = nil
 
 proc commandCompileToC(graph: ModuleGraph) =
   let conf = graph.config
