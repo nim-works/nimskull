@@ -7,7 +7,7 @@
 #       2. emitting the type header initialization for objects in mirgen
 
 import compiler/sem/sighashes
-import compiler/mir/rtti_helper
+import compiler/mir/rtti_queries
 from compiler/ast/typesrenderer import typeToString, addTypeHeader
 from std/strutils import toLowerAscii
 

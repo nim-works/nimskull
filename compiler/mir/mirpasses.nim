@@ -24,7 +24,7 @@ import
     mirtrees,
     mirtypes,
     rtchecks,
-    rtti_helper,
+    rtti_queries,
     sourcemaps,
     tailcall_elim
   ],
