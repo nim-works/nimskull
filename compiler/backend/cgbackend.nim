@@ -236,11 +236,9 @@ proc generateCode*(graph: ModuleGraph, mlist: sink ModuleList,
     total: initContext(graph, caps)
   )
 
-  for key, val in mlist.modules.pairs:
-    g.modules[key] = BModule(sym: val.sym, idgen: val.idgen)
-
-  # give the init procedure a pre-defined external name
   for key, m in mlist.modules.pairs:
+    g.modules[key] = BModule(sym: m.sym, idgen: m.idgen)
+    # give the init procedure an easier-to-guess external name:
     m.init.extname = getInitName(m.sym)
 
   # ----- main event processing -----
