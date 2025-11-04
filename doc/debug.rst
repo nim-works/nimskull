@@ -432,8 +432,8 @@ This is done by using one of the following options with the
   applied
 * `mir_out`:option: : shows the MIR after all passes were applied, right before
   translation to the CGIR
-* `cgir`:option: : shows the CGIR as produced by `mir2cg` (`cgirgen` for the
-  legacy CGIR)
+* `cgir`:option: : shows the CGIR as produced by `mir2cg` (if the legacy CGIR
+  is used, shows that produced by `cgirgen`)
 
 If a procedure is used at both compile- and run-time, it will show up in the
 output twice, though potentially with different bodies, as different passes are
