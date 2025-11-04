@@ -1270,7 +1270,7 @@ func usizeType*(env: TypeEnv): TypeId {.inline.} =
 # ---- convenience type constructors
 
 func newArray*(env: var TypeEnv, count: Positive, typ: TypeId): TypeId =
-  ## Generates a array type with `count` elements of type `typ`.
+  ## Generates an array type with `count` elements of type `typ`.
   let desc = env.headerFor(typ, Original)
   env.newType(env.add(makeDesc(tkArray,
     env.toIntVal(count * size(desc, env)),

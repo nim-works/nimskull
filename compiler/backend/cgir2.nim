@@ -30,7 +30,7 @@ type
     cnkString ## packed interned string value
     cnkLabel  ## label name (32-bit uint)
     cnkType   ## reference to a type (by name)
-    cnkDatum  ## reference to an anonymous (by ID)
+    cnkDatum  ## reference to an anonymous constant (by ID)
     cnkProc   ## reference to procedure (by name)
     cnkGlobal ## reference to global (by name)
     cnkLocal  ## reference to local (by name)

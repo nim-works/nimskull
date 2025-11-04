@@ -118,7 +118,7 @@ macro build*(b: var Builder, e: untyped): NodeRef =
   ##
   ## The following syntax is used for `e`:
   ##
-  ## * a call expressions describes a tree; they can be arbitrarily nested, and
+  ## * a call expression describes a tree; it can be arbitrarily nested, and
   ##   every argument represents a child node/sub-tree
   ## * an unary hat (`^`) is used as the unquote operator; the expression
   ##   following it is evaluated normally and passed to `valToNode` (mixed in

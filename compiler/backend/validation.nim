@@ -1,4 +1,4 @@
-## Implements the grammer and type checker for the CGIR's in-memory
+## Implements the grammar and type checker for the CGIR's in-memory
 ## representation.
 
 import
@@ -55,7 +55,7 @@ type
     top*: Option[NodeIndex]
       ## the index of the top-level tree node the error appears in
     where*: NodeIndex
-      ## the node where the
+      ## the node where the error occurred
 
   ErrorHandler = proc(m: CgModule, ast: Ast, ctx: MsgContext, msg: sink string)
   LocalHandler = proc(m: CgModule, ctx: MsgContext, msg: sink string)

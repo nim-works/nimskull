@@ -1,5 +1,6 @@
 ## **Important:** this module provides the definitions for the *lgeacy* CGIR.
 ## It's usage is meant to be phased out, and new code generators must not use.
+## For the newer version see the `cgir2` module
 ##
 ## Implements an IR for representing code in the code-generators. It's
 ## currently a slightly adjusted version of ``PNode``, but the idea is to

@@ -332,6 +332,7 @@ proc generateThreadTeardownProc*(graph: ModuleGraph, idgen: IdGenerator,
   result = newSym(skProc, getIdent(graph.cache, "nimTeardownThreadVars"),
                   nextSymId idgen, owner, unknownLineInfo, {})
   result.flags.incl sfExportc
+  result.flags.incl sfNeverRaises
   result.extname = "nimTeardownThreadVars"
   result.typ = newProcType(unknownLineInfo, nextTypeId idgen, owner)
   result.typ.callConv = ccNoConvention
