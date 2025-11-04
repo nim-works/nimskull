@@ -1,7 +1,8 @@
 ## Implements a generic backend, which is effectively a driver for transf,
 ## mid-end processing, and producing CGIR modules. For efficiency, CGIR
 ## production currently uses a "jumbo" approach, where the code for the full
-## static program is compiled into a single CGIR module.
+## static program is compiled into a single CGIR module (referred to as the
+## "total" module).
 
 import
   std/[
@@ -81,7 +82,8 @@ type
     emits: Emit
 
   BModuleList = object
-    ## Bundles all global processor state.
+    ## Bundles all global processor state, acting as an accumulator for the
+    ## total module.
     graph: ModuleGraph
     config: ConfigRef
     env: MirEnv
