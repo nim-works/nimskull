@@ -26,7 +26,7 @@ runs:
       shell: python3 {0}
       working-directory: "${{ inputs.source }}"
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v5
       with:
         name: compiler ${{ runner.os }} ${{ runner.arch }}
         path: "${{ runner.temp }}/compiler.tar"

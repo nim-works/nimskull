@@ -56,7 +56,7 @@ jobs:
 
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated source archive
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
@@ -65,7 +65,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Download generated release binaries
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
@@ -75,7 +75,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Download release manifest tool
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           run-id: ${{ steps.finder.outputs.run_id }}
           # Keep up-to-date with ci.yml
@@ -103,7 +103,7 @@ jobs:
 
       - id: release
         name: Create pre-release
-        uses: softprops/action-gh-release@v2.3.4
+        uses: softprops/action-gh-release@v2.4.1
         with:
           prerelease: true
           files: ${{ steps.release-files.outputs.result }}
@@ -120,7 +120,7 @@ jobs:
           failOnError: true
 
       - name: Push changelog
-        uses: softprops/action-gh-release@v2.3.4
+        uses: softprops/action-gh-release@v2.4.1
         with:
           tag_name: ${{ steps.release-files.outputs.version }}
           body: ${{ steps.changelog.outputs.changelog }}
