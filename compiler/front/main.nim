@@ -183,7 +183,7 @@ template prepareForCodegen(g: ModuleGraph) =
   # the compiler, so make sure that they do
   g.config.errorMax = 1
   # the VM instance is not needed anymore. Free it to save memory
-  g.vm = nil
+  reset g.vm
 
 proc commandCompileToC(graph: ModuleGraph) =
   let conf = graph.config
