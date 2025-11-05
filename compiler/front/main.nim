@@ -202,8 +202,6 @@ proc commandCompileToC(graph: ModuleGraph) =
 
   graph.config.timeTracer.traceStr("compile"):
     compileProject(graph)
-  # semantic analysis is done, dismiss the VM instance to save memory
-  graph.vm = nil
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
