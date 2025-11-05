@@ -124,7 +124,7 @@ jobs:
       - uses: ./.github/actions/download-compiler
 
       - name: Install NodeJS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: "16"
 
