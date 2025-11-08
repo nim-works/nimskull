@@ -79,3 +79,4 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimskullHasSupportsZeroMem")
   defineSymbol("nimskullHasNoParseFloatMagic")
   defineSymbol("nimskullHasUnaryGenSym")
+  defineSymbol("systemHasMainDef") # csource compiler compatiblity symbol

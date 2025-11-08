@@ -378,6 +378,12 @@ iterator params*(env: TypeEnv, desc: TypeHeader
     yield (int(i - desc.a - 1), env.params[i].typ,
            cast[set[ParamFlag]](env.params[i].x))
 
+func paramType*(desc: TypeHeader, env: TypeEnv, i: uint32): TypeId =
+  ## Returns the type of the `i`-th parameter for proc/closure type `desc`.
+  assert desc.kind in {tkProc, tkClosure}
+  assert desc.a + 1 + i < desc.b, "invalid parameter index"
+  env.params[desc.a + uint32(i) + 1].typ
+
 func base*(desc: TypeHeader, env: TypeEnv): TypeId =
   ## Returns the node storing the base type (i.e., the parent type) for a
   ## struct type.
@@ -462,7 +468,7 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## in struct-like type `typ`. Imported types are skipped.
 
   # skip imported types:
-  var typ = env.symbols[typ].canon
+  var typ = typ
   while env.headerFor(typ, Canonical).kind == tkImported:
     typ = env.headerFor(typ, Canonical).elem
 
@@ -562,6 +568,12 @@ proc getBranch*(env: TypeEnv, outer, typ: TypeId, id: FieldId,
     n     = findCase(inst.n, env.idents[env.fields[ord tag].ident])
     pos   = uint32 findBranch(n, val)
   result = FieldId(env.headerFor(env.fields[ord id].typ, Lowered).a + pos)
+
+iterator canonical*(env: TypeEnv): TypeId =
+  ## Returns the canonical version of every type part of `env`.
+  for id, it in env.symbols.pairs:
+    if it.canon == id:
+      yield id
 
 # struct/proc builder API
 # -----------------------
@@ -810,7 +822,13 @@ proc procTypeToMir(env: var TypeEnv, kind: TypeKind, t: PType,
 
   var prc: ProcBuilder
   let ret =
-    if isEmptyType(t[0]):
+    if t.callConv == ccTailcall:
+      # FIXME: using the Continuation type as the return type is wrong when
+      #        portable tailcalls are *not* enabled
+      # XXX: this also makes the actual types of MIR expressions not match
+      #      their declared types prior to tailcall lowering
+      typeref(t.n[0][3].typ)
+    elif isEmptyType(t[0]):
       VoidType
     else:
       typeref(t[0])
@@ -1249,9 +1267,46 @@ func usizeType*(env: TypeEnv): TypeId {.inline.} =
   ## unsigned integer type of target-dependent bit-width.
   env.usizeType
 
-# type creation routines
-# ----------------------
+# ---- convenience type constructors
+
+func newArray*(env: var TypeEnv, count: Positive, typ: TypeId): TypeId =
+  ## Generates an array type with `count` elements of type `typ`.
+  let desc = env.headerFor(typ, Original)
+  env.newType(env.add(makeDesc(tkArray,
+    env.toIntVal(count * size(desc, env)),
+    desc.align,
+    typ,
+    uint32 env.toIntVal(count))))
+
+func newTuple*(env: var TypeEnv, elems: varargs[TypeId]): TypeId =
+  ## Generates a tuple (i.e., struct) type with elements `elems`.
+  var size = 0
+  var align = 0'i16
+  for it in elems.items:
+    let desc = env.headerFor(it, Original)
+    if align > 0:
+      if desc.align < 0:
+        align = szUnknownSize
+      else:
+        align = max(align, desc.align)
+
+    if align > 0 and size(desc, env) >= 0:
+      let mask = desc.align - 1
+      size = (size + mask) and not mask
+    else:
+      size = szUnknownSize
+
+  let header = env.buildStruct(env.toIntVal(size), align, bu):
+    for it in elems.items:
+      bu.addField(env, it)
+
+  result = env.newType(header)
 
 func newPtr*(env: var TypeEnv, target: TypeId): TypeId =
   ## Creates and returns a pointer type with target type `target`.
   env.newPtrTy(target)
+
+func newPtrToArray*(env: var TypeEnv, elem: TypeId): TypeId =
+  ## Generates a type representing a pointer to an unbounded array with
+  ## element `elem`.
+  newPtrTy(env, newUncheckedArrayTy(env, elem))

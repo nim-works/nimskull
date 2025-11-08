@@ -44,7 +44,12 @@ func cmpProc(a, b: PType): bool =
     return false
 
   # nil in the return type slot means 'void'; handle it separately
-  if a[0].isNil != b[0].isNil or (a[0] != nil and not cmp(a[0], b[0])):
+  if isEmptyType(a[0]):
+    if not isEmptyType(b[0]):
+      return false
+  elif isEmptyType(b[0]):
+    return false
+  elif not cmp(a[0], b[0]):
     return false
 
   for i in 1..<a.len:

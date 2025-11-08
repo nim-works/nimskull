@@ -1387,7 +1387,7 @@ type # these work for most platforms:
   culonglong* {.importc: "unsigned long long", nodecl.} = uint64
     ## This is the same as the type `unsigned long long` in *C*.
 
-  cstringArray* {.importc: "char**", nodecl.} = ptr UncheckedArray[cstring]
+  cstringArray* {.exportc: "cstringArray".} = ptr UncheckedArray[cstring]
     ## This is binary compatible to the type `char**` in *C*. The array's
     ## high value is large enough to disable bounds checking in practice.
     ## Use `cstringArrayToSeq proc <#cstringArrayToSeq,cstringArray,Natural>`_
@@ -3083,3 +3083,6 @@ type
       next: proc(env: pointer): Continuation[T] {.nimcall.}
     of true:
       result: T
+
+when defined(c) and defined(systemHasMainDef):
+  include system/cboot
