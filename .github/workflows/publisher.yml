@@ -26,7 +26,7 @@ jobs:
 
     steps:
       # Repository required for changelog builder
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           sparse-checkout: |

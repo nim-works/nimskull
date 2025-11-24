@@ -67,7 +67,7 @@ jobs:
           # On the contrary, reprotest needs all of those deps to work
           sudo apt-get install -yqq reprotest
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           filter: tree:0

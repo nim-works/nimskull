@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Checkout (for Git build)
         if: inputs.source-archive == ''
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           filter: tree:0
@@ -43,7 +43,7 @@ jobs:
 
       - name: Get actions (for source-archive builds)
         if: inputs.source-archive != ''
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: git-src
           sparse-checkout: .github/actions
