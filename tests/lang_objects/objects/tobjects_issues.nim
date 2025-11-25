@@ -115,3 +115,18 @@ block t3038:
       data: Data[T]
     SubSubType = ref object of SubType[int]
     SubSubSubType = ref object of SubSubType
+
+block recursive_type_with_alias_bug:
+  # regression test for edge case issue with recursive object types and aliases
+  type
+    Alias = Obj
+    Obj = object
+      x: ref Alias
+
+  proc test() =
+    # the `Obj` usage has to appear first...
+    var x = Obj(x: nil)
+    # ... the usage of the alias type has to appear second
+    var y = Alias(x: nil)
+
+  test()
