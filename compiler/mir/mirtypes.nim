@@ -144,6 +144,13 @@ type
     idents: BiTable[string]
     numbers: BiTable[BiggestInt]
 
+    guard: int
+      ## tracks the recursion depth for `add`, to know which call is the
+      ## top-level one
+    delayed: seq[TypeId]
+      ## still-incomplete type symbols corresponding to object types, to be
+      ## completed later
+
     config: ConfigRef
     graph: ModuleGraph
 
@@ -1137,13 +1144,6 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     if sfImportc notin t.sym.flags:
       env.map[t] = result
 
-    let
-      orig  = typeToMir(env, t, canon=false)
-      canon = typeToMir(env, t, canon=true, unique=(tfFromGeneric notin t.flags))
-
-    # there's nothing to lower for object types
-    env.symbols[result].desc = [orig, canon, canon]
-
     # generic types support covariance for tuples. Pick an instance as the
     # "canonical" one, so that - for example - ``Generic[(int,)]`` and
     # ``Generic[tuple[x: int]]`` map to the same MIR type in the end. In order
@@ -1153,12 +1153,16 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
                                         result);
         c != result):
       env.symbols[result].canon = c
+
+    env.delayed.add result
   of Skip:
     # except for `inst`, the type symbol is identical to that of the
     # skipped-to type
     let base = env.add(skipIrrelevant(t))
     var sym = env.symbols[base]
     sym.inst = t
+    # note: for skipped types that reference object types, a separate pass
+    # makes sure the symbol is proper
     result = env.symbols.add(sym)
     env.map[t] = result
   else:
@@ -1214,13 +1218,45 @@ proc handleImported(env: var TypeEnv, t: PType): TypeId =
   else:
     result = typeSymToMir(env, t)
 
+proc translateObjects(env: var TypeEnv, since: Checkpoint) =
+  ## Post-processes the type symbols added since `since`, translating all
+  ## delayed object types and fixing alias-like symbols pointing to them.
+  # first pass: translate delayed object types
+  let needsFixup = env.delayed.len > 0
+  while env.delayed.len > 0:
+    let
+      id    = env.delayed.pop()
+      inst  = env.symbols[id].inst
+      orig  = typeToMir(env, inst, canon=false)
+      canon = typeToMir(env, inst, canon=true,
+                        unique=(tfFromGeneric notin inst.flags))
+
+    # there's nothing to lower for object types
+    env.symbols[id].desc = [orig, canon, canon]
+
+  if needsFixup:
+    # second pass: fix type-symbols corresponding to alias-like types pointing
+    # to object types
+    for id, it in since(env.symbols, since):
+      if it.inst != nil and it.inst.kind in Skip and
+         it.desc[Original] == HeaderId(0) and
+         env.headerFor(it.canon, Original).kind in {tkStruct, tkUnion}:
+        # inherit the description from the aliased type
+        let target = skipIrrelevant(it.inst)
+        env.symbols[id].desc = env.symbols[env.map[target]].desc
+
 proc add*(env: var TypeEnv, t: PType): TypeId =
   ## If not registered yet, adds `t` to `env` and returns the ID to later
   ## look it up with.
   result = env.map.getOrDefault(t, env.symbols.nextId())
   if result == env.symbols.nextId(): # not seen yet?
+    let before = env.symbols.checkpoint()
+    inc env.guard
     result = handleImported(env, t)
     # translation of the type registered the mapping for us
+    if env.guard == 1: # top-most call?
+      translateObjects(env, before)
+    dec env.guard
 
 proc addSignature*(env: var TypeEnv, t: PType): TypeId =
   ## Adds the proc type `t` to `env`, treating it as the type of a *procedure*,
