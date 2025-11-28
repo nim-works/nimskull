@@ -1289,7 +1289,6 @@ proc getTypeInfoV2(c; env; typ: PType, bu): Expr =
   ## Returns a pointer expression referring to the RTTI global for `typ`.
   ## The RTTI data is created first if it wasn't already.
   var global: StringId
-  let orig = typ
   let (hash, typ) = hashTypeForRttiV2(typ)
   c.rttiV2Map.withValue hash, val:
     global = val[]
@@ -1306,19 +1305,15 @@ proc getTypeInfoV2(c; env; typ: PType, bu): Expr =
       # the RTTI types are cached on first use
       c.rttiV2Type = env.types.add(c.graph.getCompilerProc("TNimTypeV2").typ)
 
-    try:
-      var bu = initBuilder()
-      let got = bu.build GlobalDef(
-        ^CgStorage.Const,
-        0, # no custom alignment
-        0, # no flags
-        ^c.rttiV2Type,
-        ^globalRef(global),
-        ^genTypeInfoV2(c, env, typ, bu))
-      c.module.globals[global] = c.module.ast.append(bu, got)
-    except:
-      echo "Failed for: ", typeToString(orig)
-      raise
+    var bu = initBuilder()
+    let got = bu.build GlobalDef(
+      ^CgStorage.Const,
+      0, # no custom alignment
+      0, # no flags
+      ^c.rttiV2Type,
+      ^globalRef(global),
+      ^genTypeInfoV2(c, env, typ, bu))
+    c.module.globals[global] = c.module.ast.append(bu, got)
 
   let pt = env.newPtrType(c.rttiV2Type)
   bu.buildExpr pt, Addr(pt, ^globalRef(global))
