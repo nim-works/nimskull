@@ -70,6 +70,9 @@ from compiler/ast/report_enums import ReportKind
 
 from std/importutils import privateAccess
 
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
+
 type
   Capability* = enum
     ## A capability of the targeted code generator.
@@ -2242,6 +2245,9 @@ proc emitPostCall(c; env; tree; n; stmts; bu) =
 proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
   ## Translates a MIR assignment RHS into an analogous CGIR assignment,
   ## lowering where appropriate.
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, c.prc.body.source[tree[n].info])
+
   template operand(n: NodePosition): Expr =
     c.valueToCgir(env, tree, n, bu)
   template value(n: NodePosition): NodeRef =
@@ -2698,6 +2704,8 @@ proc emitToCgir(c; env; tree; n; bu): NodeRef =
 proc stmtToCgir(c; env; tree; n; stmts; bu) =
   ## Translates simple MIR statements to the semantically equivalent CGIR
   ## statement(s).
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, c.prc.body.source[tree[n].info])
   c.useSourceLoc(tree[n].info, bu)
   case tree[n].kind
   of mnkDef, mnkDefCursor:
