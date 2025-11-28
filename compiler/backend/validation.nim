@@ -1379,7 +1379,7 @@ proc typeConst(m; pos; err): Type =
         if not match(m, expect, got):
           err.emit m, at, typeMismatchMsg(m, expect, got)
   of cnkRecConstr:
-    result = expectType(m, pos, {cnkStructTy, cnkArrayTy}, err)
+    result = expectType(m, pos, {cnkStructTy, cnkArrayTy, cnkOpaqueTy}, err)
     for _ in 1..<len(n):
       context at:
         let field = advance(m.ast, pos)
