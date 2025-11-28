@@ -757,7 +757,9 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
 
       proc traverse(c; env; curr, typ: TypeId, bu) =
         let start = path.len
-        let desc = env.types.headerFor(typ, Lowered)
+        # imported types are treated as their underlying struct/union type when
+        # inspecting their structure here
+        let desc = env.types.headerFor(env.types.skip(typ), Lowered)
         if desc.kind == tkStruct:
           let base = desc.base(env.types)
           if base != VoidType:
@@ -770,16 +772,23 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
                 *use(^c.getTypeInfoV2(env, env.types[outer], bu)))
 
         proc field(c; env; curr: TypeId, id: FieldId, strf: StructField, bu) =
+          proc access(c; env; curr: TypeId; id: FieldId, bu) =
+            if env.types.headerFor(curr, Lowered).kind == tkImported:
+              path.add bu.build(
+                ExtField(^env.types[id].typ, ^env.types.name(env.types[id])))
+            else:
+              c.rawFieldAccess(env, curr, id, path, bu)
+
           if strf.isEmbedded:
             traverse(c, env, curr, strf.typ, bu)
           elif id in preproc:
             # field has an explicit value
-            c.rawFieldAccess(env, curr, id, path, bu)
+            c.access(env, curr, id, bu)
             elems.add bu.build do:
               FieldInit(path, ^recurse(preproc[id]))
           elif containsTypeHeaders(env.types, strf.typ):
             # zero-filling is not enough
-            c.rawFieldAccess(env, curr, id, path, bu)
+            c.access(env, curr, id, bu)
             elems.add bu.build do:
               FieldInit(path, ^c.genConstDefault(env, strf.typ, bu))
 
