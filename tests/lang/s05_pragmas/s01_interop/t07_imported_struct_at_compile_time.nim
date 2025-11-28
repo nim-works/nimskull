@@ -3,6 +3,7 @@ discard """
     Imported C struct types can be used in compile-time evaluation contexts.
   '''
   targets: "c"
+  joinable: false
 """
 
 type Extern {.importc: "struct NoTypedef", header: "t01_c_interop.nim.h".} = object
