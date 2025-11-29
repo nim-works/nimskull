@@ -2562,19 +2562,36 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
          env.types.headerFor(env.types.skip(src), Lowered).kind in BlitTypes:
       # either the target or source type is something that requires a
       # blit copy for casting
-      let size = min(env.types.headerFor(typ, Lowered).size(env.types),
-                     env.types.headerFor(src, Lowered).size(env.types))
       if arg.mode == emValue:
         # not something that the address can be taken of; commit to a temporary
         let tmp = c.newTemp(env, arg.typ, stmts, bu)
         stmts.add c.genAsgn(env, tmp, arg, bu)
         arg = tmp
 
+      let size = min(env.types.headerFor(typ, Lowered).size(env.types),
+                     env.types.headerFor(src, Lowered).size(env.types))
+      let sizeExpr =
+        if size < 0:
+          # the size of either target or source type is unknown
+          # (e.g. imported types)
+          #
+          # offload the min size comparison to the target backend
+          let tmp = c.newTemp(env, env.types.sizeType, stmts, bu)
+          stmts.addStmt bu, If(
+            Lt(BoolType, ^env.types.sizeType,
+              Sizeof(^env.types.sizeType, src),
+              Sizeof(^env.types.sizeType, typ)),
+            *asgn(tmp, Sizeof(^env.types.sizeType, src)),
+            *asgn(tmp, Sizeof(^env.types.sizeType, typ)))
+          bu.use(tmp)
+        else:
+          c.genInt(env, size, env.types.sizeType, bu)
+
       stmts.addStmt bu, Call(
         ^bu.useCompilerProc(c, env, "nimCopyMem"),
         PtrCast(PointerType, ^c.genAddr(env, dest, bu)),
         PtrCast(PointerType, ^c.genAddr(env, arg, bu)),
-        ^c.genInt(env, size, env.types.sizeType, bu))
+        sizeExpr)
     elif env.types.headerFor(typ, Lowered).kind == tkImported or
          env.types.headerFor(src, Lowered).kind == tkImported:
       # use an opaque type conversion for any non-blit types where the cast
