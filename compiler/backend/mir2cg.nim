@@ -70,6 +70,9 @@ from compiler/ast/report_enums import ReportKind
 
 from std/importutils import privateAccess
 
+when defined(nimCompilerStacktraceHints):
+  import compiler/utils/debugutils
+
 type
   Capability* = enum
     ## A capability of the targeted code generator.
@@ -754,7 +757,9 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
 
       proc traverse(c; env; curr, typ: TypeId, bu) =
         let start = path.len
-        let desc = env.types.headerFor(typ, Lowered)
+        # imported types are treated as their underlying struct/union type when
+        # inspecting their structure here
+        let desc = env.types.headerFor(env.types.skip(typ), Lowered)
         if desc.kind == tkStruct:
           let base = desc.base(env.types)
           if base != VoidType:
@@ -767,16 +772,23 @@ proc constToCgir(c; env; tree; n; bu): NodeRef =
                 *use(^c.getTypeInfoV2(env, env.types[outer], bu)))
 
         proc field(c; env; curr: TypeId, id: FieldId, strf: StructField, bu) =
+          proc access(c; env; curr: TypeId; id: FieldId, bu) =
+            if env.types.headerFor(curr, Lowered).kind == tkImported:
+              path.add bu.build(
+                ExtField(^env.types[id].typ, ^env.types.name(env.types[id])))
+            else:
+              c.rawFieldAccess(env, curr, id, path, bu)
+
           if strf.isEmbedded:
             traverse(c, env, curr, strf.typ, bu)
           elif id in preproc:
             # field has an explicit value
-            c.rawFieldAccess(env, curr, id, path, bu)
+            c.access(env, curr, id, bu)
             elems.add bu.build do:
               FieldInit(path, ^recurse(preproc[id]))
           elif containsTypeHeaders(env.types, strf.typ):
             # zero-filling is not enough
-            c.rawFieldAccess(env, curr, id, path, bu)
+            c.access(env, curr, id, bu)
             elems.add bu.build do:
               FieldInit(path, ^c.genConstDefault(env, strf.typ, bu))
 
@@ -1289,7 +1301,6 @@ proc getTypeInfoV2(c; env; typ: PType, bu): Expr =
   ## Returns a pointer expression referring to the RTTI global for `typ`.
   ## The RTTI data is created first if it wasn't already.
   var global: StringId
-  let orig = typ
   let (hash, typ) = hashTypeForRttiV2(typ)
   c.rttiV2Map.withValue hash, val:
     global = val[]
@@ -1306,19 +1317,15 @@ proc getTypeInfoV2(c; env; typ: PType, bu): Expr =
       # the RTTI types are cached on first use
       c.rttiV2Type = env.types.add(c.graph.getCompilerProc("TNimTypeV2").typ)
 
-    try:
-      var bu = initBuilder()
-      let got = bu.build GlobalDef(
-        ^CgStorage.Const,
-        0, # no custom alignment
-        0, # no flags
-        ^c.rttiV2Type,
-        ^globalRef(global),
-        ^genTypeInfoV2(c, env, typ, bu))
-      c.module.globals[global] = c.module.ast.append(bu, got)
-    except:
-      echo "Failed for: ", typeToString(orig)
-      raise
+    var bu = initBuilder()
+    let got = bu.build GlobalDef(
+      ^CgStorage.Const,
+      0, # no custom alignment
+      0, # no flags
+      ^c.rttiV2Type,
+      ^globalRef(global),
+      ^genTypeInfoV2(c, env, typ, bu))
+    c.module.globals[global] = c.module.ast.append(bu, got)
 
   let pt = env.newPtrType(c.rttiV2Type)
   bu.buildExpr pt, Addr(pt, ^globalRef(global))
@@ -2247,6 +2254,9 @@ proc emitPostCall(c; env; tree; n; stmts; bu) =
 proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
   ## Translates a MIR assignment RHS into an analogous CGIR assignment,
   ## lowering where appropriate.
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, c.prc.body.source[tree[n].info])
+
   template operand(n: NodePosition): Expr =
     c.valueToCgir(env, tree, n, bu)
   template value(n: NodePosition): NodeRef =
@@ -2703,6 +2713,8 @@ proc emitToCgir(c; env; tree; n; bu): NodeRef =
 proc stmtToCgir(c; env; tree; n; stmts; bu) =
   ## Translates simple MIR statements to the semantically equivalent CGIR
   ## statement(s).
+  when defined(nimCompilerStacktraceHints):
+    frameMsg(c.graph.config, c.prc.body.source[tree[n].info])
   c.useSourceLoc(tree[n].info, bu)
   case tree[n].kind
   of mnkDef, mnkDefCursor:
