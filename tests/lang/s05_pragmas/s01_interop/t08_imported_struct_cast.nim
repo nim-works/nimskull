@@ -1,6 +1,6 @@
 discard """
   description: '''
-    Imported C struct types can be casted to other types.
+    Imported C struct types can be cast to other types.
   '''
   targets: "c"
   joinable: false
@@ -10,7 +10,7 @@ type
   ExternBig {.importc: "struct Struct1", header: "t08_imported_struct_cast.nim.h".} = object
     field1: cint
     field2: cint
-    # not all fields need to exposed
+    # not all fields need to be exposed
 
   ExternSmall {.importc: "struct Struct2", header: "t08_imported_struct_cast.nim.h"} = object
     field1: cint
