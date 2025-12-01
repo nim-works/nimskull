@@ -278,14 +278,17 @@ proc semGenericArgs(c: PContext, n: PNode): PNode =
   if hasError:
     result = c.config.wrapError(result)
 
-proc resolveOverloads(c: PContext, nOrig: PNode,
+proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var seq[SemCallMismatch]): TCandidate =
-  addInNimDebugUtils(c.config, "resolveOverloads", nOrig, filter, errors, result)
+  ## Performs overload resolution for the untyped, static call expression `n`,
+  ## filtered by callee symbol kinds specified by `filter`.
+  ## As arguments are typed, they're written back to `n`, with `errors`
+  ## accumulating all tried-and-rejected overloads.
+  addInNimDebugUtils(c.config, "resolveOverloads", n, filter, errors, result)
   var
     alt: TCandidate
-    # `n` itself will be modified, so create a shallow copy first
-    n = copyNodeWithKids(nOrig)
+    nOrig = copyNodeWithKids(n)
     f = n[0]
   
   case f.kind
@@ -389,9 +392,7 @@ proc resolveOverloads(c: PContext, nOrig: PNode,
       if {nfDotField, nfDotSetter} * n.flags != {}:
         # clean up the inserted ops
         n.sons.delete(2)
-        nOrig.sons.delete(2)
         n[0] = f
-        nOrig[0] = f
       # make sure that all recorded diagnostics are emitted, by adding them to
       # the no-match candidate
       result.addAllDiagnostics(diags)
@@ -591,6 +592,9 @@ proc semOverloadedCall(c: PContext, n: PNode,
   addInNimDebugUtils(c.config, "semOverloadedCall", n, result)
   var errors: seq[SemCallMismatch]
 
+  let n = copyNodeWithKids(n)
+  # `n` will be updated with the typed arguments, so a shallow copy has to
+  # be created
   var r = resolveOverloads(c, n, filter, flags, errors)
   emitDiagnostics(c, r) # always emit all captured diags for the match
   if r.state == csMatch:
