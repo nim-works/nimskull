@@ -548,7 +548,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
   x.add(operand) # the definition AST the pragma appears on
 
   # recursion assures that this works for multiple macro annotations too:
-  let r = semOverloadedCall(c, x, copyNodeWithKids(x), {skMacro, skTemplate}, {efNoUndeclared})
+  let r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
   if r.isNil:
     # restore the old list of pragmas since we couldn't process this one
     pragmas[] = n
