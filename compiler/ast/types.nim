@@ -1082,6 +1082,16 @@ proc compatibleEffects*(formal, actual: PType): EffectsCompat =
   else:
     result = efLockLevelsDiffer
 
+proc initNoEffects*(t: PType) =
+  ## Sets the tag or exception effect specification to an empty list (meaning
+  ## "no effects")
+  let eff = t.n[0]
+  assert eff.kind == nkEffectList and eff.len == 0
+  eff.sons.newSeq(effectListLen)
+  eff[exceptionEffects] = newNode(nkBracket)
+  eff[tagEffects] = newNode(nkBracket)
+  eff[pragmasEffects] = newNode(nkEmpty)
+
 proc isCompileTimeOnly*(t: PType): bool {.inline.} =
   result = t.kind in {tyTypeDesc, tyStatic}
 
