@@ -1554,8 +1554,8 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
 proc rawInitEffects(g: ModuleGraph; effects: PNode) =
   if effects.len < effectListLen:
     newSeq(effects.sons, effectListLen)
-  effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
-  effects[tagEffects] = newNodeI(nkArgList, effects.info)
+  effects[exceptionEffects] = newNodeI(nkBracket, effects.info)
+  effects[tagEffects] = newNodeI(nkBracket, effects.info)
   effects[pragmasEffects] = g.emptyNode
 
 proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PContext) =
@@ -1796,7 +1796,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     # exceptions, if any, were already reported; don't report errors again in
     # that case
     if raisesSpec.isNil or raisesSpec.len > 0:
-      let newSpec = newNodeI(nkArgList, s.info)
+      let newSpec = newNodeI(nkBracket, s.info)
       checkRaisesSpec(g, rsemHookCannotRaise, newSpec,
                       t.exc, hints=off, nil)
       # override the raises specification to prevent cascading errors:
