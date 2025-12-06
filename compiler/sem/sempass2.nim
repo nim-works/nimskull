@@ -1871,7 +1871,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     genApply(c, s)
 
     # create the type-bound ops for the continuation type:
-    let cont = s.typ.n[0][3].typ.skipTypes(skipForHooks)
+    let cont = s.typ.n[0][effectListLen].typ.skipTypes(skipForHooks)
     createTypeBoundOps(c.graph, c, cont, s.info, c.idgen)
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =

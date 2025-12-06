@@ -194,7 +194,7 @@ proc genApply*(c: PContext, s: PSym) =
   apply.flags.incl sfGeneratedOp
 
   let
-    contType    = s.typ.n[0][3].typ # use the hidden type
+    contType    = s.typ.n[0][effectListLen].typ # use the hidden type
     tupType     = newParamTuple(c.config, c.idgen, apply, s.typ)
     tupPtrType  = makePtrType(apply, tupType, c.idgen)
     pointerType = c.graph.getSysType(s.info, tyPointer)
