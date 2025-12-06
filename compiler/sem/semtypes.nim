@@ -1893,12 +1893,12 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
 
+  when useEffectSystem:
+    setEffectsForProcType(c.graph, result, n[1])
+
   # instantiate the type of the continuation for .tailcall procedures
   if result.callConv == ccTailcall:
     prepareTailcallProc(c, n.info, result)
-
-  when true:
-    when useEffectSystem: setEffectsForProcType(c.graph, result, n[1])
   closeScope(c)
 
 proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
