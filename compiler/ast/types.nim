@@ -1030,7 +1030,8 @@ proc safeInheritanceDiff*(a, b: PType): int =
 proc compatibleEffectsAux(se, re: PNode, unknown, differ: EffectsCompat
                          ): EffectsCompat =
   ## Computes whether effect lists `se` and `re` are compatible; they are when
-  ## `se` is a superset of `re`.
+  ## `se` is a superset of `re`. If compatible returns `efCompat`, otherwise `differ`
+  ## or `unknown` if incompatible or cannot be determined, respectively.
   if se.isNil:
     # assume that it means "any effect"
     # FIXME: ^^ this is not always true! 'nil' can also mean
