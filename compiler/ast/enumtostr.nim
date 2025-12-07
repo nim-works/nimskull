@@ -2,7 +2,8 @@ import
   compiler/ast/[
     ast,
     idents,
-    lineinfos
+    lineinfos,
+    types
   ],
   compiler/modules/[
     modulegraphs,
@@ -27,6 +28,8 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
   result.typ[0] = res.typ
   propagateToOwner(result.typ, res.typ, false)
   result.typ.addParam dest
+  result.typ.initNoEffects()
+  result.typ.flags.incl {tfGcSafe, tfNoSideEffect}
 
   var caseStmt = newNodeI(nkCaseStmt, info)
   caseStmt.add(newSymNode dest)

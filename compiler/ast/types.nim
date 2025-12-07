@@ -1027,15 +1027,31 @@ proc safeInheritanceDiff*(a, b: PType): int =
   else:
     result = inheritanceDiff(a.skipTypes(skipPtrs), b.skipTypes(skipPtrs))
 
-proc compatibleEffectsAux(se, re: PNode): bool =
-  if re.isNil: return false
-  for r in items(re):
-    block search:
-      for s in items(se):
-        if safeInheritanceDiff(s.typ, r.typ) <= 0:
-          break search
-      return false
-  result = true
+proc compatibleEffectsAux(se, re: PNode, unknown, differ: EffectsCompat
+                         ): EffectsCompat =
+  ## Computes whether effect lists `se` and `re` are compatible; they are when
+  ## `se` is a superset of `re`. If compatible returns `efCompat`, otherwise `differ`
+  ## or `unknown` if incompatible or cannot be determined, respectively.
+  if se.isNil:
+    # assume that it means "any effect"
+    # FIXME: ^^ this is not always true! 'nil' can also mean
+    #        "not computed yet", in which case types will be considered
+    #        compatible that in reality are not
+    result = efCompat
+  elif re.isNil:
+    # actual effects are either "any effect" or "not computed yet"
+    # FIXME: when `se` is computed but `re` is not, both are still compatible
+    #        when `se` contains the top type
+    result = unknown
+  else:
+    # every type in `re` must be equal to or a subtype of a type in `se`
+    for r in items(re):
+      block search:
+        for s in items(se):
+          if safeInheritanceDiff(s.typ, r.typ) <= 0:
+            break search
+        return differ
+    result = efCompat
 
 
 proc compatibleEffects*(formal, actual: PType): EffectsCompat =
@@ -1044,32 +1060,26 @@ proc compatibleEffects*(formal, actual: PType): EffectsCompat =
   #if tfEffectSystemWorkaround in actual.flags:
   #  return efCompat
 
-  if formal.n[0].kind != nkEffectList or
-     actual.n[0].kind != nkEffectList:
+  let
+    spec = formal.n[0]
+    real = actual.n[0]
+
+  if spec.kind != nkEffectList or
+     real.kind != nkEffectList:
     return efTagsUnknown
 
-  var spec = formal.n[0]
-  if spec.len != 0:
-    var real = actual.n[0]
+  result = compatibleEffectsAux(
+    spec[exceptionEffects], real[exceptionEffects],
+    efRaisesUnknown, efRaisesDiffer)
+  if result != efCompat:
+    return
 
-    let se = spec[exceptionEffects]
-    # if 'se.kind == nkArgList' it is no formal type really, but a
-    # computed effect and as such no spec:
-    # 'r.msgHandler = if isNil(msgHandler): defaultMsgHandler else: msgHandler'
-    if not isNil(se) and se.kind != nkArgList:
-      # spec requires some exception or tag, but we don't know anything:
-      if real.len == 0: return efRaisesUnknown
-      let res = compatibleEffectsAux(se, real[exceptionEffects])
-      if not res: return efRaisesDiffer
+  result = compatibleEffectsAux(
+    spec[tagEffects], real[tagEffects],
+    efTagsUnknown, efTagsDiffer)
+  if result != efCompat:
+    return
 
-    let st = spec[tagEffects]
-    if not isNil(st) and st.kind != nkArgList:
-      # spec requires some exception or tag, but we don't know anything:
-      if real.len == 0: return efTagsUnknown
-      let res = compatibleEffectsAux(st, real[tagEffects])
-      if not res:
-        #if tfEffectSystemWorkaround notin actual.flags:
-        return efTagsDiffer
   if formal.lockLevel.ord < 0 or
       actual.lockLevel.ord <= formal.lockLevel.ord:
 
@@ -1081,6 +1091,16 @@ proc compatibleEffects*(formal, actual: PType): EffectsCompat =
     result = efCompat
   else:
     result = efLockLevelsDiffer
+
+proc initNoEffects*(t: PType) =
+  ## Sets the tag or exception effect specification to an empty list (meaning
+  ## "no effects")
+  let eff = t.n[0]
+  assert eff.kind == nkEffectList and eff.len == 0
+  eff.sons.newSeq(effectListLen)
+  eff[exceptionEffects] = newNode(nkBracket)
+  eff[tagEffects] = newNode(nkBracket)
+  eff[pragmasEffects] = newNode(nkEmpty)
 
 proc isCompileTimeOnly*(t: PType): bool {.inline.} =
   result = t.kind in {tyTypeDesc, tyStatic}

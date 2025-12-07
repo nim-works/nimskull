@@ -834,7 +834,7 @@ proc procTypeToMir(env: var TypeEnv, kind: TypeKind, t: PType,
       #        portable tailcalls are *not* enabled
       # XXX: this also makes the actual types of MIR expressions not match
       #      their declared types prior to tailcall lowering
-      typeref(t.n[0][3].typ)
+      typeref(t.n[0][effectListLen].typ)
     elif isEmptyType(t[0]):
       VoidType
     else:

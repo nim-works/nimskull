@@ -1514,26 +1514,39 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
           [$branch.typ.lockLevel, $disp.typ.lockLevel])
 
 proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
+  ## Initializes the effect lists for the proc type `t`. `n` is the pragma
+  ## list to take the explicit effect specification (if any) from, while `s`
+  ## is the symbol of the routine the type is attached to.
+  internalAssert(g.config, t.kind == tyProc)
   var effects = t.n[0]
-  if t.kind != tyProc or effects.kind != nkEffectList: return
-  if n.kind != nkEmpty:
-    internalAssert(g.config, isNoEffectList(effects), "Starting effects list must be empty")
+  internalAssert(g.config, effects.kind == nkEffectList)
+  internalAssert(g.config, effects.len == 0, "Starting effects list must be empty")
+  newSeq(effects.sons, effectListLen)
 
-    if effects.len < effectListLen:
-      newSeq(effects.sons, effectListLen)
-    let raisesSpec = effectSpec(n, wRaises)
+  let raisesSpec = if n.kind == nkPragma: effectSpec(n, wRaises) else: nil
+  let exc =
     if not isNil(raisesSpec):
-      effects[exceptionEffects] = raisesSpec
+      raisesSpec
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
-      effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
+      # cannot have exception effects by itself
+      newNodeI(nkBracket, effects.info)
+    else:
+      nil # means both "not computed yet" and "any exceptions"
 
-    let tagsSpec = effectSpec(n, wTags)
+  let tagsSpec = if n.kind == nkPragma: effectSpec(n, wTags) else: nil
+  let tags =
     if not isNil(tagsSpec):
-      effects[tagEffects] = tagsSpec
+      tagsSpec
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
-      effects[tagEffects] = newNodeI(nkArgList, effects.info)
+      # cannot have tag effects by itself
+      newNodeI(nkBracket, effects.info)
+    else:
+      nil # means both "not computed yet" and "any tags"
 
-    effects[pragmasEffects] = n
+  effects[exceptionEffects] = exc
+  effects[tagEffects] = tags
+  effects[pragmasEffects] = n
+
   if s != nil and s.magic != mNone:
     if s.magic != mEcho:
       t.flags.incl tfNoSideEffect
@@ -1541,8 +1554,8 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
 proc rawInitEffects(g: ModuleGraph; effects: PNode) =
   if effects.len < effectListLen:
     newSeq(effects.sons, effectListLen)
-  effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
-  effects[tagEffects] = newNodeI(nkArgList, effects.info)
+  effects[exceptionEffects] = newNodeI(nkBracket, effects.info)
+  effects[tagEffects] = newNodeI(nkBracket, effects.info)
   effects[pragmasEffects] = g.emptyNode
 
 proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PContext) =
@@ -1783,7 +1796,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     # exceptions, if any, were already reported; don't report errors again in
     # that case
     if raisesSpec.isNil or raisesSpec.len > 0:
-      let newSpec = newNodeI(nkArgList, s.info)
+      let newSpec = newNodeI(nkBracket, s.info)
       checkRaisesSpec(g, rsemHookCannotRaise, newSpec,
                       t.exc, hints=off, nil)
       # override the raises specification to prevent cascading errors:
@@ -1871,7 +1884,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     genApply(c, s)
 
     # create the type-bound ops for the continuation type:
-    let cont = s.typ.n[0][3].typ.skipTypes(skipForHooks)
+    let cont = s.typ.n[0][effectListLen].typ.skipTypes(skipForHooks)
     createTypeBoundOps(c.graph, c, cont, s.info, c.idgen)
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
