@@ -764,6 +764,31 @@ proc skipGenericAlias*(t: PType): PType =
 proc sameFlags*(a, b: PType): bool {.inline.} =
   result = eqTypeFlags*a.flags == eqTypeFlags*b.flags
 
+proc sameProcEffects(a, b: PNode, c: var TSameTypeClosure): bool =
+  ## Whether the two effect lists are equal.
+  if a.isNil:
+    result = b.isNil
+  elif b.isNil:
+    result = false
+  else: # both a and b are not nil
+    # for every unique type in `a`, the same needs to exist in `b` and
+    # vice versa. Duplicate types are fine
+    for it in a.items:
+      block search:
+        for other in b.items:
+          if sameTypeAux(it.typ, other.typ, c):
+            break search
+        return false
+
+    for it in b.items:
+      block search:
+        for other in a.items:
+          if sameTypeAux(it.typ, other.typ, c):
+            break search
+        return false
+
+    result = true
+
 proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
   template cycleCheck() =
     # believe it or not, the direct check for ``containsOrIncl(c, a, b)``
@@ -878,6 +903,11 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     if result and a.kind == tyProc:
       result = ((IgnoreCC in c.flags) or a.callConv == b.callConv) and
                ((ExactConstraints notin c.flags) or sameConstraints(a.n, b.n))
+      if result and IgnoreTupleFields notin c.flags:
+        result = sameProcEffects(a.n[0][exceptionEffects],
+                                 b.n[0][exceptionEffects], c)
+        if result:
+          result = sameProcEffects(a.n[0][tagEffects], b.n[0][tagEffects], c)
   of tyRange:
     cycleCheck()
     result = sameTypeOrNilAux(a[0], b[0], c) and
