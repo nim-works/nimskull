@@ -22,6 +22,7 @@ import
     renderer,
     wordrecg,
     trees,
+    types,
     linter,
     errorhandling,
     lineinfos
@@ -901,35 +902,39 @@ proc processPragma(c: PContext, info: TLineInfo, pragmas: openArray[PNode]): PNo
   result = it
 
 proc pragmaRaisesOrTags(c: PContext, n: PNode): PNode =
-  result = n
   proc processExc(c: PContext, x: PNode): PNode =
-    result = x
     if c.hasUnresolvedArgs(c, x):
-      x.typ = makeTypeFromExpr(c, x)
+      result = copyNodeWithKids(x)
+      result.typ = makeTypeFromExpr(c, x)
     else:
-      var t = skipTypes(c.semTypeNode(c, x, nil), skipPtrs)
-      if t.kind != tyObject and not t.isMetaType:
+      let t = c.semTypeNode(c, x, nil)
+      if skipToObject(t).kind != tyObject:
         # xxx: was errGenerated
         result = c.config.newError(x, PAstDiag(
           kind: adSemRaisesPragmaExpectsObject, wrongType: t))
-
         return
-      x.typ = t
+
+      result = copyNodeWithKids(x)
+      result.typ = t
 
   if n.kind in nkPragmaCallKinds and n.len == 2:
-    let it = n[1]
-    if it.kind notin {nkCurly, nkBracket}:
-      let r = processExc(c, it)
-      if r.kind == nkError:
-        n[1] = r
-        result = wrapError(c.config, n)
+    result = shallowCopy(n)
+    result[0] = n[0] # tags/raises identifier
+    if n[1].kind notin {nkCurly, nkBracket}:
+      result[1] = processExc(c, n[1])
+      # XXX: legacy wrapping of error
+      if result[1].kind == nkError:
+        result = wrapError(c.config, result)
     else:
-      for i, e in it.pairs:
-        let r = processExc(c, e)
-        if r.kind == nkError:
-          n[i] = r
-          result = wrapError(c.config, n)
-          return
+      result[1] = shallowCopy(n[1])
+      for i, e in n[1].pairs:
+        result[1][i] = processExc(c, e)
+
+      # XXX: legacy wrapping of error
+      for it in result[1].items:
+        if it.kind == nkError:
+          result = wrapError(c.config, result)
+          break
   else:
     result = invalidPragma(c, n)
 
