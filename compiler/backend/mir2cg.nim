@@ -1576,11 +1576,11 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     wrapAsgn Le(BoolType, ^argt(0), ^arg(0), ^arg(1))
   of mEqI, mEqF64, mEqEnum, mEqRef, mEqCh, mEqB:
     wrapAsgn Eq(BoolType, ^argt(0), ^arg(0), ^arg(1))
-  of mLtCh:
+  of mLtB, mLtCh:
     wrapAsgn Lt(BoolType, UInt8Type,
       Bitcast(UInt8Type, ^arg(0)),
       Bitcast(UInt8Type, ^arg(1)))
-  of mLeCh:
+  of mLeB, mLeCh:
     wrapAsgn Le(BoolType, UInt8Type,
       Bitcast(UInt8Type, ^arg(0)),
       Bitcast(UInt8Type, ^arg(1)))
