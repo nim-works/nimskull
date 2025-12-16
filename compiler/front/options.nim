@@ -209,6 +209,19 @@ type
     ## This is useful for environments such as nimsuggest, which discard
     ## the output.
 
+  # Package -> Path
+  IndexedPackage* = object
+    path*: string 
+
+  # Dependent -> Dependencies (Dependency IDX in packages and namespace declared by dependent)
+  DependencyLink* = object
+    pkgIdx*: int
+    namespace*: string
+
+  FaeIndex* = object
+    packages*: seq[IndexedPackage]
+    depends*: Table[string, seq[DependencyLink]]
+
   ConfigRef* = ref object
     ## every global configuration fields marked with '*' are subject to the
     ## incremental compilation mechanisms (+) means "part of the dependency"
@@ -254,6 +267,7 @@ type
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
 
     packageCache*: StringTableRef      ## absolute path -> absolute path
+    faeIndex*: FaeIndex
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer

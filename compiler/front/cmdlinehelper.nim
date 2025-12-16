@@ -11,7 +11,8 @@
 
 import
   std/[
-    os
+    os,
+    json
   ],
   std/options as std_options,
   compiler/ast/[
@@ -225,6 +226,20 @@ proc loadConfigs*(
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
   loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
+proc loadPackageIndex*(conf: ConfigRef) =
+  var curDir = $conf.projectPath
+
+  while curDir.len > 0:
+    let path = curDir / ".skull"
+
+    if fileExists(path):
+      if not fileExists(path / "index.json"): return
+      conf.faeIndex = parseFile(path).to(FaeIndex)
+      return
+    let parDir = parentDir(curDir)
+    if parDir == curDir: break
+    curDir = parDir
+
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =
   ## Load all the necessary configuration files and command-line options.
@@ -255,6 +270,8 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
       result = true
   else:
     result = false
+
+  loadPackageIndex(conf)
 
 proc loadConfigsAndRunMainCommand*(
     self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph, argv: openArray[string]): bool =
