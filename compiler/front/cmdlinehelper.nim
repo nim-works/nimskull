@@ -12,7 +12,8 @@
 import
   std/[
     os,
-    json
+    json,
+    tables
   ],
   std/options as std_options,
   compiler/ast/[
@@ -232,9 +233,10 @@ proc loadPackageIndex*(conf: ConfigRef) =
   while curDir.len > 0:
     let path = curDir / ".skull"
 
-    if fileExists(path):
+    if dirExists(path):
       if not fileExists(path / "index.json"): return
-      conf.faeIndex = parseFile(path).to(FaeIndex)
+      conf.faeIndex = parseFile(path / "index.json").to(FaeIndex)
+      conf.faePackageDir = AbsoluteDir curDir
       return
     let parDir = parentDir(curDir)
     if parDir == curDir: break

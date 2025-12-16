@@ -211,7 +211,8 @@ type
 
   # Package -> Path
   IndexedPackage* = object
-    path*: string 
+    path*: RelativeDir
+    srcDir*: RelativeDir
 
   # Dependent -> Dependencies (Dependency IDX in packages and namespace declared by dependent)
   DependencyLink* = object
@@ -268,6 +269,7 @@ type
 
     packageCache*: StringTableRef      ## absolute path -> absolute path
     faeIndex*: FaeIndex
+    faePackageDir*: AbsoluteDir
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer
