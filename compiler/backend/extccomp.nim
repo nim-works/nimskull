@@ -913,6 +913,8 @@ type BuildCache = object
   currentDir: string
   cmdline: string
   depfiles: seq[(string, string)]
+  packageIndex: (string, string)
+  packageManifests: seq[(string, string)]
   nimexe: string
 
 proc writeJsonBuildInstructions*(conf: ConfigRef) =
@@ -939,6 +941,13 @@ proc writeJsonBuildInstructions*(conf: ConfigRef) =
       if isAbsolute(path): # TODO: else?
         (path, $secureHashFile(path)))
     bcache.nimexe = hashNimExe()
+    bcache.packageIndex = block:
+      let path = $conf.packageDir / ".skull" / "index.json"
+      (path, $secureHashFile(path))
+    bcache.packageManifests = collect(for pkg in conf.packageIndex.packages:
+      let path = absolutePath($conf.packageDir / $pkg.path / "package.skull.toml")
+      (path, $secureHashFile(path))
+    )
   conf.jsonBuildFile = conf.jsonBuildInstructionsFile
   conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
 
@@ -958,6 +967,11 @@ proc changeDetectedViaJsonBuildInstructions*(conf: ConfigRef; jsonFile: Absolute
   if bcache.inputMode != pimFile: return true
     # xxx optimize by returning false if stdin input was the same
   for (file, hash) in bcache.depfiles:
+    if $secureHashFile(file) != hash: return true
+  block:
+    let file = $conf.packageDir / ".skull" / "index.json"
+    if $secureHashFile(file) != bcache.packageIndex[1]: return true
+  for (file, hash) in bcache.packageManifests:
     if $secureHashFile(file) != hash: return true
 
 proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =

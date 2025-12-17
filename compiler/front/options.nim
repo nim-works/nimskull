@@ -213,7 +213,7 @@ type
   IndexedPackage* = object
     path*: RelativeDir
     srcDir*: RelativeDir
-    entrypoint*: string # If empty, assume `entrypoint.nim` for `import package`
+    entrypoint*: string # If empty, assume `lib.nim` for `import package`
 
   # Dependent -> Dependencies (Dependency IDX in packages and namespace declared by dependent)
   DependencyLink* = object
