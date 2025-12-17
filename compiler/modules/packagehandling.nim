@@ -15,7 +15,7 @@ iterator myParentDirs(p: string): string =
     if current.len == 0: break
     yield current
 
-proc getFaeFile(conf: ConfigRef; path: string): string =
+proc getPackageFile(conf: ConfigRef; path: string): string =
   var parents = 0
   block packageSearch:
     for d in myParentDirs(path):
@@ -33,10 +33,10 @@ proc getFaeFile(conf: ConfigRef; path: string): string =
     dec parents
     if parents <= 0: break
 
-proc getFaePkg(conf: ConfigRef; path: string): string =
+proc getPackageId(conf: ConfigRef; path: string): string =
   ## returns id to of package, e.g.: `github.com/luyten-orion/faepkg`
   # xxx: make this private
-  let file = getFaeFile(conf, path)
+  let file = getPackageFile(conf, path)
   if file.len > 0:
     let manifest = readFile(file)
     for line in manifest.splitLines:
@@ -55,8 +55,8 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
   # legacy stuff for backends
 
   proc getPackageName(conf: ConfigRef; path: string): string =
-    ## returns fae package id, e.g.: `github.com/luyten-orion/faepkg`
-    result = getFaePkg(conf, path)
+    ## returns package id, e.g.: `github.com/luyten-orion/faepkg`
+    result = getPackageId(conf, path)
 
   proc fakePackageName(conf: ConfigRef; path: AbsoluteFile): string =
     ## Convert `path` so that 2 modules with same name
@@ -101,14 +101,11 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
                     "#": "@h",
                     "@": "@@",
                     ":": "@c"})
-  let pkgFile = getFaeFile(conf, modulePath) # <--- Nimble search here
+  let pkgFile = getPackageFile(conf, modulePath) # <--- Nimble search here
   var (pkgFileRoot, pkgFileName, _) = pkgFile.splitFile
   let
-    pkgId = getFaePkg(conf, modulePath)
+    pkgId = getPackageId(conf, modulePath)
     pkgKnown = pkgFileName != ""
-  
-  echo "pkgFile: ", pkgFile
-  echo "pkgId: ", pkgId
 
   result =
     if pkgKnown:

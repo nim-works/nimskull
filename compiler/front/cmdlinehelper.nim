@@ -235,8 +235,8 @@ proc loadPackageIndex*(conf: ConfigRef) =
 
     if dirExists(path):
       if not fileExists(path / "index.json"): return
-      conf.faeIndex = parseFile(path / "index.json").to(FaeIndex)
-      conf.faePackageDir = AbsoluteDir curDir
+      conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
+      conf.packageDir = AbsoluteDir curDir
       return
     let parDir = parentDir(curDir)
     if parDir == curDir: break
