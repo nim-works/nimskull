@@ -40,21 +40,25 @@ proc getBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
   result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
 
 const cacheVersion = "D20251217T200000" # update when `BuildCache` spec changes
-type BuildCache = object
-  cacheVersion: string
-  outputFile: string
-  compile: seq[(string, string)]
-  link: seq[string]
-  linkcmd: string
-  extraCmds: seq[string]
-  configFiles: seq[string] # the hash shouldn't be needed
-  inputMode: ProjectInputMode
-  currentDir: string
-  cmdline: string
-  depfiles: seq[(string, string)]
-  packageIndex: (string, string)
-  packageManifests: seq[(string, string)]
-  nimexe: string
+type
+  BuildCache = object
+    cacheVersion: string
+    outputFile: string
+    compile: seq[(string, string)]
+    link: seq[string]
+    linkcmd: string
+    extraCmds: seq[string]
+    configFiles: seq[string] # the hash shouldn't be needed
+    inputMode: ProjectInputMode
+    currentDir: string
+    cmdline: string
+    depfiles: seq[(string, string)]
+    packageIndex: (string, string)
+    packageManifests: seq[(string, string)]
+    nimexe: string
+
+  BuildChangeKind* = enum
+    bcNone, bcGeneral, bcPackage
 
 proc writeBuildInstructions*(conf: ConfigRef) =
   var linkFiles = collect(for it in conf.externalToLink:
@@ -90,28 +94,30 @@ proc writeBuildInstructions*(conf: ConfigRef) =
   conf.jsonBuildFile = conf.getBuildInstructionsFile()
   conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
 
-proc buildInstructionsChanges*(conf: ConfigRef; jsonFile: AbsoluteFile): bool =
-  if not fileExists(jsonFile) or not fileExists(conf.absOutFile): return true
+proc buildInstructionsStatus*(conf: ConfigRef; jsonFile: AbsoluteFile): BuildChangeKind =
+  if not fileExists(jsonFile) or not fileExists(conf.absOutFile): return bcGeneral
   var bcache: BuildCache
   try: bcache.fromJson(jsonFile.string.parseFile)
   except IOError, OSError, ValueError:
     echo getCurrentException().msg
     stderr.write "Warning: JSON processing failed for: $#\n" % jsonFile.string
-    return true
+    return bcGeneral
   if bcache.currentDir != getCurrentDir() or # fixes bug #16271
      bcache.configFiles != conf.configFiles.mapIt(it.string) or
      bcache.cacheVersion != cacheVersion or bcache.outputFile != conf.absOutFile.string or
      bcache.cmdline != conf.commandLine or bcache.nimexe != hashNimExe() or
-     bcache.inputMode != conf.inputMode: return true
-  if bcache.inputMode != pimFile: return true
+     bcache.inputMode != conf.inputMode: return bcGeneral
+  if bcache.inputMode != pimFile: return bcGeneral
     # xxx optimize by returning false if stdin input was the same
   for (file, hash) in bcache.depfiles:
-    if $secureHashFile(file) != hash: return true
+    if $secureHashFile(file) != hash: return bcGeneral
   block:
     let file = $conf.packageDir / ".skull" / "index.json"
-    if $secureHashFile(file) != bcache.packageIndex[1]: return true
+    if $secureHashFile(file) != bcache.packageIndex[1]: return bcGeneral
+  # If the package index hasn't changed, but a manifest has changed, then
+  # report it
   for (file, hash) in bcache.packageManifests:
-    if $secureHashFile(file) != hash: return true
+    if $secureHashFile(file) != hash: return bcPackage
 
 proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   var bcache: BuildCache
