@@ -1439,7 +1439,7 @@ proc findFaeModule(
 
         else:
           return AbsoluteFile absolutePath(
-            $pkg.path / $pkg.srcDir / "entrypoint.nim",
+            $pkg.path / $pkg.srcDir / "lib.nim", 
             $conf.faePackageDir
           )
 
