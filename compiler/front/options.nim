@@ -269,7 +269,7 @@ type
 
     packageCache*: StringTableRef      ## absolute path -> absolute path
     faeIndex*: FaeIndex
-    faePackageDir*: AbsoluteDir
+    faePackageDir*: AbsoluteDir        ## The directory that contains the `.skull` folder
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer
