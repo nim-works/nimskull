@@ -15,9 +15,7 @@ iterator myParentDirs(p: string): string =
     if current.len == 0: break
     yield current
 
-proc getNimbleFile(conf: ConfigRef; path: string): string =
-  ## returns absolute path to nimble file, e.g.: /pathto/cligen.nimble
-  # xxx: make this private
+proc getFaeFile(conf: ConfigRef; path: string): string =
   var parents = 0
   block packageSearch:
     for d in myParentDirs(path):
@@ -25,7 +23,7 @@ proc getNimbleFile(conf: ConfigRef; path: string): string =
         #echo "from cache ", d, " |", packageCache[d], "|", path.splitFile.name
         return conf.packageCache[d]
       inc parents
-      for file in walkFiles(d / "*.nimble"):
+      for file in walkFiles(d / "package.skull.toml"):
         result = file
         break packageSearch
   # we also store if we didn't find anything:
@@ -35,30 +33,19 @@ proc getNimbleFile(conf: ConfigRef; path: string): string =
     dec parents
     if parents <= 0: break
 
-proc getFaeFile(conf: ConfigRef; path: string): string =
-  ## returns absolute path to nimble file, e.g.: /pathto/cligen.nimble
+proc getFaePkg(conf: ConfigRef; path: string): string =
+  ## returns id to of package, e.g.: `github.com/luyten-orion/faepkg`
   # xxx: make this private
-  var parents = 0
-  block packageSearch:
-    for d in myParentDirs(path):
-      if conf.packageCache.hasKey(d):
-        #echo "from cache ", d, " |", packageCache[d], "|", path.splitFile.name
-        return conf.packageCache[d]
-      inc parents
-      for file in walkFiles(d / "package.skull.toml"):
-        let manifest = readFile(file)
-        for line in manifest.splitLines:
-          # TODO: Use parseutils instead?
-          if line.replace(" ", "").startsWith("name="):
-            let qStart = line.find('"') + 1
-            result = line[qStart..<line.rfind('"', qStart)]
-            break packageSearch
-  # we also store if we didn't find anything:
-  for d in myParentDirs(path):
-    #echo "set cache ", d, " |", result, "|", parents
-    conf.packageCache[d] = result
-    dec parents
-    if parents <= 0: break
+  let file = getFaeFile(conf, path)
+  if file.len > 0:
+    let manifest = readFile(file)
+    for line in manifest.splitLines:
+      # TODO: Use parseutils instead?
+      if line.replace(" ", "").startsWith("name="):
+        let qStart = line.find('"') + 1
+        # TODO: Cache this
+        result = line[qStart..<line.split('#', 1)[0].rfind('"', qStart)]
+        break
 
 proc demanglePackageName*(path: string): string =
   # legacy stuff for backends
@@ -68,9 +55,8 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
   # legacy stuff for backends
 
   proc getPackageName(conf: ConfigRef; path: string): string =
-    ## returns nimble package name, e.g.: `cligen`
-    let path = getFaeFile(conf, path)
-    result = path.splitFile.name
+    ## returns fae package id, e.g.: `github.com/luyten-orion/faepkg`
+    result = getFaePkg(conf, path)
 
   proc fakePackageName(conf: ConfigRef; path: AbsoluteFile): string =
     ## Convert `path` so that 2 modules with same name
@@ -80,7 +66,7 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
     result = "@m" & relativeTo(path, conf.projectPath).string.multiReplace(
       {$os.DirSep: "@s", $os.AltSep: "@s", "#": "@h", "@": "@@", ":": "@c"})
 
-  let x = getPackageName(conf, path.string)
+  let x = getPackageName(conf, $path)
   let (p, file, ext) = path.splitFile
   if x == "stdlib":
     # Hot code reloading now relies on 'stdlib_system' names etc.
@@ -117,16 +103,22 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
                     ":": "@c"})
   let pkgFile = getFaeFile(conf, modulePath) # <--- Nimble search here
   var (pkgFileRoot, pkgFileName, _) = pkgFile.splitFile
-  let pkgKnown = pkgFileName != ""
+  let
+    pkgId = getFaePkg(conf, modulePath)
+    pkgKnown = pkgFileName != ""
+  
+  echo "pkgFile: ", pkgFile
+  echo "pkgId: ", pkgId
 
   result =
     if pkgKnown:
       PkgDesc(pkgKnown: true,
               pkgFile: AbsoluteFile pkgFile,
-              pkgRootName: pkgFileName, pkgRoot: AbsoluteDir pkgFileRoot)
+              pkgRootName: pkgId, pkgRoot: AbsoluteDir pkgFileRoot)
     else:
+      # TODO: Investigate all the places "unknown" is used?
       PkgDesc(pkgKnown: false,
-              pkgRootName: "unknown",   pkgRoot: conf.projectPath)
+              pkgRootName: "unknown", pkgRoot: conf.projectPath)
 
   result.pkgSubpath =
     block:

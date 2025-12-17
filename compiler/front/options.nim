@@ -213,6 +213,7 @@ type
   IndexedPackage* = object
     path*: RelativeDir
     srcDir*: RelativeDir
+    entrypoint*: string # If empty, assume `entrypoint.nim` for `import package`
 
   # Dependent -> Dependencies (Dependency IDX in packages and namespace declared by dependent)
   DependencyLink* = object
@@ -1395,6 +1396,54 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
         if result.isEmpty:
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
+
+proc findFaeModule(
+  conf: ConfigRef,
+  modulename: string,
+  currentModule: AbsoluteFile
+): AbsoluteFile =
+  ## Looks for a module in the fae package index, respecting namespaces
+  # TODO: Maybe cache this
+  result = AbsoluteFile""
+  let manifest = getFaeFile(conf, $currentModule)
+  echo "manifest: ", manifest
+
+  if not ($manifest).fileExists: return
+
+  let
+    relToPkgDir = relativePath(parentDir(manifest), $conf.faePackageDir)
+    modParts = modulename.split(DirSep, 1)
+    modPrefix = modParts[0].nimIdentNormalize()
+    pkgDeps = conf.faeIndex.depends.getOrDefault(relToPkgDir, @[])
+
+  for dep in pkgDeps:
+    # TODO: Maybe no normalising?
+    if dep.namespace.nimIdentNormalize() == modPrefix:
+      let pkg = conf.faeIndex.packages[dep.pkgIdx]
+      if pkg.entrypoint.len != 0:
+        var path = $pkg.path / $pkg.srcDir / pkg.entrypoint
+        if modParts.len == 2: path = path / modParts[1]
+        path = addFileExt(path, NimExt)
+
+        return AbsoluteFile absolutePath(
+          path,
+          $conf.faePackageDir
+        )
+
+      else:
+        if modParts.len == 2:
+          return AbsoluteFile absolutePath(
+            addFileExt($pkg.path / $pkg.srcDir / modParts[1], NimExt),
+            $conf.faePackageDir
+          )
+
+        else:
+          return AbsoluteFile absolutePath(
+            $pkg.path / $pkg.srcDir / "entrypoint.nim",
+            $conf.faePackageDir
+          )
+
+
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
   ## Return absolute path to the imported module `modulename`. Imported
   ## path can be relative to the `currentModule`, absolute one, `std/` or
@@ -1409,9 +1458,18 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
   ## 4. Search in the `--path` (see `findFile` and `rawFindFile`)
   ##
   ## If the module is found and exists module override, apply it last.
+  echo "modulename: ", modulename
+  echo "currentModule: ", currentModule
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
-    result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
+    echo "Fae FindModule: finding..."
+    echo "modulename.substr: ", modulename.substr(pkgPrefix.len)
+    result = findFaeModule(conf, modulename.substr(pkgPrefix.len), AbsoluteFile currentModule)
+    echo "Fae FindModule result: ", result
+    if not fileExists(result):
+      echo "Fae FindModule: not found"
+      # Fallback to legacy logic... Maybe we shouldn't do this though?
+      result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
   else:
     if m.startsWith(stdPrefix):
       let stripped = m.substr(stdPrefix.len)
@@ -1425,6 +1483,10 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = AbsoluteFile currentPath / m
     if not fileExists(result):
       result = findFile(conf, m)
+    # This only exists because of Nimble packages, since not all use the `pkg`
+    # prefix to import packages
+    if not fileExists(result):
+      result = findFaeModule(conf, modulename, AbsoluteFile currentModule)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
@@ -1478,7 +1540,7 @@ proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
     desc = getPkgDesc(conf, file.string)
     (_, moduleName, ext) = file.splitFile
   if desc.pkgKnown and
-     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
+     desc.pkgFile != AbsoluteFile(conf.getFaeFile(conf.projectFull.string)):
     # we ignore the pkg root name for intra-package module imports, allows for
     # easier pkg renames (without changing all files using canonical imports).
     result = desc.pkgRootName
