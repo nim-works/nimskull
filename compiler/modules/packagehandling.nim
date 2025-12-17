@@ -35,6 +35,31 @@ proc getNimbleFile(conf: ConfigRef; path: string): string =
     dec parents
     if parents <= 0: break
 
+proc getFaeFile(conf: ConfigRef; path: string): string =
+  ## returns absolute path to nimble file, e.g.: /pathto/cligen.nimble
+  # xxx: make this private
+  var parents = 0
+  block packageSearch:
+    for d in myParentDirs(path):
+      if conf.packageCache.hasKey(d):
+        #echo "from cache ", d, " |", packageCache[d], "|", path.splitFile.name
+        return conf.packageCache[d]
+      inc parents
+      for file in walkFiles(d / "package.skull.toml"):
+        let manifest = readFile(file)
+        for line in manifest.splitLines:
+          # TODO: Use parseutils instead?
+          if line.replace(" ", "").startsWith("name="):
+            let qStart = line.find('"') + 1
+            result = line[qStart..<line.rfind('"', qStart)]
+            break packageSearch
+  # we also store if we didn't find anything:
+  for d in myParentDirs(path):
+    #echo "set cache ", d, " |", result, "|", parents
+    conf.packageCache[d] = result
+    dec parents
+    if parents <= 0: break
+
 proc demanglePackageName*(path: string): string =
   # legacy stuff for backends
   result = path.multiReplace({"@@": "@", "@h": "#", "@s": "/", "@m": "", "@c": ":"})
@@ -44,7 +69,7 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
 
   proc getPackageName(conf: ConfigRef; path: string): string =
     ## returns nimble package name, e.g.: `cligen`
-    let path = getNimbleFile(conf, path)
+    let path = getFaeFile(conf, path)
     result = path.splitFile.name
 
   proc fakePackageName(conf: ConfigRef; path: AbsoluteFile): string =
@@ -80,42 +105,6 @@ type
                           ## as `pkgRootName` if no subpaths present
 
 
-proc getFaePackageRoot(conf: ConfigRef; path: AbsoluteFile): AbsoluteDir =
-  ## Finds the root directory for a given package (where the
-  ## `package.skull.toml` resides).
-  let baseDir = $conf.faePackageDir
-
-  # Short circuit if the index is empty
-  if conf.faeIndex.packages.len == 0:
-    return AbsoluteDir baseDir
-
-  # Since the index uses relative paths, translate the path to be relative here
-  # TODO: Consider using absolute paths in the index
-  let relativeModulePath = relativePath($path, baseDir)
-  var currentPath = relativeModulePath.parentDir
-
-  # Loop through the parent directories until we find the package, important
-  # since `.skull/packages` contains many packages, and a simple `startsWith`
-  # would result in a path like `conf.faePackageDir` to always pass as a match.
-  # With this, we find the closest match to the module path.
-  while ($currentPath).len > 0:
-    for pkg in conf.faeIndex.packages:
-      let pkgPathToRoot = RelativeDir($pkg.path)
-      if ($currentPath).startsWith($pkgPathToRoot) or $currentPath == $pkgPathToRoot:
-        return AbsoluteDir(baseDir / $pkgPathToRoot)
-    if $currentPath == ".": break
-    currentPath = currentPath.parentDir
-  return AbsoluteDir baseDir
-
-proc getFaePackageName(conf: ConfigRef; pkgRoot: AbsoluteDir): string =
-  ## Gets the package name from the package root directory (the PID).
-  # Returns `unknown` if the package is the project directory, maybe we shouldn't
-  # do this?
-  return
-    if $pkgRoot == $conf.faePackageDir: "unknown"
-    else: ($pkgRoot).splitFile.name
-
-
 proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
   ## get a description of a package for a given module path
   # TODO: reserve 'unknown' as a package root name or change it
@@ -126,32 +115,30 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
                     "#": "@h",
                     "@": "@@",
                     ":": "@c"})
-
-  let
-    # Lookup package via fae functions
-    pkgRootPath = getFaePackageRoot(conf, AbsoluteFile modulePath)
-    pkgRootName = getFaePackageName(conf, pkgRootPath)
-    # We are 'pkgKnown' if the found root is not the Fae project root.
-    pkgKnown = pkgRootName != "unknown"
+  let pkgFile = getFaeFile(conf, modulePath) # <--- Nimble search here
+  var (pkgFileRoot, pkgFileName, _) = pkgFile.splitFile
+  let pkgKnown = pkgFileName != ""
 
   result =
     if pkgKnown:
-      PkgDesc(
-        pkgKnown: true,
-        pkgFile: AbsoluteFile($pkgRootPath / "package.skull.toml"), 
-        pkgRootName: pkgRootName,
-        pkgRoot: pkgRootPath
-      )
+      PkgDesc(pkgKnown: true,
+              pkgFile: AbsoluteFile pkgFile,
+              pkgRootName: pkgFileName, pkgRoot: AbsoluteDir pkgFileRoot)
     else:
-      PkgDesc(
-        pkgKnown: false,
-        pkgRootName: "unknown",
-        pkgRoot: conf.faePackageDir
-      )
+      PkgDesc(pkgKnown: false,
+              pkgRootName: "unknown",   pkgRoot: conf.projectPath)
 
-  # TODO: Is there a point to this anymore?
+  result.pkgSubpath =
+    block:
+      let relativePath = relativePath(modulePath.parentDir,
+                                      result.pkgRoot.string)
+      if relativePath == ".":
+        ""
+      else:
+        relativePath
+
   result.pkgName =
-    if pkgKnown:
+    if pkgKnown and result.pkgSubpath == "":
       result.pkgRootName
     else:
-      result.pkgRootName & "@p"
+      result.pkgRootName & "@p" & mangle(result.pkgSubpath)
