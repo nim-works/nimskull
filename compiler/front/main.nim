@@ -43,6 +43,7 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
+    build_insts, # JSON build instructions
     extccomp,    # Calling C compiler
   ],
   compiler/utils/[
@@ -192,7 +193,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
-      if not changeDetectedViaJsonBuildInstructions(conf, conf.jsonBuildInstructionsFile):
+      if not buildInstructionsChanges(conf, conf.getBuildInstructionsFile()):
         # nothing changed
         graph.config.notes = graph.config.mainPackageNotes
         return
@@ -211,14 +212,14 @@ proc commandCompileToC(graph: ModuleGraph) =
     cbackend2.generateCode(graph, graph.finalizeModules())
 
   extccomp.callCCompiler(conf)
-  extccomp.writeJsonBuildInstructions(conf)
+  build_insts.writeBuildInstructions(conf)
   if conf.depfile.string.len != 0:
     writeGccDepfile(conf)
   if optGenScript in graph.config.globalOptions:
     writeDepsFile(graph)
 
 proc commandJsonScript(graph: ModuleGraph) =
-  extccomp.runJsonBuildInstructions(graph.config, graph.config.jsonBuildInstructionsFile)
+  build_insts.runBuildInstructions(graph.config, graph.config.getBuildInstructionsFile())
 
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config
