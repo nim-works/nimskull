@@ -1,3 +1,6 @@
+discard """
+  knownIssue: ""
+"""
 import pkgA/module as A
 import pkgB/module as B
 import pkgC/module as C

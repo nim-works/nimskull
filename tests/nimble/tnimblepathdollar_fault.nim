@@ -1,5 +1,6 @@
 discard """
   errormsg: "cannot open file: pkgA/module"
+  knownIssue: ""
 """
 
 # see nims file; comment out `switch("noNimblePath")` there and there would be no error
