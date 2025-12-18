@@ -131,3 +131,15 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
       result.pkgRootName
     else:
       result.pkgRootName & "@p" & mangle(result.pkgSubpath)
+
+proc shouldAliasEntrypoint*(conf: ConfigRef, file: AbsoluteFile): bool =
+  for pkg in conf.packageIndex.packages:
+    let pkgRoot = conf.packageDir / pkg.path
+    let pkgSrc = pkgRoot / pkg.srcDir
+    if ($file).isRelativeTo($pkgSrc):
+      let rel = relativeTo(file, pkgSrc)
+      let relStr = rel.string
+      if pkg.entrypoint.len == 0:
+        if relStr == "lib.nim": result = true
+      else:
+        if relStr == pkg.entrypoint & ".nim": result = true

@@ -316,6 +316,21 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
     var realModule: PSym
     discard pushOptionEntry(c)
     realModule = c.graph.importModuleCallback(c.graph, c.module, f)
+
+    if n.kind != nkImportAs:
+      let fullPath = c.config[f].fullPath
+      if shouldAliasEntrypoint(c.config, fullPath):
+        let alias = case n.kind
+          of nkIdent: n.ident.s
+          of nkInfix, nkDotExpr: n[2].ident.s
+          else: unreachable()
+        if alias.len > 0:
+          let aliasIdent = newIdentNode(getIdent(c.cache, alias), n.info)
+          let newN = newNodeI(nkImportAs, n.info)
+          newN.add n
+          newN.add aliasIdent
+          n = newN
+
     result = importModuleAs(c, n, realModule, transf.importHidden)
     popOptionEntry(c)
 
