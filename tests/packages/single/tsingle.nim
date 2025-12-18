@@ -1,3 +1,3 @@
 import pkg/foo
 
-assert greeter() == "Hello from foo!"
+assert lib.greeter() == "Hello from foo!"

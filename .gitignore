@@ -82,6 +82,10 @@ testament.db
 .*/
 ~*
 
+# `.skull/index.json` required for tests to function
+!/tests/packages/*/.skull/
+!/tests/packages/*/.skull/index.json
+
 # testament cruft; TODO: generate these in a gitignore'd dir (./build) in the first place.
 testresults/
 test.txt

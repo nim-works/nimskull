@@ -1,0 +1,22 @@
+{
+  "packages": [
+    {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/foo",
+      "srcDir": ".",
+      "entrypoint": ""
+    }
+  ],
+  "depends": {
+    ".": [
+      {
+        "pkgIdx": 1,
+        "namespace": "foo"
+      }
+    ]
+  }
+}
