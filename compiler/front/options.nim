@@ -211,17 +211,16 @@ type
 
   # Package -> Path
   IndexedPackage* = object
-    path*: RelativeDir
     srcDir*: RelativeDir
     entrypoint*: string # If empty, assume `lib.nim` for `import package`
 
   # Dependent -> Dependencies (Dependency IDX in packages and namespace declared by dependent)
   DependencyLink* = object
-    pkgIdx*: int
+    path*: string
     namespace*: string
 
   PackageIndex* = object
-    packages*: seq[IndexedPackage]
+    packages*: Table[string, IndexedPackage]
     depends*: Table[string, seq[DependencyLink]]
 
   ConfigRef* = ref object
@@ -1420,29 +1419,24 @@ proc findModuleInPackageIndex*(
   for dep in pkgDeps:
     # TODO: Maybe no normalising?
     if dep.namespace.nimIdentNormalize() == modPrefix:
-      let pkg = conf.packageIndex.packages[dep.pkgIdx]
-      if pkg.entrypoint.len != 0:
-        var path = $pkg.path / $pkg.srcDir / pkg.entrypoint
-        if modParts.len == 2: path = path / modParts[1]
-        path = addFileExt(path, NimExt)
+      let pkgPath = if dep.path.len == 0: relToPkgDir else: dep.path
+      if conf.packageIndex.packages.hasKey(pkgPath):
+        let pkg = conf.packageIndex.packages[pkgPath]
+        var path: string
+        if pkg.entrypoint.len != 0:
+          path = pkgPath / $pkg.srcDir / pkg.entrypoint
+          if modParts.len == 2: path = path / modParts[1]
+          path = addFileExt(path, NimExt)
+        else:
+          if modParts.len == 2:
+            path = addFileExt(pkgPath / $pkg.srcDir / modParts[1], NimExt)
+          else:
+            path = pkgPath / $pkg.srcDir / "lib.nim"
 
         return AbsoluteFile absolutePath(
           path,
           $conf.packageDir
         )
-
-      else:
-        if modParts.len == 2:
-          return AbsoluteFile absolutePath(
-            addFileExt($pkg.path / $pkg.srcDir / modParts[1], NimExt),
-            $conf.packageDir
-          )
-
-        else:
-          return AbsoluteFile absolutePath(
-            $pkg.path / $pkg.srcDir / "lib.nim", 
-            $conf.packageDir
-          )
 
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =

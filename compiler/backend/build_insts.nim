@@ -16,6 +16,7 @@ import
     jsonutils,
     sequtils,
     strutils,
+    tables,
     sugar,
     json,
     sha1,
@@ -84,13 +85,14 @@ proc writeBuildInstructions*(conf: ConfigRef) =
       if isAbsolute(path): # TODO: else?
         (path, $secureHashFile(path)))
     bcache.nimexe = hashNimExe()
-    bcache.packageIndex = block:
-      let path = $conf.packageDir / ".skull" / "index.json"
-      (path, $secureHashFile(path))
-    bcache.packageManifests = collect(for pkg in conf.packageIndex.packages:
-      let path = absolutePath($conf.packageDir / $pkg.path / "package.skull.toml")
-      (path, $secureHashFile(path))
-    )
+    if dirExists(conf.packageDir):
+      bcache.packageIndex = block:
+        let path = $conf.packageDir / ".skull" / "index.json"
+        (path, $secureHashFile(path))
+      bcache.packageManifests = collect(for path, pkg in conf.packageIndex.packages:
+        let manifestPath = absolutePath($conf.packageDir / path / "package.skull.toml")
+        (manifestPath, $secureHashFile(manifestPath))
+      )
   conf.jsonBuildFile = conf.getBuildInstructionsFile()
   conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
 
@@ -112,12 +114,13 @@ proc buildInstructionsStatus*(conf: ConfigRef; jsonFile: AbsoluteFile): BuildCha
   for (file, hash) in bcache.depfiles:
     if $secureHashFile(file) != hash: return bcGeneral
   block:
+    if bcache.packageIndex[0].len == 0: break
     let file = $conf.packageDir / ".skull" / "index.json"
     if $secureHashFile(file) != bcache.packageIndex[1]: return bcGeneral
-  # If the package index hasn't changed, but a manifest has changed, then
-  # report it
-  for (file, hash) in bcache.packageManifests:
-    if $secureHashFile(file) != hash: return bcPackage
+    # If the package index hasn't changed, but a manifest has changed, then
+    # report it
+    for (file, hash) in bcache.packageManifests:
+      if $secureHashFile(file) != hash: return bcPackage
 
 proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   var bcache: BuildCache

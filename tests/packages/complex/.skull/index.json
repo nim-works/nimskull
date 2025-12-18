@@ -1,82 +1,76 @@
 {
-  "packages": [
-    {
-      "path": ".",
+  "packages": {
+    ".": {
       "srcDir": ".",
       "entrypoint": ""
     },
-    {
-      "path": "pkgs/foo",
+    "pkgs/foo": {
       "srcDir": ".",
       "entrypoint": ""
     },
-    {
-      "path": "pkgs/bar",
+    "pkgs/bar": {
       "srcDir": "src",
       "entrypoint": ""
     },
-    {
-      "path": "pkgs/baz",
+    "pkgs/baz": {
       "srcDir": ".",
       "entrypoint": "baz"
     },
-    {
-      "path": "pkgs/qux",
+    "pkgs/qux": {
       "srcDir": ".",
       "entrypoint": ""
     },
-    {
-      "path": "pkgs/quux",
+    "pkgs/quux": {
       "srcDir": "src",
       "entrypoint": "quux"
     }
-  ],
+  },
   "depends": {
     ".": [
       {
-        "pkgIdx": 1,
+        "path": "pkgs/foo",
         "namespace": "foo"
       },
       {
-        "pkgIdx": 2,
+        "path": "pkgs/bar",
         "namespace": "bar"
       },
       {
-        "pkgIdx": 3,
+        "path": "pkgs/baz",
         "namespace": "baz"
       },
       {
-        "pkgIdx": 4,
+        "path": "pkgs/qux",
         "namespace": "qux"
       },
       {
-        "pkgIdx": 5,
+        "path": "pkgs/quux",
         "namespace": "quux"
       }
     ],
     "pkgs/foo": [
       {
-        "pkgIdx": 2,
+        "path": "pkgs/bar",
         "namespace": "bar"
       }
     ],
     "pkgs/bar": [
       {
-        "pkgIdx": 3,
+        "path": "pkgs/baz",
         "namespace": "baz"
       },
       {
-        "pkgIdx": 4,
+        "path": "pkgs/qux",
         "namespace": "qux"
       }
     ],
     "pkgs/quux": [
       {
-        "pkgIdx": 0,
+        "path": ".",
         "namespace": "complex"
       },
       {
-        "pkgIdx": 5,
+        "path": "pkgs/quux",
         "namespace": "quux"
       }
     ]

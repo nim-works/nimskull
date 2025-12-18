@@ -1,35 +1,32 @@
 {
-  "packages": [
-    {
-      "path": ".",
+  "packages": {
+    ".": {
       "srcDir": ".",
       "entrypoint": ""
     },
-    {
-      "path": "pkgs/foo",
+    "pkgs/foo": {
       "srcDir": ".",
       "entrypoint": ""
     },
-    {
-      "path": "pkgs/bar",
+    "pkgs/bar": {
       "srcDir": ".",
       "entrypoint": ""
     }
-  ],
+  },
   "depends": {
     ".": [
       {
-        "pkgIdx": 1,
+        "path": "pkgs/foo",
         "namespace": "foo"
       },
       {
-        "pkgIdx": 2,
+        "path": "pkgs/bar",
         "namespace": "bar"
       }
     ],
     "pkgs/foo": [
       {
-        "pkgIdx": 2,
+        "path": "pkgs/bar",
         "namespace": "barfoo"
       }
     ]

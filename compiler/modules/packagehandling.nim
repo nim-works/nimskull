@@ -133,8 +133,8 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
       result.pkgRootName & "@p" & mangle(result.pkgSubpath)
 
 proc shouldAliasEntrypoint*(conf: ConfigRef, file: AbsoluteFile): bool =
-  for pkg in conf.packageIndex.packages:
-    let pkgRoot = conf.packageDir / pkg.path
+  for path, pkg in pairs(conf.packageIndex.packages):
+    let pkgRoot = conf.packageDir / RelativeDir path
     let pkgSrc = pkgRoot / pkg.srcDir
     if ($file).isRelativeTo($pkgSrc):
       let rel = relativeTo(file, pkgSrc)
