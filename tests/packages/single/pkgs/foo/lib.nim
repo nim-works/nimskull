@@ -1,2 +1,1 @@
-proc greeter*(): string =
-  result = "Hello from foo!"
+proc greeter*(): string = "Hello from foo!"

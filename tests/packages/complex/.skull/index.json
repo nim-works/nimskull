@@ -1,0 +1,84 @@
+{
+  "packages": [
+    {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/foo",
+      "srcDir": ".",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/bar",
+      "srcDir": "src",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/baz",
+      "srcDir": ".",
+      "entrypoint": "baz"
+    },
+    {
+      "path": "pkgs/qux",
+      "srcDir": ".",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/quux",
+      "srcDir": "src",
+      "entrypoint": "quux"
+    }
+  ],
+  "depends": {
+    ".": [
+      {
+        "pkgIdx": 1,
+        "namespace": "foo"
+      },
+      {
+        "pkgIdx": 2,
+        "namespace": "bar"
+      },
+      {
+        "pkgIdx": 3,
+        "namespace": "baz"
+      },
+      {
+        "pkgIdx": 4,
+        "namespace": "qux"
+      },
+      {
+        "pkgIdx": 5,
+        "namespace": "quux"
+      }
+    ],
+    "pkgs/foo": [
+      {
+        "pkgIdx": 2,
+        "namespace": "bar"
+      }
+    ],
+    "pkgs/bar": [
+      {
+        "pkgIdx": 3,
+        "namespace": "baz"
+      },
+      {
+        "pkgIdx": 4,
+        "namespace": "qux"
+      }
+    ],
+    "pkgs/quux": [
+      {
+        "pkgIdx": 0,
+        "namespace": "complex"
+      },
+      {
+        "pkgIdx": 5,
+        "namespace": "quux"
+      }
+    ]
+  }
+}

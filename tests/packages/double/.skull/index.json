@@ -1,0 +1,37 @@
+{
+  "packages": [
+    {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/foo",
+      "srcDir": ".",
+      "entrypoint": ""
+    },
+    {
+      "path": "pkgs/bar",
+      "srcDir": ".",
+      "entrypoint": ""
+    }
+  ],
+  "depends": {
+    ".": [
+      {
+        "pkgIdx": 1,
+        "namespace": "foo"
+      },
+      {
+        "pkgIdx": 2,
+        "namespace": "bar"
+      }
+    ],
+    "pkgs/foo": [
+      {
+        "pkgIdx": 2,
+        "namespace": "barfoo"
+      }
+    ]
+  }
+}
