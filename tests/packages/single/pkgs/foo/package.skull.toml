@@ -1,0 +1,4 @@
+format = 0
+
+[package]
+name = "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo"
