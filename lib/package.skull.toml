@@ -3,3 +3,4 @@ format = 0
 [package]
 # I want this to be "github.com/nim-works/nimskull/lib" but, eh
 name = "stdlib"
+srcDir = "."
