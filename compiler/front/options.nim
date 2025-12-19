@@ -1410,7 +1410,7 @@ proc findModuleInPackageIndex*(
 
   let
     relToPkgDir = relativePath(parentDir(manifest), $conf.packageDir)
-    modParts = modulename.split(DirSep, 1)
+    modParts = modulename.split('/', 1)
     modPrefix = modParts[0].nimIdentNormalize()
     pkgDeps = conf.packageIndex.depends.getOrDefault(
       relToPkgDir, @[]
