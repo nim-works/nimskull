@@ -1,7 +1,6 @@
 discard """
   action: run
   cmd: "nim $target --nimblePath:$fileDir/nimbleDir/simplePkgs $options $file"
-  knownIssue: ""
 """
 import pkgA/module as A
 import pkgB/module as B
