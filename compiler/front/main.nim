@@ -71,6 +71,7 @@ import compiler/backend/cbackend as cbackend2
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
+from compiler/ast/reports_backend import BackendReport
 from compiler/ast/report_enums import ReportKind,
   repHintKinds,
   repWarningKinds,
@@ -200,8 +201,7 @@ proc commandCompileToC(graph: ModuleGraph) =
         graph.config.notes = graph.config.mainPackageNotes
         return
       of bcPackage:
-        # TODO: Report the package as changed OR trigger the PM?
-        discard
+        localReport(conf, BackendReport(kind: rbackPackagesOutOfSync))
       else:
         discard
 

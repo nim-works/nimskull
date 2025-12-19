@@ -878,6 +878,7 @@ type
     rbackRstBrokenLink          = "BrokenLink"
     rbackRstUnsupportedLanguage = "LanguageXNotSupported"
     rbackRstUnsupportedField    = "FieldXNotSupported"
+    rbackPackagesOutOfSync      = "PackagesOutOfSync"
     rbackRstRstStyle            =  "warnRstStyle"
 
     # warnings END !! add reports BEFORE the last enum !!
