@@ -20,7 +20,7 @@ proc getPackageFile(conf: ConfigRef; path: string): string =
   block packageSearch:
     for d in myParentDirs(path):
       if conf.packageCache.hasKey(d):
-        #echo "from cache ", d, " |", packageCache[d], "|", path.splitFile.name
+        #echo "from cache ", d, " |", conf.packageCache[d], "|", path.splitFile.name
         return conf.packageCache[d]
       inc parents
       for file in walkFiles(d / "package.skull.toml"):

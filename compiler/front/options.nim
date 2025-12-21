@@ -1413,7 +1413,8 @@ proc findModuleInPackageIndex*(
     modParts = modulename.split('/', 1)
     modPrefix = modParts[0].nimIdentNormalize()
     pkgDeps = conf.packageIndex.depends.getOrDefault(
-      relToPkgDir, @[]
+      when defined(windows): relToPkgDir.replace('\\', '/') else: relToPkgDir,
+      @[]
     )
 
   for dep in pkgDeps:
