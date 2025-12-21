@@ -2913,7 +2913,7 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
     "field '$1' not supported" % r.msg
 
   of rbackPackagesOutOfSync:
-    "packages out of sync"
+    "package index out of sync, please resync using your package manager"
 
   of rbackRstRstStyle:
     "RST style: $1" % r.msg
