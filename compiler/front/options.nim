@@ -1412,22 +1412,43 @@ proc findModuleInPackageIndex*(
     relToPkgDir = relativePath(parentDir(manifest), $conf.packageDir)
     modParts = modulename.split('/', 1)
     modPrefix = modParts[0].nimIdentNormalize()
-    pkgDeps = conf.packageIndex.depends.getOrDefault(
-      when defined(windows): relToPkgDir.replace('\\', '/') else: relToPkgDir,
-      @[]
-    )
+
+  template getDepsByPath(t: Table[string, seq[DependencyLink]], p: string): seq[DependencyLink] =
+    var res: seq[DependencyLink]
+    for k in t.keys:
+      if cmpPaths(k, p) == 0:
+        res = t[k]
+        break
+    res
+
+  let pkgDeps = conf.packageIndex.depends.getDepsByPath(relToPkgDir)
 
   for dep in pkgDeps:
     # TODO: Maybe no normalising?
     if dep.namespace.nimIdentNormalize() == modPrefix:
       let pkgPath = if dep.path.len == 0: relToPkgDir else: dep.path
-      template normPath: string =
-        when defined(windows):
-          pkgPath.replace('\\', '/')
-        else:
-          pkgPath
-      if conf.packageIndex.packages.hasKey(normPath):
-        let pkg = conf.packageIndex.packages[normPath]
+      template hasKeyPath(t: Table[string, IndexedPackage], p: string): bool =
+        var res = false
+        for k in t.keys:
+          if cmpPaths(k, p) == 0:
+            res = true
+            break
+        res
+
+      template getPkgByPath(t: Table[string, IndexedPackage], p: string): IndexedPackage =
+        var
+          res: IndexedPackage
+          found = false
+        for k, v in t.items:
+          if cmpPaths(k, p) == 0:
+            res = v
+            found = true
+            break
+        doAssert found
+        res
+
+      if conf.packageIndex.packages.hasKeyPath(pkgPath):
+        let pkg = conf.packageIndex.packages[pkgPath]
         var path: string
         if pkg.entrypoint.len != 0:
           path = pkgPath / $pkg.srcDir / pkg.entrypoint
