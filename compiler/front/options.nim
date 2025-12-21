@@ -1420,8 +1420,13 @@ proc findModuleInPackageIndex*(
     # TODO: Maybe no normalising?
     if dep.namespace.nimIdentNormalize() == modPrefix:
       let pkgPath = if dep.path.len == 0: relToPkgDir else: dep.path
-      if conf.packageIndex.packages.hasKey(pkgPath):
-        let pkg = conf.packageIndex.packages[pkgPath]
+      template normPath: string =
+        when defined(windows):
+          pkgPath.replace('\\', '/')
+        else:
+          pkgPath
+      if conf.packageIndex.packages.hasKey(normPath):
+        let pkg = conf.packageIndex.packages[normPath]
         var path: string
         if pkg.entrypoint.len != 0:
           path = pkgPath / $pkg.srcDir / pkg.entrypoint
