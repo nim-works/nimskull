@@ -315,7 +315,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
       return wrapError(c.config, n)
     for i in 1 ..< n.len:
       n[i][^1] = discardCheck(c, n[i][^1], flags)
-      if n[i][^1].isError
+      if n[i][^1].isError:
         return wrapError(c.config, n)
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
