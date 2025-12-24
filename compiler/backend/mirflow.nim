@@ -271,3 +271,71 @@ proc toStructured*(tree): seq[Stmt] =
 
   assert stack.len == 1
   result = stmts
+
+proc optimize*(tree: MirTree, stmts: var seq[Stmt]) =
+  ## Attempts to reduce the nesting of block-like statements by moving
+  ## statements around, in a way that preserves semantics and scoping.
+
+  # the only thing the routine currently does is to attempt inlining
+  # continuations into 'break' statements nested in dispatchers
+  var candidates: Table[LabelId, tuple[parent, brk, blk: int]]
+
+  # step 1: look for all 'break's in dispatcher targets
+  for i, it in stmts.pairs:
+    if it.kind == Target and stmts[it.sub].kind == Break:
+      candidates[tree[stmts[it.sub].n].label] = (i, it.sub, -1)
+
+  if candidates.len > 0:
+    # step 2:
+    # * make sure the candidate blocks are only targeted a single time
+    # * look up the corresponding block item for every candidate
+    for i, it in stmts.pairs:
+      case it.kind
+      of Break:
+        if candidates.getOrDefault(tree[it.n].label, (0, i, 0)).brk != i:
+          # the block is targeted more than once
+          candidates.del(tree[it.n].label)
+      of Block:
+        candidates.withValue tree[it.n].label, val:
+          val.blk = i
+      else:
+        discard "nothing to do"
+
+  if candidates.len > 0:
+    # step 3: inline the candidates where the block's continuation ends in
+    # a terminator and where live ranges are unaffected
+    for it in candidates.values:
+      # check whether the continuation ends in a terminator...
+      var i = stmts[it.blk].next
+      while i != 0 and stmts[i].kind notin terminators:
+        if stmts[i].next == 0 and stmts[i].kind == Scope:
+          i = stmts[i].sub
+        else:
+          i = stmts[i].next
+
+      if i != 0:
+        # ...it does. Now make sure moving the continuation doesn't change
+        # which locals are live at the same time
+        i = it.blk
+        while i != 0:
+          case stmts[i].kind
+          of None:
+            i = stmts[i].next
+          of Block:
+            i = stmts[i].sub
+          of Dispatch:
+            # look for the target whose body is the 'break' targeting the block
+            var j = stmts[i].sub
+            while j != 0 and stmts[j].sub != it.brk:
+              j = stmts[j].next
+
+            if j != 0:
+              # success! replace the break with its target block's continuation
+              stmts[it.parent].sub = stmts[it.blk].next
+              stmts[it.blk] = Stmt(kind: None, next: stmts[it.blk].sub)
+              stmts[it.brk] = Stmt(kind: None) # remove the break statement
+            # else: can only be some unrelated dispatcher; give up
+            i = 0
+          else:
+            i = 0 # give up
+      # else: not eligible

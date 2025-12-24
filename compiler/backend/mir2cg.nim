@@ -3274,7 +3274,7 @@ proc procToCgir(c; env; sym: PSym): StringId =
 
   # create the structured control-flow view and use it to guide translation
   var list = toStructured(c.prc.body.code)
-  optimize(list)
+  optimize(c.prc.body.code, list)
   if hasExit(c.prc.body.code):
     # the body is wrapped in a block, which is used as the target for both
     # `Return` and `Unwind`
