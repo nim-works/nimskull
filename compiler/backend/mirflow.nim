@@ -41,6 +41,8 @@ using
 
 const
   withSub = {Block, Loop, Scope, If, Dispatch, Target, Try}
+  terminators = {Loop, Dispatch, Break, Return, Raise}
+    ## stmts (block-like and not) that act as control-flow terminators
 
 iterator statements(tree): (int, NodePosition) =
   ## Iterates over all MIR statement in order of appearance.
@@ -73,6 +75,48 @@ proc pretty*(stmts: seq[Stmt]): string =
 
   pretty(0, 0)
   result = res
+
+proc fold(at: int, stmts: var seq[Stmt]): int =
+  ## Folds either the block-like statement at `at`, or folds an immediate sub-
+  ## statement of it. Returns the index of resulting statement.
+  proc removeTrailingScope(at: int, stmts: var seq[Stmt]) =
+    let sub = stmts[at].sub
+    var i, prev = sub
+    while stmts[i].next != 0:
+      prev = i
+      i = stmts[i].next
+
+    if stmts[i].kind == Scope:
+      # elide the scope, by replacing it with its body
+      if sub == i: # is the scope the only subitem?
+        stmts[at].sub = stmts[i].sub
+      else:
+        stmts[prev].next = stmts[i].sub
+
+  case stmts[at].kind
+  of Scope:
+    let sub = stmts[at].sub
+    if sub == 0:
+      0 # an empty scope
+    elif stmts[sub].kind in terminators:
+      # a scope with only a terminator as its child is unnecessary
+      sub
+    else:
+      # a scope trailing a scope is unnecessary
+      removeTrailingScope(at, stmts)
+      at
+  of If, Loop:
+    # opens an implicit scope itself
+    removeTrailingScope(at, stmts)
+    at
+  of Block, Try:
+    # TODO: also open an implicit scope themselves, but due to the C code
+    #       generator currently not adhering to the semantics w.r.t. to
+    #       scopes for block and try, eliding scopes would cause scopes
+    #       missing in the generated C code. Fix the C code generator
+    at
+  else:
+    at
 
 proc toStructured*(tree): seq[Stmt] =
   ## Computes a control-flow focused representation of `tree`, where all
@@ -158,7 +202,9 @@ proc toStructured*(tree): seq[Stmt] =
   proc popBlock(expect: StmtKind) =
     let s = stack.pop()
     assert stmts[s.item].kind == expect
-    append(stmts, stack[^1], s.item)
+    let got = fold(s.item, stmts)
+    if got != 0:
+      append(stmts, stack[^1], s.item)
 
   for i, it in tree.statements():
     # close the blocks whose target is the current block
@@ -225,52 +271,3 @@ proc toStructured*(tree): seq[Stmt] =
 
   assert stack.len == 1
   result = stmts
-
-proc optimize*(stmts: var seq[Stmt]) =
-  ## Removes the following unecessary constructs:
-  ## * scopes in the tailing position of an 'if' or 'loop'
-  ## * scopes in the tailing position of other scopes
-  ## * empty scopes
-
-  proc removeScopes(stmts: var seq[Stmt], i: int, rem: bool): int =
-    proc walk(stmts: var seq[Stmt], i: int, rem: bool): int =
-      var i = i
-      var prev = 0
-      while i != 0:
-        let got = removeScopes(stmts, i, rem and stmts[i].next == 0)
-        if prev == 0:
-          prev = got
-          result = got
-        else:
-          stmts[prev].next = got
-          if got != 0:
-            prev = got
-
-        i = stmts[i].next
-
-    result = i
-    case stmts[i].kind
-    of If, Loop:
-      # 'if' and 'loop' open a scope
-      stmts[i].sub = walk(stmts, stmts[i].sub, rem=true)
-    of Scope:
-      let got = walk(stmts, stmts[i].sub, rem=true)
-      if rem or got == 0 or stmts[got].kind in {Break, Loop}:
-        # remove the scope itself
-        result = got
-      else:
-        stmts[i].sub = got
-    of Try, Block:
-      stmts[i].sub = walk(stmts, stmts[i].sub, rem)
-    of Dispatch, Target:
-      stmts[i].sub = walk(stmts, stmts[i].sub, rem=false)
-    else:
-      discard "not a block-like statement; nothing to do"
-
-  discard removeScopes(stmts, 0, false)
-  # TODO: inline block continuations into breaks, using the following
-  #       semantics- and scoping-preserving heuristic:
-  #       1. a single 'break' must target the 'block'
-  #       2. the block's body must end in a terminator (break, return, etc.)
-  #       3. the block must be in the same scope as the break
-  #       4. the statement list following the block must end in a terminator
