@@ -16,6 +16,7 @@ type
     Break
     Return
     Raise
+    Continue
     Stmts
     Scope
     Block
@@ -41,8 +42,9 @@ using
 
 const
   withSub = {Block, Loop, Scope, If, Dispatch, Target, Try}
-  terminators = {Loop, Dispatch, Break, Return, Raise}
-    ## stmts (block-like and not) that act as control-flow terminators
+  terminators = {Loop, Dispatch, Break, Return, Raise, Continue}
+    ## statements (both block-like and not) that act as control-
+    ## flow terminators
 
 iterator statements(tree): (int, NodePosition) =
   ## Iterates over all MIR statement in order of appearance.
@@ -249,7 +251,7 @@ proc toStructured*(tree): seq[Stmt] =
     of mnkContinue:
       if tree[it, 0].kind != mnkUnwind:
         insertTry(tree.child(it, 0), labels[tree[it, 0].label])
-      append(Stmt(kind: Stmts, n: it))
+      append(Stmt(kind: Continue, n: it))
     of mnkDef, mnkDefCursor, mnkAsgn, mnkInit, mnkSwitch, mnkVoid:
       let e = tree.last(it)
       if tree[e].kind == mnkCheckedCall:

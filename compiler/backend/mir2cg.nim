@@ -2814,8 +2814,6 @@ proc stmtToCgir(c; env; tree; n; stmts; bu) =
   of mnkRaise:
     c.emitLineTrace(env, c.prc.body.source[tree[n].info].info, stmts, bu)
     c.emitRaise(env, tree[tree.last(n)], stmts, bu)
-  of mnkContinue:
-    c.emitRaise(env, tree[tree.last(n)], stmts, bu)
   of mnkEmit, mnkAsm:
     c.emitLineTrace(env, c.prc.body.source[tree[n].info].info, stmts, bu)
     stmts.add c.emitToCgir(env, tree, n, bu)
@@ -3057,6 +3055,8 @@ proc toTree(c; env; tree; list: seq[Stmt], i: int, stmts, bu) =
     stmts.addStmt bu, Break(^node(cnkLabel, tree[list[i].n].label.uint32))
   of Raise:
     c.useSourceLoc(tree[list[i].n].info, bu)
+    c.emitRaise(env, tree[tree.last(list[i].n)], stmts, bu)
+  of Continue:
     c.emitRaise(env, tree[tree.last(list[i].n)], stmts, bu)
   of Dispatch:
     c.useSourceLoc(tree[list[i].n].info, bu)
