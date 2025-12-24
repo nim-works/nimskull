@@ -27,13 +27,13 @@ type
 
   Stmt* = object
     kind*: StmtKind
+    n*: NodePosition
+      ## meaning depends on the kind
     sub*: int
       ## for block-like statements, index of the sub statement, or 0 (no
       ## sub statement)
     next*: int
       ## forms a singly-linked list. 0 terminates the list
-    n*: NodePosition
-      ## meaning depends on the kind
 
 using
   stmts: seq[Stmt]
