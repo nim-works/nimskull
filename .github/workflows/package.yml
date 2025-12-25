@@ -66,7 +66,7 @@ jobs:
 
       - name: Download source archive
         if: inputs.source-archive != ''
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           name: ${{ inputs.source-archive }}
           path: ${{ runner.temp }}/source-archive
@@ -150,7 +150,7 @@ jobs:
           echo "metadata=$metadata" >> $GITHUB_OUTPUT
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ format(inputs.output-name-format, runner.os, runner.arch) }}
           path: |
