@@ -210,18 +210,18 @@ type
     ## the output.
 
   # Package -> Path
-  IndexedPackage* = object
-    srcDir*: RelativeDir
-    entrypoint*: string # If empty, assume `lib.nim` for `import package`
-
-  # Dependent -> Dependencies (Dependency IDX in packages and namespace declared by dependent)
   DependencyLink* = object
-    path*: string
+    package*: string
     namespace*: string
+
+  IndexedPackage* = object
+    path*: RelativeDir
+    srcDir*: RelativeDir
+    entrypoint*: RelativeDir # If empty, assume `lib.nim` for `import package`
+    dependencies*: seq[DependencyLink]
 
   PackageIndex* = object
     packages*: Table[string, IndexedPackage]
-    depends*: Table[string, seq[DependencyLink]]
 
   ConfigRef* = ref object
     ## every global configuration fields marked with '*' are subject to the
@@ -1401,69 +1401,53 @@ proc findModuleInPackageIndex*(
   modulename: string,
   currentModule: AbsoluteFile
 ): AbsoluteFile =
-  ## Looks for a module in the fae package index, respecting namespaces
-  # TODO: Maybe cache this
+  ## Looks for a module in the fae package index, respecting namespaces.
   result = AbsoluteFile""
-  let manifest = getPackageFile(conf, $currentModule)
 
-  if not ($manifest).fileExists: return
+  let currentAbsPath = absolutePath($currentModule, $conf.projectPath)
+  var
+    owningPkgId = ""
+    maxPathLen = -1
+
+  for id, pkg in conf.packageIndex.packages.pairs:
+    let pkgAbsDir = absolutePath($pkg.path, $conf.packageDir)
+    if currentAbsPath.startsWith(pkgAbsDir):
+      if pkgAbsDir.len > maxPathLen:
+        maxPathLen = pkgAbsDir.len
+        owningPkgId = id
+
+  if owningPkgId == "": return
 
   let
-    relToPkgDir = relativePath(parentDir(manifest), $conf.packageDir)
+    owningPkg = conf.packageIndex.packages[owningPkgId]
     modParts = modulename.split('/', 1)
     modPrefix = modParts[0].nimIdentNormalize()
 
-  template getDepsByPath(t: Table[string, seq[DependencyLink]], p: string): seq[DependencyLink] =
-    var res: seq[DependencyLink]
-    for k in t.keys:
-      if cmpPaths(k, p) == 0:
-        res = t[k]
-        break
-    res
-
-  let pkgDeps = conf.packageIndex.depends.getDepsByPath(relToPkgDir)
-
-  for dep in pkgDeps:
-    # TODO: Maybe no normalising?
+  for dep in owningPkg.dependencies:
     if dep.namespace.nimIdentNormalize() == modPrefix:
-      let pkgPath = if dep.path.len == 0: relToPkgDir else: dep.path
-      template hasKeyPath(t: Table[string, IndexedPackage], p: string): bool =
-        var res = false
-        for k in t.keys:
-          if cmpPaths(k, p) == 0:
-            res = true
-            break
-        res
-
-      template getPkgByPath(t: Table[string, IndexedPackage], p: string): IndexedPackage =
-        var
-          res: IndexedPackage
-          found = false
-        for k, v in t.items:
-          if cmpPaths(k, p) == 0:
-            res = v
-            found = true
-            break
-        doAssert found
-        res
-
-      if conf.packageIndex.packages.hasKeyPath(pkgPath):
-        let pkg = conf.packageIndex.packages[pkgPath]
-        var path: string
-        if pkg.entrypoint.len != 0:
-          path = pkgPath / $pkg.srcDir / pkg.entrypoint
-          if modParts.len == 2: path = path / modParts[1]
-          path = addFileExt(path, NimExt)
+      if not conf.packageIndex.packages.hasKey(dep.package): continue
+      
+      let 
+        targetPkg = conf.packageIndex.packages[dep.package]
+        targetBaseDir = $targetPkg.path
+        srcDir = $targetPkg.srcDir
+        entry = $targetPkg.entrypoint
+      
+      var path: string
+      if entry.len != 0:
+        let moduleBase = targetBaseDir / srcDir / entry
+        if modParts.len == 2:
+          path = moduleBase / modParts[1]
         else:
-          if modParts.len == 2:
-            path = addFileExt(pkgPath / $pkg.srcDir / modParts[1], NimExt)
-          else:
-            path = pkgPath / $pkg.srcDir / "lib.nim"
+          path = moduleBase
+        path = addFileExt(path, NimExt)
+      else:
+        if modParts.len == 2:
+          path = addFileExt(targetBaseDir / srcDir / modParts[1], NimExt)
+        else:
+          path = targetBaseDir / srcDir / "lib.nim"
 
-        return AbsoluteFile absolutePath(
-          path,
-          $conf.packageDir
-        )
+      return AbsoluteFile absolutePath(path, $conf.packageDir)
 
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =

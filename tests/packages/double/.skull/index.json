@@ -1,34 +1,52 @@
 {
   "packages": {
-    ".": {
+    "github.com/nim-works/nimskull/tests/packages/double": {
+      "package": "github.com/nim-works/nimskull/tests/packages/double",
+      "path": ".",
       "srcDir": ".",
-      "entrypoint": ""
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double",
+          "namespace": "double"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
+          "namespace": "foo"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+          "namespace": "bar"
+        }
+      ]
     },
-    "pkgs/foo": {
+    "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo": {
+      "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
+      "path": "pkgs/foo",
       "srcDir": ".",
-      "entrypoint": ""
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
+          "namespace": "foo"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+          "namespace": "barfoo"
+        }
+      ]
     },
-    "pkgs/bar": {
+    "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar": {
+      "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+      "path": "pkgs/bar",
       "srcDir": ".",
-      "entrypoint": ""
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+          "namespace": "bar"
+        }
+      ]
     }
-  },
-  "depends": {
-    ".": [
-      {
-        "path": "pkgs/foo",
-        "namespace": "foo"
-      },
-      {
-        "path": "pkgs/bar",
-        "namespace": "bar"
-      }
-    ],
-    "pkgs/foo": [
-      {
-        "path": "pkgs/bar",
-        "namespace": "barfoo"
-      }
-    ]
   }
 }

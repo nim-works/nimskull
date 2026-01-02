@@ -133,13 +133,34 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
       result.pkgRootName & "@p" & mangle(result.pkgSubpath)
 
 proc shouldAliasEntrypoint*(conf: ConfigRef, file: AbsoluteFile): bool =
-  for path, pkg in pairs(conf.packageIndex.packages):
-    let pkgRoot = conf.packageDir / RelativeDir path
-    let pkgSrc = pkgRoot / pkg.srcDir
-    if ($file).isRelativeTo($pkgSrc):
-      let rel = relativeTo(file, pkgSrc)
-      let relStr = rel.string
-      if pkg.entrypoint.len == 0:
-        if relStr == "lib.nim": result = true
-      else:
-        if relStr == pkg.entrypoint & ".nim": result = true
+  let fileStr = $file
+  var
+    owningId = ""
+    maxPathLen = -1
+
+  for id, pkg in conf.packageIndex.packages.pairs:
+    let
+      pkgRoot = conf.packageDir / pkg.path
+      pkgSrc = pkgRoot / pkg.srcDir
+      pkgSrcStr = $pkgSrc
+    
+    if fileStr.isRelativeTo(pkgSrcStr):
+      if pkgSrcStr.len > maxPathLen:
+        maxPathLen = pkgSrcStr.len
+        owningId = id
+
+  if owningId != "":
+    let
+      pkg = conf.packageIndex.packages[owningId]
+      pkgSrc = conf.packageDir / pkg.path / pkg.srcDir
+      rel = relativeTo(file, pkgSrc)
+      relStr = rel.string
+      entry = $pkg.entrypoint
+    
+    if entry.len == 0:
+      if relStr == "lib.nim": return true
+    else:
+      if relStr == entry & ".nim" or relStr == entry:
+        return true
+
+  return false

@@ -1,20 +1,31 @@
 {
   "packages": {
-    ".": {
-      "srcDir": ".",
-      "entrypoint": ""
+    "github.com/nim-works/nimskull/tests/packages/single": {
+      "path": ".",
+      "srcDir": "src",
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/single",
+          "namespace": "single"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
+          "namespace": "foo"
+        }
+      ]
     },
-    "pkgs/foo": {
+    "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo": {
+      "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
+      "path": "pkgs/foo",
       "srcDir": ".",
-      "entrypoint": ""
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
+          "namespace": "foo"
+        }
+      ]
     }
-  },
-  "depends": {
-    ".": [
-      {
-        "path": "pkgs/foo",
-        "namespace": "foo"
-      }
-    ]
   }
 }
