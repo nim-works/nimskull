@@ -88,10 +88,12 @@ proc writeBuildInstructions*(conf: ConfigRef) =
     if dirExists(conf.packageDir):
       bcache.packageIndex = block:
         let path = $conf.packageDir / ".skull" / "index.json"
-        (path, $secureHashFile(path))
-      bcache.packageManifests = collect(for path, pkg in conf.packageIndex.packages:
-        let manifestPath = absolutePath($conf.packageDir / path / "package.skull.toml")
-        (manifestPath, $secureHashFile(manifestPath))
+        if fileExists(path): (path, $secureHashFile(path)) else: ("", "")
+
+      bcache.packageManifests = collect(for id, pkg in conf.packageIndex.packages.pairs:
+        let manifestPath = absolutePath($conf.packageDir / $pkg.path / "package.skull.toml")
+        if fileExists(manifestPath):
+          (manifestPath, $secureHashFile(manifestPath))
       )
   conf.jsonBuildFile = conf.getBuildInstructionsFile()
   conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
@@ -116,10 +118,12 @@ proc buildInstructionsStatus*(conf: ConfigRef; jsonFile: AbsoluteFile): BuildCha
   block:
     if bcache.packageIndex[0].len == 0: break
     let file = $conf.packageDir / ".skull" / "index.json"
+    if not fileExists(file): return bcGeneral
     if $secureHashFile(file) != bcache.packageIndex[1]: return bcGeneral
     # If the package index hasn't changed, but a manifest has changed, then
     # report it
     for (file, hash) in bcache.packageManifests:
+      if not fileExists(file): return bcPackage
       if $secureHashFile(file) != hash: return bcPackage
 
 proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
