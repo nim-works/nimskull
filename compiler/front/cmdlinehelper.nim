@@ -228,7 +228,7 @@ proc loadConfigs*(
   loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
 proc loadPackageIndex*(conf: ConfigRef) =
-  var curDir = $conf.projectPath
+  ## Looks for the package index and, if found, loads it into `conf`.
 
   while curDir.len > 0:
     let path = curDir / ".skull"

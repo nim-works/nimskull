@@ -209,8 +209,8 @@ type
     ## This is useful for environments such as nimsuggest, which discard
     ## the output.
 
-  # Package -> Path
   DependencyLink* = object
+    ## Describes how a package is exposed to its dependee.
     package*: string
     namespace*: string
 
@@ -1485,8 +1485,7 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = AbsoluteFile currentPath / m
     if not fileExists(result):
       result = findFile(conf, m)
-    # This only exists because of Nimble packages, since not all use the `pkg`
-    # prefix to import packages
+    # try to interpret the module path as a package-qualified path
     if not fileExists(result):
       result = findModuleInPackageIndex(
         conf, modulename, AbsoluteFile currentModule
