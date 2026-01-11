@@ -71,7 +71,6 @@ import compiler/backend/cbackend as cbackend2
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
-from compiler/ast/reports_backend import BackendReport
 from compiler/ast/report_enums import ReportKind,
   repHintKinds,
   repWarningKinds,
