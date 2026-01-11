@@ -43,6 +43,7 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
+    build_insts, # JSON build instructions
     extccomp,    # Calling C compiler
   ],
   compiler/utils/[
@@ -70,6 +71,7 @@ import compiler/backend/cbackend as cbackend2
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
+from compiler/ast/reports_backend import BackendReport
 from compiler/ast/report_enums import ReportKind,
   repHintKinds,
   repWarningKinds,
@@ -192,8 +194,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
-      if not changeDetectedViaJsonBuildInstructions(conf, conf.jsonBuildInstructionsFile):
-        # nothing changed
+      if not buildInstructionsStatus(conf, conf.getBuildInstructionsFile()):
         graph.config.notes = graph.config.mainPackageNotes
         return
 
@@ -211,14 +212,14 @@ proc commandCompileToC(graph: ModuleGraph) =
     cbackend2.generateCode(graph, graph.finalizeModules())
 
   extccomp.callCCompiler(conf)
-  extccomp.writeJsonBuildInstructions(conf)
+  build_insts.writeBuildInstructions(conf)
   if conf.depfile.string.len != 0:
     writeGccDepfile(conf)
   if optGenScript in graph.config.globalOptions:
     writeDepsFile(graph)
 
 proc commandJsonScript(graph: ModuleGraph) =
-  extccomp.runJsonBuildInstructions(graph.config, graph.config.jsonBuildInstructionsFile)
+  build_insts.runBuildInstructions(graph.config, graph.config.getBuildInstructionsFile())
 
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config

@@ -35,8 +35,6 @@ import
     times,
     strtabs,
     json,
-    jsonutils,
-    sugar
   ]
 
 # TODO: does it really make sense that this module should produce all these
@@ -424,7 +422,7 @@ proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
   conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram(conf: ConfigRef; cmd: string, kind: ReportKind) =
+proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
   let code = execWithEcho(conf, cmd, kind)
   if code != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd, code: code)
@@ -454,7 +452,7 @@ proc getOptSize(conf: ConfigRef; c: TSystemCC): string =
   if result == "":
     result = CC[c].optSize    # use default settings from this file
 
-proc noAbsolutePaths(conf: ConfigRef): bool {.inline.} =
+proc noAbsolutePaths*(conf: ConfigRef): bool {.inline.} =
   # We used to check current OS != specified OS, but this makes no sense
   # really: Cross compilation from Linux to Linux for example is entirely
   # reasonable.
@@ -729,7 +727,7 @@ proc getLinkCmd(conf: ConfigRef; output: AbsoluteFile,
   if optCDebug in conf.globalOptions and conf.cCompiler == ccVcc:
     result.add " /Zi /FS /Od"
 
-template getLinkCmd(conf: ConfigRef; output: AbsoluteFile, objfiles: string,
+template getLinkCmd*(conf: ConfigRef; output: AbsoluteFile, objfiles: string,
                     removeStaticFile = false): string =
   getLinkCmd(conf, output, objfiles, optGenDynLib in conf.globalOptions, removeStaticFile)
 
@@ -745,18 +743,18 @@ template tryExceptOSErrorMessage(conf: ConfigRef; errorPrefix: string = "", body
 
     raise
 
-proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
+proc getExtraCmds*(conf: ConfigRef; output: AbsoluteFile): seq[string] =
   when defined(macosx):
     if optCDebug in conf.globalOptions and optGenStaticLib notin conf.globalOptions:
       # if needed, add an option to skip or override location
       result.add "dsymutil " & $(output).quoteShell
 
-proc execLinkCmd(conf: ConfigRef; linkCmd: string) =
+proc execLinkCmd*(conf: ConfigRef; linkCmd: string) =
   conf.timeTracer.traceStr(tikBackend, "link")
   tryExceptOSErrorMessage(conf, "invocation of external linker program failed."):
     execExternalProgram(conf, linkCmd, rcmdLinking)
 
-proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
+proc execCmdsInParallel*(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
   let runCb = proc (idx: int, p: Process) =
     let exitCode = p.peekExitCode
     if exitCode != 0:
@@ -812,7 +810,7 @@ proc linkViaResponseFile(conf: ConfigRef; cmd: string) =
   finally:
     removeFile(linkerArgs)
 
-proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): CmdReport =
+proc displayProgressCC*(conf: ConfigRef, path, compileCmd: string): CmdReport =
   if conf.hasHint(rcmdCompiling):
     CmdReport(
       kind: rcmdCompiling,
@@ -891,102 +889,6 @@ proc callCCompiler*(conf: ConfigRef) =
     script.add(linkCmd)
     script.add("\n")
     generateScript(conf, script)
-
-template hashNimExe(): string = $secureHashFile(os.getAppFilename())
-
-proc jsonBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
-  # `outFile` is better than `projectName`, as it allows having different json
-  # files for a given source file compiled with different options; it also
-  # works out of the box with `hashMainCompilationParams`.
-  result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
-
-const cacheVersion = "D20230310T000000" # update when `BuildCache` spec changes
-type BuildCache = object
-  cacheVersion: string
-  outputFile: string
-  compile: seq[(string, string)]
-  link: seq[string]
-  linkcmd: string
-  extraCmds: seq[string]
-  configFiles: seq[string] # the hash shouldn't be needed
-  inputMode: ProjectInputMode
-  currentDir: string
-  cmdline: string
-  depfiles: seq[(string, string)]
-  nimexe: string
-
-proc writeJsonBuildInstructions*(conf: ConfigRef) =
-  var linkFiles = collect(for it in conf.externalToLink:
-    var it = it
-    if conf.noAbsolutePaths: it = it.extractFilename
-    it.addFileExt(CC[conf.cCompiler].objExt))
-  for it in conf.toCompile: linkFiles.add it.obj.string
-  var bcache = BuildCache(
-    cacheVersion: cacheVersion,
-    outputFile: conf.absOutFile.string,
-    compile: collect(for i, it in conf.toCompile:
-      if CfileFlag.Cached notin it.flags: (it.cname.string, getCompileCFileCmd(conf, it))),
-    link: linkFiles,
-    linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
-    extraCmds: getExtraCmds(conf, conf.absOutFile),
-    inputMode: conf.inputMode,
-    configFiles: conf.configFiles.mapIt(it.string),
-    currentDir: getCurrentDir())
-  if optRun in conf.globalOptions or isDefined(conf, "nimBetterRun"):
-    bcache.cmdline = conf.commandLine
-    bcache.depfiles = collect(for it in conf.m.fileInfos:
-      let path = it.fullPath.string
-      if isAbsolute(path): # TODO: else?
-        (path, $secureHashFile(path)))
-    bcache.nimexe = hashNimExe()
-  conf.jsonBuildFile = conf.jsonBuildInstructionsFile
-  conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
-
-proc changeDetectedViaJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile): bool =
-  if not fileExists(jsonFile) or not fileExists(conf.absOutFile): return true
-  var bcache: BuildCache
-  try: bcache.fromJson(jsonFile.string.parseFile)
-  except IOError, OSError, ValueError:
-    echo getCurrentException().msg
-    stderr.write "Warning: JSON processing failed for: $#\n" % jsonFile.string
-    return true
-  if bcache.currentDir != getCurrentDir() or # fixes bug #16271
-     bcache.configFiles != conf.configFiles.mapIt(it.string) or
-     bcache.cacheVersion != cacheVersion or bcache.outputFile != conf.absOutFile.string or
-     bcache.cmdline != conf.commandLine or bcache.nimexe != hashNimExe() or
-     bcache.inputMode != conf.inputMode: return true
-  if bcache.inputMode != pimFile: return true
-    # xxx optimize by returning false if stdin input was the same
-  for (file, hash) in bcache.depfiles:
-    if $secureHashFile(file) != hash: return true
-
-proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
-  var bcache: BuildCache
-  try: bcache.fromJson(jsonFile.string.parseFile)
-  except:
-    let e = getCurrentException()
-    conf.quitOrRaise "\ncaught exception:\n$#\nstacktrace:\n$#error evaluating JSON file: $#" %
-      [e.msg, e.getStackTrace(), jsonFile.string]
-  let output = bcache.outputFile
-  createDir output.parentDir
-  let outputCurrent = $conf.absOutFile
-  if output != outputCurrent or bcache.cacheVersion != cacheVersion:
-    conf.globalReport BackendReport(
-      kind: rbackJsonScriptMismatch,
-      jsonScriptParams: (outputCurrent, output, jsonFile.string))
-
-  var cmds: TStringSeq
-  var prettyCmds: seq[CmdReport]
-  let prettyCb = proc (idx: int) = writePrettyCmds(prettyCmds[idx])
-  for (name, cmd) in bcache.compile:
-    cmds.add cmd
-    prettyCmds.add displayProgressCC(conf, name, cmd)
-
-  execCmdsInParallel(conf, cmds, prettyCb)
-  execLinkCmd(conf, bcache.linkcmd)
-
-  for cmd in bcache.extraCmds:
-    execExternalProgram(conf, cmd, rcmdExecuting)
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:
