@@ -2,6 +2,16 @@
 ## with the cache.
 
 import
+  std/[
+    jsonutils,
+    sequtils,
+    strutils,
+    tables,
+    sugar,
+    json,
+    sha1,
+    os
+  ],
   compiler/backend/[
     extccomp
   ],
@@ -14,36 +24,12 @@ import
   ],
   compiler/ast/[
     lineinfos,
-  ],
-  std/[
-    jsonutils,
-    sequtils,
-    strutils,
-    tables,
-    sugar,
-    json,
-    sha1,
-    os
   ]
 
 from compiler/ast/report_enums import ReportKind
 from compiler/ast/reports_cmd import CmdReport
 from compiler/ast/reports_backend import BackendReport
 
-template writePrettyCmds(cmd: CmdReport) =
-  if cmd.msg.len > 0:
-    # TODO: don't use `localReport`. Log the message/diagnostic directly
-    conf.localReport(cmd)
-
-template hashNimExe(): string = $secureHashFile(os.getAppFilename())
-
-proc getBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
-  # `outFile` is better than `projectName`, as it allows having different json
-  # files for a given source file compiled with different options; it also
-  # works out of the box with `hashMainCompilationParams`.
-  result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
-
-const cacheVersion = "D20230310T000000" # update when `BuildCache` spec changes
 type
   BuildCache = object
     cacheVersion: string
@@ -58,6 +44,21 @@ type
     cmdline: string
     depfiles: seq[(string, string)]
     nimexe: string
+
+const cacheVersion = "D20230310T000000" # update when `BuildCache` spec changes
+
+template writePrettyCmds(cmd: CmdReport) =
+  if cmd.msg.len > 0:
+    # TODO: don't use `localReport`. Log the message/diagnostic directly
+    conf.localReport(cmd)
+
+template hashNimExe(): string = $secureHashFile(os.getAppFilename())
+
+proc getBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
+  # `outFile` is better than `projectName`, as it allows having different json
+  # files for a given source file compiled with different options; it also
+  # works out of the box with `hashMainCompilationParams`.
+  result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
 
 proc writeBuildInstructions*(conf: ConfigRef) =
   ## Writes the build instructions to `outFile`.
