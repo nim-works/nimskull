@@ -1,3 +1,6 @@
+## Implements a cache for build instructions, plus the routines for interacting
+## with the cache.
+
 import
   compiler/backend/[
     extccomp
