@@ -1542,8 +1542,9 @@ proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
   let
     desc = getPkgDesc(conf, file.string)
     (_, moduleName, ext) = file.splitFile
-  if desc.pkgKnown and
-     desc.pkgFile != AbsoluteFile(conf.getPackageFile(conf.projectFull.string)):
+  
+  let projectPkgId = getPackageId(conf, $conf.projectFull)
+  if desc.pkgKnown and desc.pkgRootName != projectPkgId:
     # we ignore the pkg root name for intra-package module imports, allows for
     # easier pkg renames (without changing all files using canonical imports).
     result = desc.pkgRootName

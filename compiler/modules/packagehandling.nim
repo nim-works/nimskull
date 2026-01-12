@@ -7,45 +7,32 @@
 #    distribution, for details about the copyright.
 #
 
-iterator myParentDirs(p: string): string =
-  # XXX os's parentDirs is stupid (multiple yields) and triggers an old bug...
-  var current = p
-  while true:
-    current = current.parentDir
-    if current.len == 0: break
-    yield current
 
-proc getPackageFile(conf: ConfigRef; path: string): string =
-  var parents = 0
-  block packageSearch:
-    for d in myParentDirs(path):
-      if conf.packageCache.hasKey(d):
-        #echo "from cache ", d, " |", conf.packageCache[d], "|", path.splitFile.name
-        return conf.packageCache[d]
-      inc parents
-      for file in walkFiles(d / "package.skull.toml"):
-        result = file
-        break packageSearch
-  # we also store if we didn't find anything:
-  for d in myParentDirs(path):
-    #echo "set cache ", d, " |", result, "|", parents
-    conf.packageCache[d] = result
-    dec parents
-    if parents <= 0: break
 
 proc getPackageId(conf: ConfigRef; path: string): string =
   ## returns id to of package, e.g.: `github.com/luyten-orion/faepkg`
-  # xxx: make this private
-  let file = getPackageFile(conf, path)
-  if file.len > 0:
-    let manifest = readFile(file)
-    for line in manifest.splitLines:
-      # TODO: Use parseutils instead?
-      if line.replace(" ", "").startsWith("name="):
-        let qStart = line.find('"') + 1
-        # TODO: Cache this
-        result = line[qStart..<line.split('#', 1)[0].rfind('"', qStart)]
-        break
+  var d = path
+  if not d.dirExists(): d = d.parentDir
+
+  if d.len > 0 and conf.packageCache.hasKey(d):
+    return conf.packageCache[d]
+  
+  var
+    owningId = ""
+    maxPathLen = -1
+  
+  let absPath = absolutePath(path, $conf.projectPath)
+
+  for id, pkg in conf.packageIndex.packages.pairs:
+    let pkgAbsDir = absolutePath($pkg.path, $conf.packageDir)
+    if absPath.startsWith(pkgAbsDir):
+      if pkgAbsDir.len > maxPathLen:
+        maxPathLen = pkgAbsDir.len
+        owningId = id
+  
+  result = owningId
+  if d.len > 0:
+    conf.packageCache[d] = result
 
 proc demanglePackageName*(path: string): string =
   # legacy stuff for backends
@@ -79,11 +66,7 @@ type
     ## describes the package, and optional sub-package, used in conjunction
     ## with a module to determine its relationship to a package.
     # todo: support project/default vs unknown vs explicit package
-    case pkgKnown*: bool:
-      of true:
-        pkgFile*: AbsoluteFile ## if applicable, package file
-      of false:
-        discard
+    pkgKnown*: bool
     pkgRootName*: string  ## name of the package root
     pkgRoot*: AbsoluteDir ## path to the root or project path if unknown pkg
     pkgSubpath*: string   ## if not empty, sub-package it's a part of
@@ -101,17 +84,15 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
                     "#": "@h",
                     "@": "@@",
                     ":": "@c"})
-  let pkgFile = getPackageFile(conf, modulePath) # <--- Nimble search here
-  var (pkgFileRoot, pkgFileName, _) = pkgFile.splitFile
-  let
-    pkgId = getPackageId(conf, modulePath)
-    pkgKnown = pkgFileName != ""
+  
+  let pkgId = getPackageId(conf, modulePath)
+  let pkgKnown = pkgId.len > 0
 
   result =
     if pkgKnown:
+      let pkg = conf.packageIndex.packages[pkgId]
       PkgDesc(pkgKnown: true,
-              pkgFile: AbsoluteFile pkgFile,
-              pkgRootName: pkgId, pkgRoot: AbsoluteDir pkgFileRoot)
+              pkgRootName: pkgId, pkgRoot: absolutePath($pkg.path, $conf.packageDir).AbsoluteDir)
     else:
       # TODO: Investigate all the places "unknown" is used?
       PkgDesc(pkgKnown: false,

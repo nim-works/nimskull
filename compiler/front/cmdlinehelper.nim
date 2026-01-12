@@ -229,6 +229,7 @@ proc loadConfigs*(
 
 proc loadPackageIndex*(conf: ConfigRef) =
   ## Looks for the package index and, if found, loads it into `conf`.
+  var curDir = $conf.projectPath
 
   while curDir.len > 0:
     let path = curDir / ".skull"
@@ -237,10 +238,11 @@ proc loadPackageIndex*(conf: ConfigRef) =
       if not fileExists(path / "index.json"): return
       conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
       conf.packageDir = AbsoluteDir curDir
-      return
+      break
     let parDir = parentDir(curDir)
     if parDir == curDir: break
     curDir = parDir
+
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =
