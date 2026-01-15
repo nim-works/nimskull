@@ -13,6 +13,18 @@
 ## compile nim files.
 
 import
+  std/[
+    jsonutils,
+    sequtils,
+    strutils,
+    strtabs,
+    osproc,
+    sugar,
+    times,
+    json,
+    sha1,
+    os,
+  ],
   compiler/utils/[
     ropes,
     platform,
@@ -26,15 +38,8 @@ import
     options,
     msgs
   ],
-  std/[
-    os,
-    strutils,
-    osproc,
-    sha1,
-    sequtils,
-    times,
-    strtabs,
-    json,
+  compiler/backend/[
+    build_insts
   ]
 
 # TODO: does it really make sense that this module should produce all these
@@ -913,3 +918,51 @@ proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
   if not writeRope(code, filename):
     conf.localReport BackendReport(
       kind: rbackCannotWriteMappingFile, filename: filename.string)
+
+proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
+  ## Runs the build instructions.
+  var bcache: BuildCache
+  try: bcache.fromJson(jsonFile.string.parseFile)
+  except:
+    let e = getCurrentException()
+    conf.quitOrRaise "\ncaught exception:\n$#\nstacktrace:\n$#error evaluating JSON file: $#" %
+      [e.msg, e.getStackTrace(), jsonFile.string]
+  let output = bcache.outputFile
+  createDir output.parentDir
+  let outputCurrent = $conf.absOutFile
+  if output != outputCurrent or bcache.cacheVersion != cacheVersion:
+    conf.globalReport BackendReport(
+      kind: rbackJsonScriptMismatch,
+      jsonScriptParams: (outputCurrent, output, jsonFile.string))
+
+  var cmds: TStringSeq
+  var prettyCmds: seq[CmdReport]
+  let prettyCb = proc (idx: int) = writePrettyCmds(prettyCmds[idx])
+  for (name, cmd) in bcache.compile:
+    cmds.add cmd
+    prettyCmds.add displayProgressCC(conf, name, cmd)
+
+  execCmdsInParallel(conf, cmds, prettyCb)
+  execLinkCmd(conf, bcache.linkcmd)
+
+  for cmd in bcache.extraCmds:
+    execExternalProgram(conf, cmd, rcmdExecuting)
+
+
+proc writeBuildInstructions*(conf: ConfigRef) =
+  ## Gathers C-compiler-specific information and orchestrates writing the build instructions.
+  var linkFiles = collect(for it in conf.externalToLink:
+    var it = it
+    if conf.noAbsolutePaths: it = it.extractFilename
+    it.addFileExt(CC[conf.cCompiler].objExt))
+  for it in conf.toCompile: linkFiles.add it.obj.string
+
+  var bcache = BuildCache(
+    compile: collect(for i, it in conf.toCompile:
+      if CfileFlag.Cached notin it.flags: (it.cname.string, getCompileCFileCmd(conf, it))),
+    link: linkFiles,
+    linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
+    extraCmds: getExtraCmds(conf, conf.absOutFile)
+  )
+
+  build_insts.writeBuildInstructions(conf, bcache)
