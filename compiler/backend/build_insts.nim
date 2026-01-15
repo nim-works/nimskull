@@ -23,10 +23,6 @@ import
     lineinfos,
   ]
 
-from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports_cmd import CmdReport
-from compiler/ast/reports_backend import BackendReport
-
 type
   BuildCache* = object
     cacheVersion*: string
