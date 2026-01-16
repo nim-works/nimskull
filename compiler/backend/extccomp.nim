@@ -895,6 +895,25 @@ proc callCCompiler*(conf: ConfigRef) =
     script.add("\n")
     generateScript(conf, script)
 
+proc writeBuildInstructions*(conf: ConfigRef) =
+  ## Gathers C-compiler-specific information and orchestrates writing the
+  ## build instructions.
+  var linkFiles = collect(for it in conf.externalToLink:
+    var it = it
+    if conf.noAbsolutePaths: it = it.extractFilename
+    it.addFileExt(CC[conf.cCompiler].objExt))
+  for it in conf.toCompile: linkFiles.add it.obj.string
+
+  var bcache = BuildCache(
+    compile: collect(for i, it in conf.toCompile:
+      if CfileFlag.Cached notin it.flags: (it.cname.string, getCompileCFileCmd(conf, it))),
+    link: linkFiles,
+    linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
+    extraCmds: getExtraCmds(conf, conf.absOutFile)
+  )
+
+  build_insts.writeBuildInstructions(conf, bcache)
+
 proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   ## Runs the build instructions.
   var bcache: BuildCache
@@ -923,26 +942,6 @@ proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
 
   for cmd in bcache.extraCmds:
     execExternalProgram(conf, cmd, rcmdExecuting)
-
-
-proc writeBuildInstructions*(conf: ConfigRef) =
-  ## Gathers C-compiler-specific information and orchestrates writing the
-  ## build instructions.
-  var linkFiles = collect(for it in conf.externalToLink:
-    var it = it
-    if conf.noAbsolutePaths: it = it.extractFilename
-    it.addFileExt(CC[conf.cCompiler].objExt))
-  for it in conf.toCompile: linkFiles.add it.obj.string
-
-  var bcache = BuildCache(
-    compile: collect(for i, it in conf.toCompile:
-      if CfileFlag.Cached notin it.flags: (it.cname.string, getCompileCFileCmd(conf, it))),
-    link: linkFiles,
-    linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
-    extraCmds: getExtraCmds(conf, conf.absOutFile)
-  )
-
-  build_insts.writeBuildInstructions(conf, bcache)
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:
