@@ -895,30 +895,6 @@ proc callCCompiler*(conf: ConfigRef) =
     script.add("\n")
     generateScript(conf, script)
 
-proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
-  for it in list:
-    ropes.addf(result, "--file:r\"$1\"$N", [rope(it.cname.string)])
-
-proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
-  if optGenMapping notin conf.globalOptions: return
-  var code = rope("[C_Files]\n")
-  code.add(genMappingFiles(conf, conf.toCompile))
-  code.add("\n[C_Compiler]\nFlags=")
-  code.add(strutils.escape(getCompileOptions(conf)))
-
-  code.add("\n[Linker]\nFlags=")
-  code.add(strutils.escape(getLinkOptions(conf) & " " &
-                            getConfigVar(conf, conf.cCompiler, ".options.linker")))
-
-  code.add("\n[Environment]\nlibpath=")
-  code.add(strutils.escape(conf.libpath.string))
-
-  ropes.addf(code, "\n[Symbols]$n$1", [symbolMapping])
-  let filename = getNimcacheDir(conf) / RelativeFile"mapping.txt"
-  if not writeRope(code, filename):
-    conf.localReport BackendReport(
-      kind: rbackCannotWriteMappingFile, filename: filename.string)
-
 proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   ## Runs the build instructions.
   var bcache: BuildCache
@@ -967,3 +943,27 @@ proc writeBuildInstructions*(conf: ConfigRef) =
   )
 
   build_insts.writeBuildInstructions(conf, bcache)
+
+proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
+  for it in list:
+    ropes.addf(result, "--file:r\"$1\"$N", [rope(it.cname.string)])
+
+proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
+  if optGenMapping notin conf.globalOptions: return
+  var code = rope("[C_Files]\n")
+  code.add(genMappingFiles(conf, conf.toCompile))
+  code.add("\n[C_Compiler]\nFlags=")
+  code.add(strutils.escape(getCompileOptions(conf)))
+
+  code.add("\n[Linker]\nFlags=")
+  code.add(strutils.escape(getLinkOptions(conf) & " " &
+                            getConfigVar(conf, conf.cCompiler, ".options.linker")))
+
+  code.add("\n[Environment]\nlibpath=")
+  code.add(strutils.escape(conf.libpath.string))
+
+  ropes.addf(code, "\n[Symbols]$n$1", [symbolMapping])
+  let filename = getNimcacheDir(conf) / RelativeFile"mapping.txt"
+  if not writeRope(code, filename):
+    conf.localReport BackendReport(
+      kind: rbackCannotWriteMappingFile, filename: filename.string)
