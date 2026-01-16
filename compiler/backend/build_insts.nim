@@ -48,7 +48,7 @@ proc getBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
   # works out of the box with `hashMainCompilationParams`.
   result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
 
-proc writeBuildInstructions*(conf: ConfigRef; bcache: var BuildCache) =
+proc writeBuildInstructions*(conf: ConfigRef; bcache: sink BuildCache) =
   ## Populates shared build data and writes it to `outFile`.
   bcache.cacheVersion = cacheVersion
   bcache.outputFile = conf.absOutFile.string
