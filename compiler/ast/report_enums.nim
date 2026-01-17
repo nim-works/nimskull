@@ -893,6 +893,7 @@ type
     #---------------------------  Package reports  ---------------------------#
     # errors start
     rpkgDuplicateAliasForPackageDependencies = "DuplicateAliasForPackageDependencies"
+    rpkgIndexPresentButMalformed = "IndexPresentButMalformed"
     # errors END !! add reports BEFORE the last enum !!
     # warnings start
     # warnings END !! add reports BEFORE the last enum !!
@@ -919,7 +920,7 @@ type
 
   BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
 
-  PackageReportKind* = range[rpkgDuplicateAliasForPackageDependencies .. rpkgDuplicateAliasForPackageDependencies]
+  PackageReportKind* = range[rpkgDuplicateAliasForPackageDependencies .. rpkgIndexPresentButMalformed]
 
   ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
@@ -978,7 +979,7 @@ const
 
   #------------------------------  package  -------------------------------#
   repPackageKinds* = {low(PackageReportKind) .. high(PackageReportKind)}
-  rpkgErrorKinds* = {rpkgDuplicateAliasForPackageDependencies .. rpkgDuplicateAliasForPackageDependencies}
+  rpkgErrorKinds* = {rpkgDuplicateAliasForPackageDependencies .. rpkgIndexPresentButMalformed}
   rpkgWarningKinds* = default(set[ReportKind])
   rpkgHintKinds* = default(set[ReportKind])
 

@@ -8,11 +8,12 @@ import
 
 type
   PackageReport* = object of ReportBase
+    msg*: string
     case kind*: ReportKind
       of rpkgDuplicateAliasForPackageDependencies:
         parentPackage*: string
-        alias*: string
         packages*: seq[string]
+        alias*: string
       else:
         discard
 

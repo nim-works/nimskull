@@ -46,6 +46,7 @@ from experimental/colortext import ForegroundColor, toString
 from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_packages import PackageReport
 from compiler/ast/report_enums import ReportKind
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
@@ -236,13 +237,38 @@ proc loadPackageIndex*(conf: ConfigRef) =
 
     if dirExists(path):
       if not fileExists(path / "index.json"): return
-      conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
+      try:
+        conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
+      except IOError:
+        return
+      except JsonParsingError, JsonKindError:
+        localReport(conf, PackageReport(
+          kind: rpkgIndexPresentButMalformed,
+          msg: "Malformed package index found!"
+        ))
       conf.packageDir = AbsoluteDir curDir
       break
     let parDir = parentDir(curDir)
     if parDir == curDir: break
     curDir = parDir
 
+  for package in conf.packageIndex.packages.values:
+    var aliasToDuplicates: Table[string, seq[string]]
+    for dependency in package.dependencies:
+      let normAlias = dependency.alias.nimIdentNormalize()
+      if normAlias notin aliasToDuplicates:
+        aliasToDuplicates.mgetOrPut(normAlias, @[]).add dependency.package
+    for alias, duplicates in aliasToDuplicates:
+      # A lone entry isn't a duplicate, not sure of a better way to handle this
+      if duplicates.len < 2: continue
+      localReport(conf, PackageReport(
+        kind: rpkgDuplicateAliasForPackageDependencies,
+        parentPackage: package.path.string,
+        packages: duplicates,
+        alias: alias,
+        msg: "Package at `" & package.path.string & "` has multiple entries" &
+          "for alias `" & alias & "`."
+      ))
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =
