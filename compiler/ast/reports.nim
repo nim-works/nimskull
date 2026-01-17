@@ -35,6 +35,7 @@ import
     reports_internal,
     reports_external,
     reports_cmd,
+    reports_packages,
   ]
 
 from compiler/utils/int128 import toInt128
@@ -64,7 +65,8 @@ type
     DebugReport    |
     InternalReport |
     BackendReport  |
-    ExternalReport
+    ExternalReport |
+    PackageReport
 
   Report* = object
     ## Toplevel wrapper type for the compiler report
@@ -93,6 +95,9 @@ type
       of repBackend:
         backendReport*: BackendReport
 
+      of repPackage:
+        packageReport*: PackageReport
+
       of repExternal:
         externalReport*: ExternalReport
 
@@ -112,6 +117,7 @@ static:
     echo "size of DebugReport    ", sizeof(DebugReport)
     echo "size of InternalReport ", sizeof(InternalReport)
     echo "size of BackendReport  ", sizeof(BackendReport)
+    echo "size of PackageReport  ", sizeof(PackageReport)
     echo "size of ExternalReport ", sizeof(ExternalReport)
     echo "size of Report         ", sizeof(Report)
     echo "sem reports      = ", len(repSemKinds)
@@ -133,6 +139,7 @@ template eachCategory*(report: Report, field: untyped): untyped =
     of repDebug:    report.debugReport.field
     of repInternal: report.internalReport.field
     of repBackend:  report.backendReport.field
+    of repPackage:  report.packageReport.field
     of repExternal: report.externalReport.field
 
 func kind*(report: Report): ReportKind =
@@ -172,6 +179,7 @@ func `reportFrom=`*(report: var Report, loc: ReportLineInfo) =
   of repDebug:    report.debugReport.reportFrom = loc
   of repInternal: report.internalReport.reportFrom = loc
   of repBackend:  report.backendReport.reportFrom = loc
+  of repPackage:  report.packageReport.reportFrom = loc
   of repExternal: report.externalReport.reportFrom = loc
 
 func category*(kind: ReportKind): ReportCategory =
@@ -184,6 +192,7 @@ func category*(kind: ReportKind): ReportCategory =
   of repParserKinds:   result = repParser
   of repSemKinds:      result = repSem
   of repBackendKinds:  result = repBackend
+  of repPackageKinds:  result = repPackage
   of repVMKinds:       result = repVM
   of repNone: assert false, "'none' report does not have category"
 
@@ -218,6 +227,7 @@ func severity*(
       of repVM:       report.vmReport.severity()
       of repInternal: report.internalReport.severity()
       of repBackend:  report.backendReport.severity()
+      of repPackage:  report.packageReport.severity()
       of repDebug:    report.debugReport.severity()
       of repExternal: report.externalReport.severity()
 
@@ -279,6 +289,10 @@ func wrap*(rep: sink InternalReport): Report =
 func wrap*(rep: sink ExternalReport): Report =
   assert rep.kind in ExternalReportKind, $rep.kind
   Report(category: repExternal, externalReport: rep)
+
+func wrap*(rep: sink PackageReport): Report =
+  assert rep.kind in PackageReportKind, $rep.kind
+  Report(category: repPackage, packageReport: rep)
 
 func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
   var tmp = rep

@@ -29,6 +29,7 @@ type
     ## they always exist - ICE, internal fatal errors etc.
 
     repBackend = "Backend" ## Backend-specific reports.
+    repPackage = "Package" ## Package-specific reports.
 
     repExternal = "External" ## Report constructed during handling of
                              ## configuration, packages, modules.
@@ -889,6 +890,13 @@ type
     rbackLinking = "Link"
     # hints END !! add reports BEFORE the last enum !!
 
+    #---------------------------  Package reports  ---------------------------#
+    # errors start
+    rpkgDuplicateAliasForPackageDependencies = "DuplicateAliasForPackageDependencies"
+    # errors END !! add reports BEFORE the last enum !!
+    # warnings start
+    # warnings END !! add reports BEFORE the last enum !!
+
   ReportKinds* = set[ReportKind]
 
 
@@ -910,6 +918,8 @@ type
   DebugReportKind* = range[rdbgVmExecTraceFull .. rdbgOptionsPop]
 
   BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
+
+  PackageReportKind* = range[rpkgDuplicateAliasForPackageDependencies .. rpkgDuplicateAliasForPackageDependencies]
 
   ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
@@ -966,6 +976,12 @@ const
   rbackWarningKinds* = {rbackRstTestUnsupported .. rbackRstRstStyle}
   rbackHintKinds* = {rbackProducedAssembly .. rbackLinking}
 
+  #------------------------------  package  -------------------------------#
+  repPackageKinds* = {low(PackageReportKind) .. high(PackageReportKind)}
+  rpkgErrorKinds* = {rpkgDuplicateAliasForPackageDependencies .. rpkgDuplicateAliasForPackageDependencies}
+  rpkgWarningKinds* = default(set[ReportKind])
+  rpkgHintKinds* = default(set[ReportKind])
+
   #------------------------------  external  -------------------------------#
   repExternalKinds* = {low(ExternalReportKind) .. high(ExternalReportKind)}
   rextErrorKinds* = {rextCmdRequiresFile .. rextCmdRequiresFile}
@@ -990,6 +1006,7 @@ const
       rlexWarningKinds +
       rparWarningKinds +
       rbackWarningKinds +
+      rpkgWarningKinds +
       rvmWarningKinds +
       rcmdWarningKinds +
       rintWarningKinds
@@ -1003,6 +1020,7 @@ const
       rlexHintKinds +
       rparHintKinds +
       rbackHintKinds +
+      rpkgHintKinds +
       rvmHintKinds +
       rextHintKinds +
       rcmdHintKinds +
@@ -1013,6 +1031,7 @@ const
       rlexErrorKinds +
       rparErrorKinds +
       rbackErrorKinds +
+      rpkgErrorKinds +
       rvmErrorKinds +
       rextErrorKinds +
       rcmdErrorKinds +
@@ -1051,6 +1070,7 @@ static:
       set[ReportKind](repExternalKinds) +
       set[ReportKind](repDebugKinds) +
       set[ReportKind](repBackendKinds) +
+      set[ReportKind](repPackageKinds) +
       set[ReportKind](repCmdKinds) +
       { repNone }
     )
