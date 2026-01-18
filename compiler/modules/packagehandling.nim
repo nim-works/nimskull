@@ -112,36 +112,3 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
       result.pkgRootName
     else:
       result.pkgRootName & "@p" & mangle(result.pkgSubpath)
-
-proc shouldAliasEntrypoint*(conf: ConfigRef, file: AbsoluteFile): bool =
-  let fileStr = $file
-  var
-    owningId = ""
-    maxPathLen = -1
-
-  for id, pkg in conf.packageIndex.packages.pairs:
-    let
-      pkgRoot = conf.packageDir / pkg.path
-      pkgSrc = pkgRoot / pkg.srcDir
-      pkgSrcStr = $pkgSrc
-    
-    if fileStr.isRelativeTo(pkgSrcStr):
-      if pkgSrcStr.len > maxPathLen:
-        maxPathLen = pkgSrcStr.len
-        owningId = id
-
-  if owningId != "":
-    let
-      pkg = conf.packageIndex.packages[owningId]
-      pkgSrc = conf.packageDir / pkg.path / pkg.srcDir
-      rel = relativeTo(file, pkgSrc)
-      relStr = rel.string
-      entry = $pkg.entrypoint
-    
-    if entry.len == 0:
-      if relStr == "lib.nim": return true
-    else:
-      if relStr == entry & ".nim" or relStr == entry:
-        return true
-
-  return false

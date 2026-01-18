@@ -212,12 +212,13 @@ type
   DependencyLink* = object
     ## Describes how a package is exposed to its dependee.
     package*: string
-    namespace*: string
+    alias*: string
 
   IndexedPackage* = object
     path*: RelativeDir
-    srcDir*: RelativeDir
-    entrypoint*: RelativeDir # If empty, assume `lib.nim` for `import package`
+    srcDir*: RelativeDir      # Code directory for submodules
+                              # (`import module/submod`).
+    entrypoint*: RelativeFile # File for the module imported on `import module`.
     dependencies*: seq[DependencyLink]
 
   PackageIndex* = object
@@ -1396,25 +1397,27 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
 
-proc findModuleInPackageIndex*(
-  conf: ConfigRef,
-  modulename: string,
-  currentModule: AbsoluteFile
-): AbsoluteFile =
-  ## Looks for a module in the fae package index, respecting namespaces.
-  result = AbsoluteFile""
-
+proc getOwningPackageId(conf: ConfigRef, currentModule: AbsoluteFile): string =
+  ## Finds the ID of the package that owns the current module.
   let currentAbsPath = absolutePath($currentModule, $conf.projectPath)
-  var
-    owningPkgId = ""
-    maxPathLen = -1
-
+  var maxPathLen = -1
+  
   for id, pkg in conf.packageIndex.packages.pairs:
     let pkgAbsDir = absolutePath($pkg.path, $conf.packageDir)
     if currentAbsPath.startsWith(pkgAbsDir):
       if pkgAbsDir.len > maxPathLen:
         maxPathLen = pkgAbsDir.len
-        owningPkgId = id
+        result = id
+
+proc findPackage*(
+  conf: ConfigRef,
+  modulename: string,
+  currentModule: AbsoluteFile
+): (string, string) =
+  ## Looks for a package in the package index, respecting aliases
+  result = ("", "")
+
+  let owningPkgId = getOwningPackageId(conf, currentModule)
 
   if owningPkgId == "": return
 
@@ -1424,31 +1427,35 @@ proc findModuleInPackageIndex*(
     modPrefix = modParts[0].nimIdentNormalize()
 
   for dep in owningPkg.dependencies:
-    if dep.namespace.nimIdentNormalize() == modPrefix:
-      if not conf.packageIndex.packages.hasKey(dep.package): continue
-      
-      let 
-        targetPkg = conf.packageIndex.packages[dep.package]
-        targetBaseDir = $targetPkg.path
-        srcDir = $targetPkg.srcDir
-        entry = $targetPkg.entrypoint
-      
-      var path: string
-      if entry.len != 0:
-        let moduleBase = targetBaseDir / srcDir / entry
-        if modParts.len == 2:
-          path = moduleBase / modParts[1]
-        else:
-          path = moduleBase
-        path = addFileExt(path, NimExt)
-      else:
-        if modParts.len == 2:
-          path = addFileExt(targetBaseDir / srcDir / modParts[1], NimExt)
-        else:
-          path = targetBaseDir / srcDir / "lib.nim"
+    if dep.alias.nimIdentNormalize() == modPrefix:
+      return (dep.package, dep.alias)
 
-      return AbsoluteFile absolutePath(path, $conf.packageDir)
+proc getPackageFile*(
+  conf: ConfigRef,
+  pkgId: string,
+  modulePath: string
+): AbsoluteFile =
+  ## Converts a package ID and a module path (e.g. "alias/sub") into a file path
+  let pkg = conf.packageIndex.packages[pkgId]
+  let 
+    targetBaseDir = $pkg.path
+    srcDir = $pkg.srcDir
+    entrypoint = $pkg.entrypoint
+    
+    modParts = modulePath.split('/', 1)
+    remainder = if modParts.len > 1: modParts[1] else: ""
+    
+  var path = targetBaseDir
+  if remainder.len == 0:
+    # import alias -> uses entrypoint.nim
+    # Done like this for legacy package layouts
+    if entrypoint.len != 0:
+      path = path / entrypoint
+  else:
+    # Case: import alias/sub -> uses srcDir/sub
+    path = path / srcDir / remainder
 
+  result = AbsoluteFile(absolutePath(addFileExt(path, NimExt), $conf.packageDir))
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
   ## Return absolute path to the imported module `modulename`. Imported
@@ -1466,12 +1473,14 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
   ## If the module is found and exists module override, apply it last.
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
-    result = findModuleInPackageIndex(
-      conf, modulename.substr(pkgPrefix.len), AbsoluteFile currentModule
-    )
-    if not fileExists(result):
-      # Fallback to legacy logic... Maybe we shouldn't do this though?
-      result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
+    let stripped = modulename.substr(pkgPrefix.len)
+    let (pkgId, _) = conf.findPackage(stripped, AbsoluteFile currentModule)
+
+    if pkgId.len > 0:
+      return conf.getPackageFile(pkgId, stripped)
+    else:
+      return AbsoluteFile"" # Explicit pkg/ import failed
+
   else:
     if m.startsWith(stdPrefix):
       let stripped = m.substr(stdPrefix.len)
@@ -1487,9 +1496,9 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = findFile(conf, m)
     # try to interpret the module path as a package-qualified path
     if not fileExists(result):
-      result = findModuleInPackageIndex(
-        conf, modulename, AbsoluteFile currentModule
-      )
+      let (pkgId, _) = conf.findPackage(modulename, AbsoluteFile currentModule)
+      if pkgId.len > 0:
+        result = conf.getPackageFile(pkgId, modulename)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project

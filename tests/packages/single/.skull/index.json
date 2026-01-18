@@ -7,11 +7,11 @@
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/single",
-          "namespace": "single"
+          "alias": "single"
         },
         {
           "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
-          "namespace": "foo"
+          "alias": "foo"
         }
       ]
     },
@@ -19,11 +19,11 @@
       "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
       "path": "pkgs/foo",
       "srcDir": ".",
-      "entrypoint": "",
+      "entrypoint": "lib.nim",
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
-          "namespace": "foo"
+          "alias": "foo"
         }
       ]
     }

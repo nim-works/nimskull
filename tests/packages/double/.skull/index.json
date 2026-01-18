@@ -8,15 +8,15 @@
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/double",
-          "namespace": "double"
+          "alias": "double"
         },
         {
           "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
-          "namespace": "foo"
+          "alias": "foo"
         },
         {
           "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
-          "namespace": "bar"
+          "alias": "bar"
         }
       ]
     },
@@ -24,15 +24,15 @@
       "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
       "path": "pkgs/foo",
       "srcDir": ".",
-      "entrypoint": "",
+      "entrypoint": "lib.nim",
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
-          "namespace": "foo"
+          "alias": "foo"
         },
         {
           "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
-          "namespace": "barfoo"
+          "alias": "barfoo"
         }
       ]
     },
@@ -40,11 +40,11 @@
       "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
       "path": "pkgs/bar",
       "srcDir": ".",
-      "entrypoint": "",
+      "entrypoint": "lib.nim",
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
-          "namespace": "bar"
+          "alias": "bar"
         }
       ]
     }

@@ -11,9 +11,11 @@
 
 import
   std/[
+    strutils,
     intsets,
+    tables,
     sets,
-    tables
+    os
   ],
   compiler/ast/[
     ast,
@@ -293,19 +295,52 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
     ret.node = n.processPragma
   return ret
 
+proc findModuleAsPackage(c: PContext; n: PNode): (FileIndex, string) = 
+  ## Finds a module by checking the package index
+  var modulePathString = getModuleName(c.config, n)
+  if modulePathString.len == 0: return (InvalidFileIdx, "")
+  if modulePathString.startsWith("pkg/"):
+    modulePathString = modulePathString.substr(4)
+
+  let
+    currentModulePath = c.config[c.module.info.fileIndex].fullPath
+    (pkgId, alias) = c.config.findPackage(modulePathString, currentModulePath)
+
+  if pkgId.len > 0:
+    let moduleAbsPath = c.config.getPackageFile(pkgId, modulePathString)
+
+    if moduleAbsPath.string.len > 0 and fileExists(moduleAbsPath.string):
+      var isKnown: bool
+      let
+        fileIdx = fileInfoIdx(c.config, moduleAbsPath, isKnown)
+        entryPointPath = c.config.getPackageFile(pkgId, "")
+
+      if entryPointPath.string == moduleAbsPath.string:
+        return (fileIdx, alias)
+      else:
+        return (fileIdx, "")
+
+  return (InvalidFileIdx, "")
+
 proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
                     importStmtResult: PNode): PSym =
   ## `info` provides the source position (which may be different from the one
   ## of `n`) to use for symbol suggestions.
   let transf = transformImportAs(c, n)
   n = transf.node
-  let f = checkModuleName(c.config, n)
-  if f != InvalidFileIdx:
-    addImportFileDep(c, f)
+
+  var (fileIdx, pkgAlias) = findModuleAsPackage(c, n)
+  let isPackageImport = fileIdx != InvalidFileIdx
+
+  if not isPackageImport:
+    fileIdx = checkModuleName(c.config, n)
+
+  if fileIdx != InvalidFileIdx:
+    addImportFileDep(c, fileIdx)
     let L = c.graph.importStack.len
-    let recursion = c.graph.importStack.find(f)
-    c.graph.importStack.add f
-    #echo "adding ", toFullPath(f), " at ", L+1
+    let recursion = c.graph.importStack.find(fileIdx)
+    c.graph.importStack.add fileIdx
+    #echo "adding ", toFullPath(fileIdx), " at ", L+1
     if recursion >= 0:
       for i in recursion ..< L:
         c.recursiveDep.add((
@@ -315,17 +350,15 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
 
     var realModule: PSym
     discard pushOptionEntry(c)
-    realModule = c.graph.importModuleCallback(c.graph, c.module, f)
+    realModule = c.graph.importModuleCallback(c.graph, c.module, fileIdx)
 
-    if n.kind != nkImportAs:
-      let fullPath = c.config[f].fullPath
-      if shouldAliasEntrypoint(c.config, fullPath):
-        let alias = case n.kind
-          of nkIdent: n.ident.s
-          of nkInfix, nkDotExpr: n[2].ident.s
-          else: unreachable()
-        if alias.len > 0:
-          let aliasIdent = newIdentNode(getIdent(c.cache, alias), n.info)
+    if isPackageImport and n.kind != nkImportAs:
+      if pkgAlias.len > 0:
+        var importedString = getModuleName(c.config, n)
+        if importedString.startsWith("pkg/"):
+          importedString = importedString.substr(4)
+        if importedString.nimIdentNormalize() == pkgAlias.nimIdentNormalize():
+          let aliasIdent = newIdentNode(getIdent(c.cache, pkgAlias), n.info)
           let newN = newNodeI(nkImportAs, n.info)
           newN.add n
           newN.add aliasIdent

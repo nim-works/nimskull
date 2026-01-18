@@ -241,7 +241,7 @@ proc loadPackageIndex*(conf: ConfigRef) =
         conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
       except IOError:
         return
-      except JsonParsingError, JsonKindError:
+      except JsonParsingError, JsonKindError, KeyError:
         localReport(conf, PackageReport(
           kind: rpkgIndexPresentButMalformed,
           msg: "Malformed package index found!"
