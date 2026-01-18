@@ -26,15 +26,5 @@ var
 # dynamic checks (the location's static type is not known at compile-time):
 doAssert r1 of PhantomBase[int]
 doAssert r2 of PhantomBase[float]
-
-template check(cond: bool) =
-  when defined(c):
-    # XXX: the tests don't fail at the moment, as the generated names
-    #      don't include the instantiated-with parameters
-    doAssert(not cond, "run-time relation works as it should")
-  else:
-    # works properly with the other backends
-    doAssert cond
-
-check not(r1 of PhantomBase[float])
-check not(r2 of PhantomBase[int])
+doAssert not(r1 of PhantomBase[float])
+doAssert not(r2 of PhantomBase[int])

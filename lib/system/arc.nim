@@ -241,10 +241,20 @@ template tearDownForeignThreadGc* =
   discard
 
 proc isObj(obj: PNimTypeV2, subclass: cstring): bool {.compilerRtl, inl.} =
+  # TODO: obsolete. Remove when the csources are updated
   proc strstr(s, sub: cstring): cstring {.header: "<string.h>", importc.}
 
   result = strstr(obj.name, subclass) != nil
 
 proc chckObj(obj: PNimTypeV2, subclass: cstring) {.compilerRtl.} =
+  # TODO: obsolete. Remove when the csources are updated
   # checks if obj is of type subclass:
   if not isObj(obj, subclass): sysFatal(ObjectConversionDefect, "invalid object conversion")
+
+proc isObjV2(obj: PNimTypeV2, other: PNimTypeV2): bool {.compilerRtl, inl.} =
+  ## Computes whether the RTTI `obj` is that of an object type derived from
+  ## or equal to the object type for `other`.
+  var p = obj
+  while p != nil and p != other:
+    p = p.base
+  result = p == other
