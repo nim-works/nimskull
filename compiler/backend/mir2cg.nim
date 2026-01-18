@@ -1372,9 +1372,9 @@ proc emitDefault(c; env; dest: Expr, stmts; bu) =
 
 proc genOf(c; env; tree; e: Expr, typ: TypeId; bu): NodeRef =
   bu.build Call(
-    ^bu.useCompilerProc(c, env, "isObj"),
+    ^bu.useCompilerProc(c, env, "isObjV2"),
     ^c.fieldAccess(env, e, -1, bu),
-    Value(CstringType, ^genTypeInfo2Name(env[typ])))
+    *use(^c.getTypeInfoV2(env, env[typ], bu)))
 
 proc emitLength(c; env; dest, val: Expr, stmts, bu) =
   ## Emits a statement for storing the length of sequence-like `val` in `dest`.
