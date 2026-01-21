@@ -252,23 +252,21 @@ proc loadPackageIndex*(conf: ConfigRef) =
     if parDir == curDir: break
     curDir = parDir
 
-  for package in conf.packageIndex.packages.values:
-    var aliasToDuplicates: Table[string, seq[string]]
-    for dependency in package.dependencies:
-      let normAlias = dependency.alias.nimIdentNormalize()
-      if normAlias notin aliasToDuplicates:
-        aliasToDuplicates.mgetOrPut(normAlias, @[]).add dependency.package
-    for alias, duplicates in aliasToDuplicates:
-      # A lone entry isn't a duplicate, not sure of a better way to handle this
-      if duplicates.len < 2: continue
-      localReport(conf, PackageReport(
-        kind: rpkgDuplicateAliasForPackageDependencies,
-        parentPackage: package.path.string,
-        packages: duplicates,
-        alias: alias,
-        msg: "Package at `" & package.path.string & "` has multiple entries" &
-          "for alias `" & alias & "`."
-      ))
+  for id, package in conf.packageIndex.packages.pairs:
+    var deps: Table[string, string]
+    for it in package.dependencies.items:
+      let alias = it.alias.nimIdentNormalize()
+      if alias in deps:
+        localReport(conf, PackageReport(
+          kind: rpkgDuplicateAliasForPackageDependencies,
+          parentPackage: package.path.string,
+          packages: duplicates,
+          alias: alias,
+          msg: "Alias `" & alias & "` is already used for `" & deps[alias] &
+               "`, in the context of `" & id & "`"
+        ))
+      else:
+        deps[alias] = it.package
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =
