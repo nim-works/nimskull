@@ -47,6 +47,7 @@ from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_packages import PackageReport
+from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
@@ -247,8 +248,7 @@ proc loadPackageIndex*(conf: ConfigRef) =
         ))
       except JsonParsingError, JsonKindError, KeyError:
         localReport(conf, PackageReport(
-          kind: rpkgIndexPresentButMalformed,
-          msg: "Malformed package index found!"
+          kind: rpkgIndexPresentButMalformed
         ))
       conf.packageDir = AbsoluteDir curDir
       break
@@ -264,10 +264,8 @@ proc loadPackageIndex*(conf: ConfigRef) =
         localReport(conf, PackageReport(
           kind: rpkgDuplicateAliasForPackageDependencies,
           parentPackage: package.path.string,
-          packages: duplicates,
-          alias: alias,
-          msg: "Alias `" & alias & "` is already used for `" & deps[alias] &
-               "`, in the context of `" & id & "`"
+          package: deps[alias],
+          alias: alias
         ))
       else:
         deps[alias] = it.package

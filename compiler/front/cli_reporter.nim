@@ -2947,9 +2947,10 @@ proc reportBody*(conf: ConfigRef, r: PackageReport): string =
   assertKind r
   case PackageReportKind(r.kind):
   of rpkgDuplicateAliasForPackageDependencies:
-    r.msg
+    result = "Alias `" & r.alias & "` is already used for `" & r.package &
+             "`, in the context of `" & r.parentPackage & "`"
   of rpkgIndexPresentButMalformed:
-    r.msg
+    result = "Malformed package index found!"
 
 proc reportFull*(conf: ConfigRef, r: PackageReport): string =
   assertKind r

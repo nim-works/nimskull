@@ -12,7 +12,7 @@ type
     case kind*: ReportKind
       of rpkgDuplicateAliasForPackageDependencies:
         parentPackage*: string
-        packages*: seq[string]
+        package*: string
         alias*: string
       else:
         discard
