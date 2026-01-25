@@ -240,7 +240,11 @@ proc loadPackageIndex*(conf: ConfigRef) =
       try:
         conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
       except IOError:
-        return
+        localReport(conf, InternalReport(
+          kind: rintCannotOpenFile,
+          file: path / "index.json",
+          msg: "Cannot open the package index file!"
+        ))
       except JsonParsingError, JsonKindError, KeyError:
         localReport(conf, PackageReport(
           kind: rpkgIndexPresentButMalformed,
