@@ -1624,6 +1624,8 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
           Bitcast(UInt8Type, ^arg(0)),
           Bitcast(UInt8Type, ^arg(1))),
         ^c.genInt(env, 0, UInt8Type, bu)))
+  of mUnaryPlusI, mUnaryPlusF64:
+    wrapAsgn ^arg(0)
   of mAddU, mSubU, mMulU, mDivU, mModU:
     const Map = [mAddU: cnkAdd, mSubU: cnkSub,
                  mMulU: cnkMul, mDivU: cnkDiv, mModU: cnkMod]
