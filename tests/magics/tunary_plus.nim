@@ -1,5 +1,6 @@
 discard """
-  description: "Compiler regression tests for unary plus"
+  description: "Unary plus operator tests"
+  targets: "c js vm"
 """
 
 block static_plus:
@@ -24,6 +25,9 @@ block int32_plus:
 block int64_plus:
   var i64: int64 = 1
   discard +i64
+
+block static_float_plus:
+  discard +1.0
 
 block float_plus:
   var f = 1.0
