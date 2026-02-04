@@ -888,38 +888,42 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
   incl(a[0].sym.flags, sfDiscriminant)
   var covered = toInt128(0)
   var chckCovered = false
+  var doOrdinalChecks = true
   var typ = skipTypes(a[0].typ, abstractVar-{tyTypeDesc})
   const shouldChckCovered = {tyInt..tyInt64, tyChar, tyEnum, tyUInt..tyUInt32, tyBool}
   case typ.kind
   of shouldChckCovered:
     chckCovered = true
   of tyFloat..tyFloat64, tyError:
-    discard
+    doOrdinalChecks = false
   of tyRange:
     if skipTypes(typ[0], abstractInst).kind in shouldChckCovered:
       chckCovered = true
   of tyForward:
     errorUndeclaredIdentifier(c, n[0].info, typ.sym.name.s)
+    doOrdinalChecks = false
   elif not isOrdinalType(typ):
     localReport(c.config, n[0].info, reportTyp(
       rsemExpectedOrdinalOrFloat, typ))
+    doOrdinalChecks = false
 
-  if firstOrd(c.config, typ) != 0:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedLow0Discriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(0),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
-  elif lengthOrd(c.config, typ) > 0x00007FFF:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedHighCappedDiscriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(32768),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
+  if doOrdinalChecks:
+    if firstOrd(c.config, typ) != 0:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedLow0Discriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(0),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
+    elif lengthOrd(c.config, typ) > 0x00007FFF:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedHighCappedDiscriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(32768),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
 
   for i in 1..<n.len:
     let b = n[i]
