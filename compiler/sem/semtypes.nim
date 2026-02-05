@@ -888,26 +888,23 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
   incl(a[0].sym.flags, sfDiscriminant)
   var covered = toInt128(0)
   var chckCovered = false
-  var doOrdinalChecks = true
   var typ = skipTypes(a[0].typ, abstractVar-{tyTypeDesc})
   const shouldChckCovered = {tyInt..tyInt64, tyChar, tyEnum, tyUInt..tyUInt32, tyBool}
   case typ.kind
   of shouldChckCovered:
     chckCovered = true
   of tyFloat..tyFloat64, tyError:
-    doOrdinalChecks = false
+    discard
   of tyRange:
     if skipTypes(typ[0], abstractInst).kind in shouldChckCovered:
       chckCovered = true
   of tyForward:
     errorUndeclaredIdentifier(c, n[0].info, typ.sym.name.s)
-    doOrdinalChecks = false
   elif not isOrdinalType(typ):
     localReport(c.config, n[0].info, reportTyp(
       rsemExpectedOrdinalOrFloat, typ))
-    doOrdinalChecks = false
 
-  if doOrdinalChecks:
+  if chckCovered:
     if firstOrd(c.config, typ) != 0:
       localReport(c.config, n.info, SemReport(
         kind: rsemExpectedLow0Discriminant,

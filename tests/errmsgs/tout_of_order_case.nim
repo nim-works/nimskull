@@ -1,6 +1,6 @@
 discard """
-  errormsg: "undeclared identifier: 'Enum'"
-  line: 14
+  action: reject
+  matrix: "--errorMax:2"
 """
 
 # TODO: This is not an ideal error message, it should be improved and the
@@ -11,7 +11,9 @@ discard """
 
 type
   Object = object
-    case x: Enum
-    of a, b:
+    case x: Enum #[tt.Error
+         ^ undeclared identifier: 'Enum' ]#
+    of a, b: #[tt.Error
+       ^ undeclared identifier: 'a' ]#
       discard
   Enum = enum a, b
