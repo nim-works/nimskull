@@ -1397,8 +1397,10 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
 
-proc getOwningPackageId(conf: ConfigRef, currentModule: AbsoluteFile): string =
+proc getOwningPackageId*(conf: ConfigRef, currentModule: AbsoluteFile): string =
   ## Finds the ID of the package that owns the current module.
+  result = "unknown"
+
   let currentAbsPath = absolutePath($currentModule, $conf.projectPath)
   var maxPathLen = -1
   
@@ -1412,17 +1414,17 @@ proc getOwningPackageId(conf: ConfigRef, currentModule: AbsoluteFile): string =
 proc findPackage*(
   conf: ConfigRef,
   modulename: string,
-  currentModule: AbsoluteFile
+  currentModule: AbsoluteFile,
+  currentModulePackageId: string
 ): (string, string) =
   ## Looks for a package in the package index, respecting aliases
   result = ("", "")
 
-  let owningPkgId = getOwningPackageId(conf, currentModule)
+  if currentModulePackageId == "unknown": return
 
-  if owningPkgId == "": return
-
+  echo "findPackage.currentModulePackageId: ", currentModulePackageId
   let
-    owningPkg = conf.packageIndex.packages[owningPkgId]
+    owningPkg = conf.packageIndex.packages[currentModulePackageId]
     modParts = modulename.split('/', 1)
     modPrefix = modParts[0].nimIdentNormalize()
 
@@ -1430,7 +1432,7 @@ proc findPackage*(
     if dep.alias.nimIdentNormalize() == modPrefix:
       return (dep.package, dep.alias)
 
-proc getPackageFile*(
+proc getPackageEntry*(
   conf: ConfigRef,
   pkgId: string,
   modulePath: string
@@ -1457,7 +1459,10 @@ proc getPackageFile*(
 
   result = AbsoluteFile(absolutePath(addFileExt(path, NimExt), $conf.packageDir))
 
-proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
+proc findModule*(
+  conf: ConfigRef,
+  modulename, currentModule, currentModulePackageId: string
+): AbsoluteFile =
   ## Return absolute path to the imported module `modulename`. Imported
   ## path can be relative to the `currentModule`, absolute one, `std/` or
   ## `pkg/`-prefixed. In case of `pkg/` prefix it is dropped and search is
@@ -1473,11 +1478,14 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
   ## If the module is found and exists module override, apply it last.
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
-    let stripped = modulename.substr(pkgPrefix.len)
-    let (pkgId, _) = conf.findPackage(stripped, AbsoluteFile currentModule)
+    let
+      stripped = modulename.substr(pkgPrefix.len)
+      (pkgId, _) = conf.findPackage(
+        modulename, AbsoluteFile currentModule, currentModulePackageId
+      )
 
     if pkgId.len > 0:
-      return conf.getPackageFile(pkgId, stripped)
+      return conf.getPackageEntry(pkgId, stripped)
     else:
       return AbsoluteFile"" # Explicit pkg/ import failed
 
@@ -1496,9 +1504,11 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = findFile(conf, m)
     # try to interpret the module path as a package-qualified path
     if not fileExists(result):
-      let (pkgId, _) = conf.findPackage(modulename, AbsoluteFile currentModule)
+      let (pkgId, _) = conf.findPackage(
+        modulename, AbsoluteFile currentModule, currentModulePackageId
+      )
       if pkgId.len > 0:
-        result = conf.getPackageFile(pkgId, modulename)
+        result = conf.getPackageEntry(pkgId, modulename)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project

@@ -66,10 +66,17 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     conf.localReport(n.info, reportAst(rsemInvalidModuleName, n))
     result = ""
 
-proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
+proc checkModuleName*(
+  conf: ConfigRef,
+  n: PNode,
+  pkgId: string,
+  doLocalError=true
+): FileIndex =
   # This returns the full canonical path for a given module import
   let modulename = getModuleName(conf, n)
-  let fullPath = findModule(conf, modulename, toFullPath(conf, n.info))
+  echo "checkModuleName.modulename: ", modulename
+  echo "checkModuleName.pkgId: ", pkgId
+  let fullPath = findModule(conf, modulename, toFullPath(conf, n.info), pkgId)
   if fullPath.isEmpty:
     if doLocalError:
       let m = if modulename.len > 0: modulename else: $n

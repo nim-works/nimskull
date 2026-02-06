@@ -3047,7 +3047,7 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
 proc evalInclude(c: PContext, n: PNode): PNode =
   proc incMod(c: PContext, n, it, includeStmtResult: PNode) {.nimcall.} =
     c.config.timeTracer.traceStr(tikInclude, getModuleName(c.config, it))
-    let f = checkModuleName(c.config, it)
+    let f = checkModuleName(c.config, it, c.module.owner.name.s)
     if f != InvalidFileIdx:
       addIncludeFileDep(c, f)
       onProcessing(c.graph, f, "include", c.module)

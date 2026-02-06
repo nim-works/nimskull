@@ -872,12 +872,12 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
     of nkImportStmt:
       for x in n:
         if x.kind == nkIdent:
-          let f = checkModuleName(g.config, x, false)
+          let f = checkModuleName(g.config, x, "stdlib", false)
           if f == g.systemModule.info.fileIndex:
             return true
     of nkImportExceptStmt, nkFromStmt:
       if n[0].kind == nkIdent:
-        let f = checkModuleName(g.config, n[0], false)
+        let f = checkModuleName(g.config, n[0], "stdlib", false)
         if f == g.systemModule.info.fileIndex:
           return true
     else: discard

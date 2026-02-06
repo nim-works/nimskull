@@ -348,7 +348,9 @@ proc suggestFieldAccess(c: PContext, n, field: PNode, outputs: var Suggestions) 
   when defined(nimsuggest):
     if n.kind == nkSym and n.sym.kind == skError:
       # consider 'foo.|' where 'foo' is some not imported module.
-      let fullPath = findModule(c.config, n.sym.name.s, toFullPath(c.config, n.info))
+      let fullPath = findModule(
+        c.config, n.sym.name.s, toFullPath(c.config, n.info), n.sym.owner.name.s
+      )
       if fullPath.isEmpty:
         # error: no known module name:
         typ = nil

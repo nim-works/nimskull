@@ -1356,16 +1356,14 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       let info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
-      conf.implicitImportsAdd findModule(
-        conf, arg, toFullPath(conf, info)).string
+      conf.implicitImports.add toFullPath(conf, info)
   of "include":
     setSwitchAndSrc cmdSwitchInclude
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       # xxx: pretty sure this should do path validation
       let info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
-      conf.implicitIncludesAdd findModule(
-        conf, arg, toFullPath(conf, info)).string
+      conf.implicitIncludes.add toFullPath(conf, info)
   of "listcmd":
     setSwitchAndSrc cmdSwitchListcmd
     processOnOffSwitchG(conf, {optListCmd}, arg, switch)

@@ -296,7 +296,8 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
   return ret
 
 proc findModuleAsPackage(c: PContext; n: PNode): (FileIndex, string) = 
-  ## Finds a module by checking the package index
+  ## Finds a module by checking the package index. Returns the file index,
+  ## and the alias.
   var modulePathString = getModuleName(c.config, n)
   if modulePathString.len == 0: return (InvalidFileIdx, "")
   if modulePathString.startsWith("pkg/"):
@@ -304,16 +305,21 @@ proc findModuleAsPackage(c: PContext; n: PNode): (FileIndex, string) =
 
   let
     currentModulePath = c.config[c.module.info.fileIndex].fullPath
-    (pkgId, alias) = c.config.findPackage(modulePathString, currentModulePath)
+    currentModulePkgId = block:
+      if c.module.owner.owner != nil: c.module.owner.owner.name.s
+      else: c.module.owner.name.s
+    (pkgId, alias) = c.config.findPackage(
+      modulePathString, currentModulePath, currentModulePkgId
+    )
 
   if pkgId.len > 0:
-    let moduleAbsPath = c.config.getPackageFile(pkgId, modulePathString)
+    let moduleAbsPath = c.config.getPackageEntry(pkgId, modulePathString)
 
     if moduleAbsPath.string.len > 0 and fileExists(moduleAbsPath.string):
       var isKnown: bool
       let
         fileIdx = fileInfoIdx(c.config, moduleAbsPath, isKnown)
-        entryPointPath = c.config.getPackageFile(pkgId, "")
+        entryPointPath = c.config.getPackageEntry(pkgId, "")
 
       if entryPointPath.string == moduleAbsPath.string:
         return (fileIdx, alias)
@@ -333,7 +339,11 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
   let isPackageImport = fileIdx != InvalidFileIdx
 
   if not isPackageImport:
-    fileIdx = checkModuleName(c.config, n)
+    let isSystem = if c.graph.systemModule != nil: "stdlib" else: "unknown"
+    echo "myImportModule.n: ", n.repr
+    echo "myImportModule.isSystem: ", isSystem
+    
+    fileIdx = checkModuleName(c.config, n, isSystem)
 
   if fileIdx != InvalidFileIdx:
     addImportFileDep(c, fileIdx)

@@ -105,8 +105,11 @@ proc processTopLevelStmt(
 
   result = true
 
-proc resolveMod(conf: ConfigRef; module, relativeTo: string): FileIndex =
-  let fullPath = findModule(conf, module, relativeTo)
+proc resolveMod(
+  conf: ConfigRef,
+  modulename, relativeTo, relativeModulePkgId: string
+): FileIndex =
+  let fullPath = conf.findModule(modulename, relativeTo, relativeModulePkgId)
   if fullPath.isEmpty:
     result = InvalidFileIdx
   else:
@@ -118,13 +121,21 @@ proc processImplicits(
     nodeKind: TNodeKind,
     a: var TPassContextArray,
     m: PSym
-  ) =
+) =
+  let
+    conf = graph.config
+    currentPkgId = m.owner.name.s
+    mainModulePath = conf[conf.projectMainIdx].fullPath
+    mainPkgId = getOwningPackageId(conf, mainModulePath)
+
+  # only process implicit imports for the main module
+  if currentPkgId != mainPkgId: return
 
   # XXX fixme this should actually be relative to the config file!
-  let relativeTo = toFullPath(graph.config, m.info)
+  let relativeTo = toFullPath(conf, m.info)
   for module in items(implicits):
     # implicit imports should not lead to a module importing itself
-    if m.position != resolveMod(graph.config, module, relativeTo).int32:
+    if m.position != resolveMod(graph.config, module, relativeTo, currentPkgId).int32:
       var importStmt = newNodeI(nodeKind, m.info)
       var str = newStrNode(nkStrLit, module)
       str.info = m.info
