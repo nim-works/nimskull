@@ -543,6 +543,16 @@ func skip*(tree: MirTree, n: OpValue, kind: MirNodeKind): OpValue =
   if tree[n].kind == kind: tree.operand(n)
   else:                    n
 
+iterator items*(tree: MirTree, n: NodePosition; start = 0, last = ^1
+               ): NodePosition =
+  ## Returns in order of apperance all direct child nodes of `n`, starting with
+  ## `start`.
+  let e = tree[n].len.int - ord(last)
+  var n = tree.child(n, start)
+  for _ in start..e:
+    yield n
+    n = tree.sibling(n)
+
 iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
   var i = 0
   let L = tree.len
@@ -555,7 +565,7 @@ iterator subNodes*(tree: MirTree, n: NodePosition; start = 0): NodePosition =
   ## `start`.
   let L = tree[n].len
   var n = tree.child(n, start)
-  for _ in 0..<L:
+  for _ in start..<int(L):
     yield n
     n = tree.sibling(n)
 

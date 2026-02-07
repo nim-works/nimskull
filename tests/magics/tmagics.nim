@@ -69,3 +69,19 @@ block wrong_finished_result:
     doAssert f
 
   test()
+
+block bool_comparison:
+  # tests for the boolean less-than and less-than-or-equal operators
+  let t = true
+  let f = false
+
+  doAssert t > f # 'true' is greater than 'false'
+  doAssert f < t
+  doAssert not (t > t) # 'true' is not greater or less than itself
+  doAssert not (t < t)
+  doAssert not (f > f) # 'false' is not greater or less than itself
+  doAssert not (f < f)
+  doAssert t >= t
+  doAssert t <= t
+  doAssert f >= f
+  doAssert f <= f

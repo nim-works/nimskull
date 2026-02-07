@@ -43,8 +43,8 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
+    build_insts, # JSON build instructions
     extccomp,    # Calling C compiler
-    cgen,        # C code generation
   ],
   compiler/utils/[
     platform,    # Target platform data
@@ -182,6 +182,8 @@ template prepareForCodegen(g: ModuleGraph) =
   # the backend / code generation phase generally expects errors to terminate
   # the compiler, so make sure that they do
   g.config.errorMax = 1
+  # the VM instance is not needed anymore. Free it to save memory
+  reset g.vm
 
 proc commandCompileToC(graph: ModuleGraph) =
   let conf = graph.config
@@ -191,8 +193,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
-      if not changeDetectedViaJsonBuildInstructions(conf, conf.jsonBuildInstructionsFile):
-        # nothing changed
+      if not buildInstructionsStatus(conf, conf.getBuildInstructionsFile()):
         graph.config.notes = graph.config.mainPackageNotes
         return
 
@@ -204,24 +205,20 @@ proc commandCompileToC(graph: ModuleGraph) =
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
-    cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
-    cbackend.generateCode(graph)
-    # graph.backend can be nil under IC when nothing changed at all:
-    if graph.backend != nil:
-      cgenWriteModules(graph.backend, conf)
-  if graph.backend != nil:
-    extccomp.callCCompiler(conf)
-    extccomp.writeJsonBuildInstructions(conf)
-    if conf.depfile.string.len != 0:
-      writeGccDepfile(conf)
-    if optGenScript in graph.config.globalOptions:
-      writeDepsFile(graph)
+    cbackend2.generateCode(graph, graph.finalizeModules())
+
+  extccomp.callCCompiler(conf)
+  extccomp.writeBuildInstructions(conf)
+  if conf.depfile.string.len != 0:
+    writeGccDepfile(conf)
+  if optGenScript in graph.config.globalOptions:
+    writeDepsFile(graph)
 
 proc commandJsonScript(graph: ModuleGraph) =
-  extccomp.runJsonBuildInstructions(graph.config, graph.config.jsonBuildInstructionsFile)
+  extccomp.runBuildInstructions(graph.config, graph.config.getBuildInstructionsFile())
 
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config

@@ -67,7 +67,7 @@ jobs:
           # On the contrary, reprotest needs all of those deps to work
           sudo apt-get install -yqq reprotest
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           filter: tree:0
@@ -111,7 +111,7 @@ jobs:
 
       - name: Upload diffoscope output
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.test.name }} reproducibility test diffoscope output
           path: ${{ steps.reprotest.outputs.result }}

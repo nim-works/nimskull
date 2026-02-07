@@ -696,7 +696,8 @@ proc exprToPmir(c: TranslateCtx, result: var seq[ProtoItem], n: PNode, sink: boo
       wantValue(n[1])
       node pirStdConv
   of nkHiddenSubConv, nkConv:
-    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct, {IgnoreTupleFields}):
+    if compareTypes(n.typ, n[1].typ, dcEqIgnoreDistinct,
+                    {IgnoreTupleFields, PickyCAliases}):
       # it's an lvalue-preserving conversion
       wantValue(n[1], sink)
       node pirLvalueConv

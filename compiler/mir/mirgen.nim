@@ -184,7 +184,8 @@ const
     ## into assignments-to-temporaries
 
 func isHandleLike(t: PType): bool =
-  t.skipTypes(abstractInst).kind in {tyPtr, tyRef, tyLent, tyVar, tyOpenArray}
+  t.skipTypes(abstractInst).kind in
+    {tyPtr, tyRef, tyLent, tyVar, tyOpenArray, tyVarargs}
 
 # XXX: copied from ``injectdestructors``. Move somewhere common
 proc isCursor(n: PNode): bool =
@@ -2001,11 +2002,8 @@ proc genAsmOrEmitStmt(c: var TCtx, kind: range[mnkAsm..mnkEmit], n: PNode) =
       # (including type expressions) ...
       if it.typ != nil and it.typ.kind == tyTypeDesc:
         c.use typeLit(c.typeToMir(it.typ.base))
-      elif it.kind == nkSym and it.sym.kind == skField:
-        # emit and asm support using raw field symbols. For pushing them
-        # through to the code generators, they're quoted (i.e., boxed into
-        # an AST literal)
-        c.use astLiteral(c.env, it, it.sym.typ)
+      elif it.kind in nkStrLiterals:
+        c.use strLiteral(c.env, it.strVal, CstringType)
       else:
         # emit and asm statements support lvalue operands
         genOperand(c, it)
@@ -2160,8 +2158,17 @@ proc genx(c: var TCtx, e: PMirExpr, i: int; fromMove = false) =
     c.buildOp mnkStdConv, typ:
       recurse()
   of pirToSlice:
-    c.buildOp viewOp(mnkToSlice, n.typ), typ:
-      recurse()
+    if e[i - 1].typ.skipTypes(abstractInst).kind == tyArray and
+       c.graph.config.lengthOrd(e[i - 1].typ) == Zero:
+      # empty array types are problematic, as they cannot be represented the
+      # MIR level, so don't create an operation that relies on querying one
+      c.buildOp viewOp(mnkToSlice, n.typ), typ:
+        recurse()
+        c.use intLiteral(c.env, 0, c.env.types.sizeType)
+        c.use intLiteral(c.env, -1, c.env.types.sizeType)
+    else:
+      c.buildOp viewOp(mnkToSlice, n.typ), typ:
+        recurse()
   of pirToSubSlice:
     # the array operand is a PMIR expression already, but the operands
     # specifying the bounds are not
@@ -2645,8 +2652,8 @@ proc constDataToMir*(env: var MirEnv, n: PNode): MirTree =
     of nkBracket, nkTupleConstr, nkClosure:
       let kind: range[mnkArrayConstr..mnkClosureConstr] =
         case n.typ.skipTypes(abstractInst).kind
-        of tyArray:                 mnkArrayConstr
-        of tyOpenArray, tySequence: mnkSeqConstr
+        of tyOpenArray, tyArray:    mnkArrayConstr
+        of tySequence:              mnkSeqConstr
         of tyTuple:                 mnkTupleConstr
         of tyProc:                  mnkClosureConstr
         else:                       unreachable()

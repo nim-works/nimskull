@@ -732,7 +732,6 @@ const
 
   tfUnion* = tfNoSideEffect
   tfGcSafe* = tfThread
-  tfObjHasKids* = tfEnumHasHoles
   tfReturnsNew* = tfInheritable
   skError* = skUnknown
 

@@ -28,7 +28,6 @@ import
     mirtypes
   ],
   compiler/utils/[
-    bitsets,
     int128
   ]
 
@@ -75,46 +74,6 @@ proc isDiscriminantField*(n: CgNode): bool =
 
 func isOfBranch*(n: CgNode): bool {.inline.} =
   n.kind == cnkBranch and n.len > 1
-
-
-proc isDeepConstExpr*(n: CgNode): bool =
-  case n.kind
-  of cnkLiterals, cnkNilLit:
-    result = true
-  of cnkSetConstr, cnkArrayConstr, cnkClosureConstr, cnkTupleConstr, cnkRange:
-    result = true
-    for it in n.items:
-      if not isDeepConstExpr(it):
-        result = false
-        break
-  of cnkObjConstr:
-    let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
-    if t.kind == tyRef:
-      # ref-constructions are never constant
-      return false
-
-    result = true
-    for it in n.items:
-      if not isDeepConstExpr(it[1]):
-        result = false
-        break
-  else:
-    result = false
-
-proc toBitSet*(conf: ConfigRef; s: CgNode): TBitSet =
-  ## Duplicate of `toBitSet <nimsets.html#toBitSet,ConfigRef,PNode>`_
-  bitSetInit(result, int(getSize(conf, s.typ)))
-
-  var first, j: Int128
-  first = firstOrd(conf, s.typ[0])
-  for it in s.items:
-    if it.kind == cnkRange:
-      j = getOrdValue(it[0])
-      while j <= getOrdValue(it[1]):
-        bitSetIncl(result, toInt64(j - first))
-        inc(j)
-    else:
-      bitSetIncl(result, toInt64(getOrdValue(it) - first))
 
 proc newSymNode*(env: MirEnv, s: PSym): CgNode {.inline.} =
   case s.kind

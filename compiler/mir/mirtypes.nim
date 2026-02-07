@@ -144,6 +144,13 @@ type
     idents: BiTable[string]
     numbers: BiTable[BiggestInt]
 
+    guard: int
+      ## tracks the recursion depth for `add`, to know which call is the
+      ## top-level one
+    delayed: seq[TypeId]
+      ## still-incomplete type symbols corresponding to object types, to be
+      ## completed later
+
     config: ConfigRef
     graph: ModuleGraph
 
@@ -378,6 +385,12 @@ iterator params*(env: TypeEnv, desc: TypeHeader
     yield (int(i - desc.a - 1), env.params[i].typ,
            cast[set[ParamFlag]](env.params[i].x))
 
+func paramType*(desc: TypeHeader, env: TypeEnv, i: uint32): TypeId =
+  ## Returns the type of the `i`-th parameter for proc/closure type `desc`.
+  assert desc.kind in {tkProc, tkClosure}
+  assert desc.a + 1 + i < desc.b, "invalid parameter index"
+  env.params[desc.a + uint32(i) + 1].typ
+
 func base*(desc: TypeHeader, env: TypeEnv): TypeId =
   ## Returns the node storing the base type (i.e., the parent type) for a
   ## struct type.
@@ -462,7 +475,7 @@ proc lookupField*(env: TypeEnv, typ: TypeId, pos: int32): FieldId =
   ## in struct-like type `typ`. Imported types are skipped.
 
   # skip imported types:
-  var typ = env.symbols[typ].canon
+  var typ = typ
   while env.headerFor(typ, Canonical).kind == tkImported:
     typ = env.headerFor(typ, Canonical).elem
 
@@ -562,6 +575,12 @@ proc getBranch*(env: TypeEnv, outer, typ: TypeId, id: FieldId,
     n     = findCase(inst.n, env.idents[env.fields[ord tag].ident])
     pos   = uint32 findBranch(n, val)
   result = FieldId(env.headerFor(env.fields[ord id].typ, Lowered).a + pos)
+
+iterator canonical*(env: TypeEnv): TypeId =
+  ## Returns the canonical version of every type part of `env`.
+  for id, it in env.symbols.pairs:
+    if it.canon == id:
+      yield id
 
 # struct/proc builder API
 # -----------------------
@@ -810,7 +829,13 @@ proc procTypeToMir(env: var TypeEnv, kind: TypeKind, t: PType,
 
   var prc: ProcBuilder
   let ret =
-    if isEmptyType(t[0]):
+    if t.callConv == ccTailcall:
+      # FIXME: using the Continuation type as the return type is wrong when
+      #        portable tailcalls are *not* enabled
+      # XXX: this also makes the actual types of MIR expressions not match
+      #      their declared types prior to tailcall lowering
+      typeref(t.n[0][effectListLen].typ)
+    elif isEmptyType(t[0]):
       VoidType
     else:
       typeref(t[0])
@@ -1115,14 +1140,9 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # register the type symbol *first*. This prevents infinite recursion for
     # cyclic types
     result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
-    env.map[t] = result
-
-    let
-      orig  = typeToMir(env, t, canon=false)
-      canon = typeToMir(env, t, canon=true, unique=(tfFromGeneric notin t.flags))
-
-    # there's nothing to lower for object types
-    env.symbols[result].desc = [orig, canon, canon]
+    # don't override mappings pointing to the imported type
+    if sfImportc notin t.sym.flags:
+      env.map[t] = result
 
     # generic types support covariance for tuples. Pick an instance as the
     # "canonical" one, so that - for example - ``Generic[(int,)]`` and
@@ -1133,12 +1153,16 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
                                         result);
         c != result):
       env.symbols[result].canon = c
+
+    env.delayed.add result
   of Skip:
     # except for `inst`, the type symbol is identical to that of the
     # skipped-to type
     let base = env.add(skipIrrelevant(t))
     var sym = env.symbols[base]
     sym.inst = t
+    # note: for skipped types that reference object types, a separate pass
+    # makes sure the symbol is proper
     result = env.symbols.add(sym)
     env.map[t] = result
   else:
@@ -1164,12 +1188,16 @@ proc typeSymToMir(env: var TypeEnv, t: PType): TypeId =
     # now add the symbol and mapping:
     result = env.symbols.add TypeSym(inst: t, canon: prev,
                                      desc: [orig, canon, lowered])
-    env.map[t] = result
+    if t.sym.isNil or sfImportc notin t.sym.flags:
+      env.map[t] = result
 
 proc handleImported(env: var TypeEnv, t: PType): TypeId =
   if t.sym != nil and sfImportc in t.sym.flags:
-    # an imported type. It's wrapped in a ``tkImported``, referencing the
-    # underlying type
+    # add and register a preliminary symbol first, so that recursive types
+    # work correctly
+    result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId())
+    env.map[t] = result
+
     let base =
       if t.kind in Skip:
         env.add t.lastSon.skipIrrelevant()
@@ -1185,22 +1213,50 @@ proc handleImported(env: var TypeEnv, t: PType): TypeId =
       orig  = env.add makeDesc(tkImported, size, t.align, base)
       canon = env.add makeDesc(tkImported, size, t.align,
                                env.canonical(base))
-    result = env.symbols.add TypeSym(inst: t, canon: env.symbols.nextId(),
-                                     desc: [orig, canon, canon])
 
-    # doesn't matter if a symbol mapping already exists (happens when
-    # `base` == `t`); override it
-    env.map[t] = result
+    env.symbols[result].desc = [orig, canon, canon]
   else:
     result = typeSymToMir(env, t)
+
+proc translateObjects(env: var TypeEnv, since: Checkpoint) =
+  ## Post-processes the type symbols added since `since`, translating all
+  ## delayed object types and fixing alias-like symbols pointing to them.
+  # first pass: translate delayed object types
+  let needsFixup = env.delayed.len > 0
+  while env.delayed.len > 0:
+    let
+      id    = env.delayed.pop()
+      inst  = env.symbols[id].inst
+      orig  = typeToMir(env, inst, canon=false)
+      canon = typeToMir(env, inst, canon=true,
+                        unique=(tfFromGeneric notin inst.flags))
+
+    # there's nothing to lower for object types
+    env.symbols[id].desc = [orig, canon, canon]
+
+  if needsFixup:
+    # second pass: fix type-symbols corresponding to alias-like types pointing
+    # to object types
+    for id, it in since(env.symbols, since):
+      if it.inst != nil and it.inst.kind in Skip and
+         it.desc[Original] == HeaderId(0) and
+         env.headerFor(it.canon, Original).kind in {tkStruct, tkUnion}:
+        # inherit the description from the aliased type
+        let target = skipIrrelevant(it.inst)
+        env.symbols[id].desc = env.symbols[env.map[target]].desc
 
 proc add*(env: var TypeEnv, t: PType): TypeId =
   ## If not registered yet, adds `t` to `env` and returns the ID to later
   ## look it up with.
   result = env.map.getOrDefault(t, env.symbols.nextId())
   if result == env.symbols.nextId(): # not seen yet?
+    let before = env.symbols.checkpoint()
+    inc env.guard
     result = handleImported(env, t)
     # translation of the type registered the mapping for us
+    if env.guard == 1: # top-most call?
+      translateObjects(env, before)
+    dec env.guard
 
 proc addSignature*(env: var TypeEnv, t: PType): TypeId =
   ## Adds the proc type `t` to `env`, treating it as the type of a *procedure*,
@@ -1247,9 +1303,46 @@ func usizeType*(env: TypeEnv): TypeId {.inline.} =
   ## unsigned integer type of target-dependent bit-width.
   env.usizeType
 
-# type creation routines
-# ----------------------
+# ---- convenience type constructors
+
+func newArray*(env: var TypeEnv, count: Positive, typ: TypeId): TypeId =
+  ## Generates an array type with `count` elements of type `typ`.
+  let desc = env.headerFor(typ, Original)
+  env.newType(env.add(makeDesc(tkArray,
+    env.toIntVal(count * size(desc, env)),
+    desc.align,
+    typ,
+    uint32 env.toIntVal(count))))
+
+func newTuple*(env: var TypeEnv, elems: varargs[TypeId]): TypeId =
+  ## Generates a tuple (i.e., struct) type with elements `elems`.
+  var size = 0
+  var align = 0'i16
+  for it in elems.items:
+    let desc = env.headerFor(it, Original)
+    if align > 0:
+      if desc.align < 0:
+        align = szUnknownSize
+      else:
+        align = max(align, desc.align)
+
+    if align > 0 and size(desc, env) >= 0:
+      let mask = desc.align - 1
+      size = (size + mask) and not mask
+    else:
+      size = szUnknownSize
+
+  let header = env.buildStruct(env.toIntVal(size), align, bu):
+    for it in elems.items:
+      bu.addField(env, it)
+
+  result = env.newType(header)
 
 func newPtr*(env: var TypeEnv, target: TypeId): TypeId =
   ## Creates and returns a pointer type with target type `target`.
   env.newPtrTy(target)
+
+func newPtrToArray*(env: var TypeEnv, elem: TypeId): TypeId =
+  ## Generates a type representing a pointer to an unbounded array with
+  ## element `elem`.
+  newPtrTy(env, newUncheckedArrayTy(env, elem))

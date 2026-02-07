@@ -703,6 +703,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotCodegenCompiletimeProc:
       result = "request to generate code for .compileTime proc: " & r.symstr
 
+    of rsemNameCollision:
+      result = "a symbol with the same external name ('$1') exists already" % [r.str]
+
     of rsemFieldAssignmentInvalid:
       result = "Invalid field assignment '$1'" % r.ast.render
     
@@ -2838,6 +2841,12 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
 
   of rbackTargetNotSupported:
     "Compiler '$1' doesn't support the requested target" % r.usedCompiler
+
+  of rbackTlsEmulationNotImplemented:
+    "Thread-local storage emulation is currently not implemented"
+
+  of rbackHeaderGenerationNotImplemented:
+    "C header generation is currently not implemented"
 
   of rbackJsonScriptMismatch:
     (

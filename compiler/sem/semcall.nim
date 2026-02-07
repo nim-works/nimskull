@@ -278,12 +278,17 @@ proc semGenericArgs(c: PContext, n: PNode): PNode =
   if hasError:
     result = c.config.wrapError(result)
 
-proc resolveOverloads(c: PContext, n, nOrig: PNode,
+proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var seq[SemCallMismatch]): TCandidate =
+  ## Performs overload resolution for the untyped, static call expression `n`,
+  ## filtered by callee symbol kinds specified by `filter`.
+  ## As arguments are typed, they're written back to `n`, with `errors`
+  ## accumulating all tried-and-rejected overloads.
   addInNimDebugUtils(c.config, "resolveOverloads", n, filter, errors, result)
   var
     alt: TCandidate
+    nOrig = copyNodeWithKids(n)
     f = n[0]
   
   case f.kind
@@ -387,9 +392,7 @@ proc resolveOverloads(c: PContext, n, nOrig: PNode,
       if {nfDotField, nfDotSetter} * n.flags != {}:
         # clean up the inserted ops
         n.sons.delete(2)
-        nOrig.sons.delete(2)
         n[0] = f
-        nOrig[0] = f
       # make sure that all recorded diagnostics are emitted, by adding them to
       # the no-match candidate
       result.addAllDiagnostics(diags)
@@ -584,12 +587,15 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   result.typ = finalCallee.typ[0]
   result = updateDefaultParams(c.config, result)
 
-proc semOverloadedCall(c: PContext, n, nOrig: PNode,
+proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semOverloadedCall", n, result)
   var errors: seq[SemCallMismatch]
 
-  var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+  let n = copyNodeWithKids(n)
+  # `n` will be updated with the typed arguments, so a shallow copy has to
+  # be created
+  var r = resolveOverloads(c, n, filter, flags, errors)
   emitDiagnostics(c, r) # always emit all captured diags for the match
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
@@ -764,7 +770,7 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     call.add(newNodeIT(nkEmpty, fn.info, x))
   if hasDistinct:
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
-    var resolved = semOverloadedCall(c, call, call, filter, {})
+    var resolved = semOverloadedCall(c, call, filter, {})
     if resolved != nil:
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):

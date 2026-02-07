@@ -141,11 +141,11 @@ sub/mmain.idx""", context
       let (output, exitCode) = runNimCmd(file, "-d:checkAbi -d:caseBad")
       # on platforms that support _StaticAssert natively, errors will show full context, e.g.:
       # error: static_assert failed due to requirement 'sizeof(unsigned char) == 8'
-      # "backend & Nim disagree on size for: BadImportcType{int64} [declared in mabi_check.nim(1, 6)]"
-      check2 "sizeof(unsigned char) == 8"
-      check2 "sizeof(struct Foo2) == 1"
-      check2 "sizeof(Foo5) == 16"
-      check2 "sizeof(Foo5) == 3"
+      # "C compiler & NimSkull disagree on size for: BadImportcType{int64} [declared in mabi_check.nim(1, 6)]"
+      check2 "sizeof(unsigned char) == (NU64)8"
+      check2 "sizeof(struct Foo2) == (NU64)1"
+      check2 "sizeof(Foo5) == (NU64)16"
+      check2 "sizeof(Foo5) == (NU64)3"
       check2 "sizeof(struct Foo6) == "
       check exitCode != 0
 

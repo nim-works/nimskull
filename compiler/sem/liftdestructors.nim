@@ -830,6 +830,8 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   result.typ.addParam dest
   if kind != attachedDestructor:
     result.typ.addParam src
+  result.typ.initNoEffects() # hooks cannot raise nor have tags
+  result.typ.flags.incl {tfNoSideEffect, tfGcSafe}
 
   if kind == attachedAsgn and g.config.selectedGC == gcOrc and
       cyclicType(typ.skipTypes(abstractInst), g):

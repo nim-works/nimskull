@@ -548,7 +548,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
   x.add(operand) # the definition AST the pragma appears on
 
   # recursion assures that this works for multiple macro annotations too:
-  let r = semOverloadedCall(c, x, copyNodeWithKids(x), {skMacro, skTemplate}, {efNoUndeclared})
+  let r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
   if r.isNil:
     # restore the old list of pragmas since we couldn't process this one
     pragmas[] = n
@@ -2622,7 +2622,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     popOwner(c)
     return wrapErrorAndUpdate(c.config, result, s)
 
-  if result[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
+  if sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
@@ -2904,8 +2904,7 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     popOwner(c)
     return wrapErrorAndUpdate(c.config, result, s)
 
-  if result[pragmasPos].kind != nkEmpty:
-    setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
+  setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
   # analyse the body:

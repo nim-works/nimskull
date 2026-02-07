@@ -1,5 +1,5 @@
 discard """
-  ccodecheck: "\\i@'NI64* NIM_NOALIAS field;' @'NIM_CHAR* NIM_NOALIAS x,' @'void* NIM_NOALIAS q'"
+  ccodecheck: "\\i@'NI64* NIM_NOALIAS field;' @'NIM_CHAR* NIM_NOALIAS xData_,' @'void* NIM_NOALIAS q'"
 """
 
 type

@@ -50,7 +50,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           filter: tree:0
@@ -116,7 +116,7 @@ jobs:
     name: Test compiler and stdlib (batch ${{ matrix.batch.display }}/${{ matrix.num-batch }})
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           filter: tree:0
@@ -124,7 +124,7 @@ jobs:
       - uses: ./.github/actions/download-compiler
 
       - name: Install NodeJS
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: "16"
 
@@ -195,7 +195,7 @@ jobs:
     runs-on: ${{ inputs.runner }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           filter: tree:0

@@ -904,22 +904,23 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     localReport(c.config, n[0].info, reportTyp(
       rsemExpectedOrdinalOrFloat, typ))
 
-  if firstOrd(c.config, typ) != 0:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedLow0Discriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(0),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
-  elif lengthOrd(c.config, typ) > 0x00007FFF:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedHighCappedDiscriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(32768),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
+  if chckCovered:
+    if firstOrd(c.config, typ) != 0:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedLow0Discriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(0),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
+    elif lengthOrd(c.config, typ) > 0x00007FFF:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedHighCappedDiscriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(32768),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
 
   for i in 1..<n.len:
     let b = n[i]
@@ -1893,12 +1894,12 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
 
+  when useEffectSystem:
+    setEffectsForProcType(c.graph, result, n[1])
+
   # instantiate the type of the continuation for .tailcall procedures
   if result.callConv == ccTailcall:
     prepareTailcallProc(c, n.info, result)
-
-  when true:
-    when useEffectSystem: setEffectsForProcType(c.graph, result, n[1])
   closeScope(c)
 
 proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
