@@ -30,6 +30,13 @@ import spec
 import boring
 import mutate
 
+type
+  ErrorCode* = enum
+    success = 0
+    fileNotProvided = 1
+    setupError = 2
+    noError = 3
+
 template semcheck(body: untyped) {.dirty.} =
   ## perform the complete setup and compilation process
   cache = newIdentCache()
@@ -41,8 +48,7 @@ template semcheck(body: untyped) {.dirty.} =
 
   # perform boring setup of the config using the cache
   if not setup(cache, config, graph):
-    echo "crashing due to error during setup"
-    quit 1
+    return ErrorCode.setupError
 
   config.verbosity = compVerbosityMin   # reduce spam
 
@@ -63,7 +69,7 @@ proc calculateScore(config: ConfigRef; n: PNode): int =
 proc dustReportHook(conf: ConfigRef, report: Report): TErrorHandling =
   doDefault
 
-proc dust*(filename: AbsoluteFile) =
+proc dust*(filename: AbsoluteFile): ErrorCode =
   var
     graph: ModuleGraph
     cache: IdentCache
@@ -75,6 +81,8 @@ proc dust*(filename: AbsoluteFile) =
     remains: Remains
     rendered: string
 
+  result = ErrorCode.success
+
   proc uhoh(config: ConfigRef, rep: Report): TErrorHandling =
     ## capture the first error
     if config.severity(rep) == rsevError:
@@ -84,7 +92,6 @@ proc dust*(filename: AbsoluteFile) =
           errorKind = rep.kind
         elif errorKind == rep.kind:
           config.structuredReportHook = dustReportHook
-
   # in the first pass, we add the program to our cache
   semcheck:
     # basically, just taking advantage of cache and config values...
@@ -97,8 +104,7 @@ proc dust*(filename: AbsoluteFile) =
 
   # if the semcheck passes, we have nothing to do
   if config.errorCounter == 0:
-    echo "error: " & filename.string & " passes the semcheck"
-    quit 1
+    return ErrorCode.noError
 
   # otherwise, we have an interesting error message to pursue
   echo "interesting: ", errorKind,
@@ -144,7 +150,24 @@ proc dust*(filename: AbsoluteFile) =
     writeFile(filename.string, $best)
 
 when isMainModule:
-  if paramCount() > 0:
-    dust paramStr(paramCount()).AbsoluteFile
+  from std/strutils import strip
+
+  if paramCount() > 0 and paramStr(paramCount()).strip() != "":
+    let
+      file = paramStr(paramCount())
+      absFile = toAbsolute(file, AbsoluteDir(getCurrentDir()))
+      code = dust(absFile)
+    case code
+    of ErrorCode.setupError:
+      echo "crashing due to error during setup"
+    of ErrorCode.noError:
+      echo "error: " & file & " passes the semcheck"
+    of ErrorCode.fileNotProvided:
+      echo "args: ", commandLineParams()
+      echo "supply a source file to inspect"
+    of ErrorCode.success:
+      echo "success: " & file
+    quit ord(code)
   else:
     echo "supply a source file to inspect"
+    quit ord(ErrorCode.fileNotProvided)

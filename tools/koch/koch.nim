@@ -457,6 +457,7 @@ proc hostInfo(): string =
     [hostOS, hostCPU, $int.sizeof, $float.sizeof, $cpuEndian, getCurrentDir()]
 
 proc testTools(cmd: string) =
+  nimexecFold("Run dust tests", "r tools/dust/tester")
   # xxx: temporarily placing nimscript testing to ensure it's at least running
   nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   nimexecFold("Run nimdoc tests", "r nimdoc/tester")
