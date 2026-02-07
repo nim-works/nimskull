@@ -1413,9 +1413,7 @@ proc getOwningPackageId*(conf: ConfigRef, currentModule: AbsoluteFile): string =
 
 proc findPackage*(
   conf: ConfigRef,
-  modulename: string,
-  currentModule: AbsoluteFile,
-  currentModulePackageId: string
+  modulename, currentModulePackageId: string
 ): (string, string) =
   ## Looks for a package in the package index, respecting aliases
   result = ("", "")
@@ -1480,9 +1478,7 @@ proc findModule*(
   if m.startsWith(pkgPrefix):
     let
       stripped = modulename.substr(pkgPrefix.len)
-      (pkgId, _) = conf.findPackage(
-        modulename, AbsoluteFile currentModule, currentModulePackageId
-      )
+      (pkgId, _) = conf.findPackage(modulename, currentModulePackageId)
 
     if pkgId.len > 0:
       return conf.getPackageEntry(pkgId, stripped)
@@ -1504,9 +1500,7 @@ proc findModule*(
       result = findFile(conf, m)
     # try to interpret the module path as a package-qualified path
     if not fileExists(result):
-      let (pkgId, _) = conf.findPackage(
-        modulename, AbsoluteFile currentModule, currentModulePackageId
-      )
+      let (pkgId, _) = conf.findPackage(modulename, currentModulePackageId)
       if pkgId.len > 0:
         result = conf.getPackageEntry(pkgId, modulename)
 

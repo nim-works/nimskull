@@ -123,16 +123,9 @@ proc processImplicits(
     m: PSym
 ) =
   let
-    conf = graph.config
     currentPkgId = m.owner.name.s
-    mainModulePath = conf[conf.projectMainIdx].fullPath
-    mainPkgId = getOwningPackageId(conf, mainModulePath)
-
-  # only process implicit imports for the main module
-  if currentPkgId != mainPkgId: return
-
-  # XXX fixme this should actually be relative to the config file!
-  let relativeTo = toFullPath(conf, m.info)
+    # XXX fixme this should actually be relative to the config file!
+    relativeTo = toFullPath(graph.config, m.info)
   for module in items(implicits):
     # implicit imports should not lead to a module importing itself
     if m.position != resolveMod(graph.config, module, relativeTo, currentPkgId).int32:
@@ -212,7 +205,7 @@ proc processModule*(
       # modules to include between compilation runs? we'd need to track that
       # in ROD files. I think we should enable this feature only
       # for the interactive mode.
-      if module.name.s != "nimscriptapi":
+      if module.name.s != "nimscriptapi" or module.getnimblePkgId() == graph.config.mainPackageId:
         processImplicits(
           graph, graph.config.active.implicitImports,
           nkImportStmt, passesArray, module)

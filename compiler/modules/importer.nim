@@ -304,13 +304,10 @@ proc findModuleAsPackage(c: PContext; n: PNode): (FileIndex, string) =
     modulePathString = modulePathString.substr(4)
 
   let
-    currentModulePath = c.config[c.module.info.fileIndex].fullPath
     currentModulePkgId = block:
       if c.module.owner.owner != nil: c.module.owner.owner.name.s
       else: c.module.owner.name.s
-    (pkgId, alias) = c.config.findPackage(
-      modulePathString, currentModulePath, currentModulePkgId
-    )
+    (pkgId, alias) = c.config.findPackage(modulePathString, currentModulePkgId)
 
   if pkgId.len > 0:
     let moduleAbsPath = c.config.getPackageEntry(pkgId, modulePathString)
