@@ -1,7 +1,6 @@
 {
   "packages": {
     "github.com/nim-works/nimskull/tests/packages/double": {
-      "package": "github.com/nim-works/nimskull/tests/packages/double",
       "path": ".",
       "srcDir": ".",
       "entrypoint": "",
@@ -21,7 +20,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo": {
-      "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
       "path": "pkgs/foo",
       "srcDir": ".",
       "entrypoint": "lib.nim",
@@ -37,7 +35,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar": {
-      "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
       "path": "pkgs/bar",
       "srcDir": ".",
       "entrypoint": "lib.nim",

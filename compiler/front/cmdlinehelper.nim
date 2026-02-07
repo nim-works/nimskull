@@ -240,6 +240,16 @@ proc loadPackageIndex*(conf: ConfigRef) =
       if not fileExists(path / "index.json"): return
       try:
         conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
+        conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
+        for name, package in conf.packageIndex.packages.mpairs:
+          if name == "stdlib": continue
+          package.path = curDir / package.path
+          package.srcDir = package.path / package.srcDir
+          package.entrypoint = package.path / package.entrypoint
+          package.dependencies.add DependencyLink(
+            package: "stdlib", alias: "std"
+          )
+        echo conf.packageIndex.packages
       except IOError:
         localReport(conf, InternalReport(
           kind: rintCannotOpenFile,

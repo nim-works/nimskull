@@ -1,7 +1,6 @@
 {
   "packages": {
     "github.com/nim-works/nimskull/tests/packages/complex": {
-      "package": "github.com/nim-works/nimskull/tests/packages/complex",
       "path": ".",
       "srcDir": ".",
       "entrypoint": "lib.nim",
@@ -33,7 +32,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/foo": {
-      "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/foo",
       "path": "pkgs/foo",
       "srcDir": ".",
       "entrypoint": "lib.nim",
@@ -49,7 +47,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/bar": {
-      "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/bar",
       "path": "pkgs/bar",
       "srcDir": "src",
       "entrypoint": "src/lib.nim",
@@ -69,7 +66,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/baz": {
-      "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/baz",
       "path": "pkgs/baz",
       "srcDir": "baz",
       "entrypoint": "baz.nim",
@@ -81,7 +77,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/qux": {
-      "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/qux",
       "path": "pkgs/qux",
       "srcDir": ".",
       "entrypoint": "lib.nim",
@@ -93,7 +88,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/quux": {
-      "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/quux",
       "path": "pkgs/quux",
       "srcDir": "src/quux",
       "entrypoint": "src/quux.nim",

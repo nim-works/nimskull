@@ -16,7 +16,6 @@
       ]
     },
     "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo": {
-      "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
       "path": "pkgs/foo",
       "srcDir": ".",
       "entrypoint": "lib.nim",

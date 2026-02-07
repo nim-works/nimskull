@@ -215,10 +215,9 @@ type
     alias*: string
 
   IndexedPackage* = object
-    path*: RelativeDir
-    srcDir*: RelativeDir      # Code directory for submodules
-                              # (`import module/submod`).
-    entrypoint*: RelativeFile # File for the module imported on `import module`.
+    path*: string
+    srcDir*: string     # Code directory for submodules (`import module/submod`)
+    entrypoint*: string # File for the module imported on `import module`.
     dependencies*: seq[DependencyLink]
 
   PackageIndex* = object
@@ -1344,6 +1343,16 @@ proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
+proc findStdFile(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
+  ## Find file using list of explicit search paths
+  for it in conf.searchPaths:
+    if not it.string.startsWith(conf.libpath.string):
+      continue
+    result = it / f
+    if fileExists(result):
+      return canonicalizePath(conf, result)
+  result = AbsoluteFile""
+
 when not declared(isRelativeTo):
   proc isRelativeTo(path, base: string): bool =
     # pending #13212 use os.isRelativeTo
@@ -1438,22 +1447,21 @@ proc getPackageEntry*(
   ## Converts a package ID and a module path (e.g. "alias/sub") into a file path
   let pkg = conf.packageIndex.packages[pkgId]
   let 
-    targetBaseDir = $pkg.path
     srcDir = $pkg.srcDir
     entrypoint = $pkg.entrypoint
     
     modParts = modulePath.split('/', 1)
     remainder = if modParts.len > 1: modParts[1] else: ""
     
-  var path = targetBaseDir
+  var path: string
   if remainder.len == 0:
     # import alias -> uses entrypoint.nim
     # Done like this for legacy package layouts
     if entrypoint.len != 0:
-      path = path / entrypoint
+      path = entrypoint
   else:
     # Case: import alias/sub -> uses srcDir/sub
-    path = path / srcDir / remainder
+    path = srcDir / remainder
 
   result = AbsoluteFile(absolutePath(addFileExt(path, NimExt), $conf.packageDir))
 

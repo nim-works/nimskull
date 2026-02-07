@@ -336,11 +336,8 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
   let isPackageImport = fileIdx != InvalidFileIdx
 
   if not isPackageImport:
-    let isSystem = if c.graph.systemModule != nil: "stdlib" else: "unknown"
-    echo "myImportModule.n: ", n.repr
-    echo "myImportModule.isSystem: ", isSystem
-    
-    fileIdx = checkModuleName(c.config, n, isSystem)
+    echo "importing module `" & toFullPath(c.config, n.info) & "`"
+    fileIdx = checkModuleName(c.config, n, "unknown")
 
   if fileIdx != InvalidFileIdx:
     addImportFileDep(c, fileIdx)
