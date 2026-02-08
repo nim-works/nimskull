@@ -1417,7 +1417,6 @@ proc findPackage*(
   ## Looks for a package in the package index, respecting aliases
   result = ("", "")
 
-  if currentModulePackageId == "unknown": return
   let
     owningPkg = conf.packageIndex.packages[currentModulePackageId]
     modParts = modulename.split('/', 1)

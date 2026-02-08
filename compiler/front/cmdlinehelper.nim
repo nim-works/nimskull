@@ -237,7 +237,7 @@ proc loadPackageIndex*(conf: ConfigRef) =
     let path = curDir / ".skull"
 
     if dirExists(path):
-      if not fileExists(path / "index.json"): return
+      if not fileExists(path / "index.json"): break
       try:
         conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
         conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
@@ -274,7 +274,7 @@ proc loadPackageIndex*(conf: ConfigRef) =
       if alias in deps:
         localReport(conf, PackageReport(
           kind: rpkgDuplicateAliasForPackageDependencies,
-          parentPackage: package.path.string,
+          parentPackage: package.path,
           package: deps[alias],
           alias: alias
         ))
@@ -282,6 +282,7 @@ proc loadPackageIndex*(conf: ConfigRef) =
         deps[alias] = it.package
 
   if conf.packageIndex.packages.len == 0:
+    echo "WE ARE EXECUTING"
     conf.packageIndex.packages["unknown"] = IndexedPackage(path: $conf.projectPath)
     conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
 
