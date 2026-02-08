@@ -67,6 +67,8 @@ proc calculateScore(config: ConfigRef; n: PNode): int =
     result = size(n)
 
 proc dustReportHook(conf: ConfigRef, report: Report): TErrorHandling =
+  if report.kind in {rintUnreachable, rintStackTrace}:
+    echo conf.reportFull(report)
   doDefault
 
 proc dust*(filename: AbsoluteFile): ErrorCode =
@@ -92,6 +94,8 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
           errorKind = rep.kind
         elif errorKind == rep.kind:
           config.structuredReportHook = dustReportHook
+    if rep.kind in {rintUnreachable, rintStackTrace}:
+      echo config.reportFull(rep)
   # in the first pass, we add the program to our cache
   semcheck:
     # basically, just taking advantage of cache and config values...
