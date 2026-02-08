@@ -40,7 +40,7 @@ type
   PGen = ref TGen
 
 proc shouldProcess(g: PGen): bool =
-  (optWholeProject in g.doc.conf.globalOptions and g.module.getnimblePkgId == g.doc.conf.mainPackageId) or
+  (optWholeProject in g.doc.conf.globalOptions and g.module.getPackageId == g.doc.conf.mainPackageId) or
       sfMainModule in g.module.flags or g.config.projectMainIdx == g.module.info.fileIndex
 
 template closeImpl(body: untyped) {.dirty.} =

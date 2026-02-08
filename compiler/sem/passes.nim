@@ -142,7 +142,7 @@ const
 
 proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
   # don't be verbose unless the module belongs to the main package:
-  if module.getnimblePkgId == graph.config.mainPackageId:
+  if module.getPackageId == graph.config.mainPackageId:
     graph.config.asgn(cnCurrent, cnMainPackage)
   else:
     # QUESTION what are the exact conditions that lead to this branch being
@@ -205,7 +205,7 @@ proc processModule*(
       # modules to include between compilation runs? we'd need to track that
       # in ROD files. I think we should enable this feature only
       # for the interactive mode.
-      if module.name.s != "nimscriptapi" or module.getnimblePkgId() == graph.config.mainPackageId:
+      if module.name.s != "nimscriptapi" or module.getPackageId() == graph.config.mainPackageId:
         processImplicits(
           graph, graph.config.active.implicitImports,
           nkImportStmt, passesArray, module)

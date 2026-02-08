@@ -1343,16 +1343,6 @@ proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
-proc findStdFile(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
-  ## Find file using list of explicit search paths
-  for it in conf.searchPaths:
-    if not it.string.startsWith(conf.libpath.string):
-      continue
-    result = it / f
-    if fileExists(result):
-      return canonicalizePath(conf, result)
-  result = AbsoluteFile""
-
 when not declared(isRelativeTo):
   proc isRelativeTo(path, base: string): bool =
     # pending #13212 use os.isRelativeTo
@@ -1428,8 +1418,6 @@ proc findPackage*(
   result = ("", "")
 
   if currentModulePackageId == "unknown": return
-
-  echo "findPackage.currentModulePackageId: ", currentModulePackageId
   let
     owningPkg = conf.packageIndex.packages[currentModulePackageId]
     modParts = modulename.split('/', 1)
@@ -1446,24 +1434,32 @@ proc getPackageEntry*(
 ): AbsoluteFile =
   ## Converts a package ID and a module path (e.g. "alias/sub") into a file path
   let pkg = conf.packageIndex.packages[pkgId]
-  let 
-    srcDir = $pkg.srcDir
-    entrypoint = $pkg.entrypoint
-    
-    modParts = modulePath.split('/', 1)
-    remainder = if modParts.len > 1: modParts[1] else: ""
-    
-  var path: string
-  if remainder.len == 0:
-    # import alias -> uses entrypoint.nim
-    # Done like this for legacy package layouts
-    if entrypoint.len != 0:
-      path = entrypoint
+  if pkgId == "stdlib":
+    let stripped = modulePath.substr(find(modulePath, "/") + 1)
+    for candidate in stdlibDirs.items:
+      let path = (pkg.path / candidate / stripped)
+      if fileExists(path):
+        result = AbsoluteFile path
+        break
   else:
-    # Case: import alias/sub -> uses srcDir/sub
-    path = srcDir / remainder
+    let 
+      srcDir = $pkg.srcDir
+      entrypoint = $pkg.entrypoint
+      
+      modParts = modulePath.split('/', 1)
+      remainder = if modParts.len > 1: modParts[1] else: ""
+      
+    var path: string
+    if remainder.len == 0:
+      # import alias -> uses entrypoint.nim
+      # Done like this for legacy package layouts
+      if entrypoint.len != 0:
+        path = entrypoint
+    else:
+      # Case: import alias/sub -> uses srcDir/sub
+      path = srcDir / remainder
 
-  result = AbsoluteFile(absolutePath(addFileExt(path, NimExt), $conf.packageDir))
+    result = AbsoluteFile(absolutePath(addFileExt(path, NimExt), $conf.packageDir))
 
 proc findModule*(
   conf: ConfigRef,
@@ -1494,23 +1490,15 @@ proc findModule*(
       return AbsoluteFile"" # Explicit pkg/ import failed
 
   else:
-    if m.startsWith(stdPrefix):
-      let stripped = m.substr(stdPrefix.len)
-      for candidate in stdlibDirs:
-        let path = (conf.libpath.string / candidate / stripped)
-        if fileExists(path):
-          result = AbsoluteFile path
-          break
-    else: # If prefixed with std/ why would we add the current module path!
-      let currentPath = currentModule.splitFile.dir
-      result = AbsoluteFile currentPath / m
-    if not fileExists(result):
-      result = findFile(conf, m)
-    # try to interpret the module path as a package-qualified path
-    if not fileExists(result):
-      let (pkgId, _) = conf.findPackage(modulename, currentModulePackageId)
-      if pkgId.len > 0:
-        result = conf.getPackageEntry(pkgId, modulename)
+    let currentPath = currentModule.splitFile.dir
+    result = AbsoluteFile currentPath / m
+  if not fileExists(result):
+    result = findFile(conf, m)
+  # try to interpret the module path as a package-qualified path
+  if not fileExists(result):
+    let (pkgId, _) = conf.findPackage(modulename, currentModulePackageId)
+    if pkgId.len > 0:
+      result = conf.getPackageEntry(pkgId, modulename)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project

@@ -304,9 +304,7 @@ proc findModuleAsPackage(c: PContext; n: PNode): (FileIndex, string) =
     modulePathString = modulePathString.substr(4)
 
   let
-    currentModulePkgId = block:
-      if c.module.owner.owner != nil: c.module.owner.owner.name.s
-      else: c.module.owner.name.s
+    currentModulePkgId = c.module.getPackage().name.s  
     (pkgId, alias) = c.config.findPackage(modulePathString, currentModulePkgId)
 
   if pkgId.len > 0:
@@ -336,8 +334,7 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
   let isPackageImport = fileIdx != InvalidFileIdx
 
   if not isPackageImport:
-    echo "importing module `" & toFullPath(c.config, n.info) & "`"
-    fileIdx = checkModuleName(c.config, n, "unknown")
+    fileIdx = checkModuleName(c.config, n, getPackage(c.module).name.s)
 
   if fileIdx != InvalidFileIdx:
     addImportFileDep(c, fileIdx)

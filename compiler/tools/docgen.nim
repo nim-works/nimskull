@@ -429,7 +429,7 @@ proc getPlainDocstring(n: PNode): string =
       if result.len > 0: return
 
 proc belongsToPackage(conf: ConfigRef; module: PSym): bool =
-  result = module.kind == skModule and module.getnimblePkgId == conf.mainPackageId
+  result = module.kind == skModule and module.getPackageId == conf.mainPackageId
 
 proc externalDep(d: PDoc; module: PSym): string =
   if optWholeProject in d.conf.globalOptions or d.conf.docRoot.len > 0:

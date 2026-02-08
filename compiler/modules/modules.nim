@@ -168,7 +168,7 @@ proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
   graph.addDep(s, fileIdx)
 
   # restore the notes for outer module:
-  if s.getnimblePkgId == graph.config.mainPackageId or
+  if s.getPackageId == graph.config.mainPackageId or
      isDefined(graph.config, "booting"):
     graph.config.asgn(cnCurrent, cnMainPackage)
   else:
@@ -208,7 +208,7 @@ proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =
   let projectFile = if projectFileIdx == InvalidFileIdx: conf.projectMainIdx else: projectFileIdx
 
   let packSym = getPackage(graph, projectFile)
-  graph.config.mainPackageId = packSym.getnimblePkgId
+  graph.config.mainPackageId = packSym.getPackageId
   graph.importStack.add projectFile
 
   if projectFile == systemFileIdx:

@@ -242,13 +242,14 @@ proc loadPackageIndex*(conf: ConfigRef) =
         conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
         conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
         for name, package in conf.packageIndex.packages.mpairs:
-          if name == "stdlib": continue
-          package.path = curDir / package.path
-          package.srcDir = package.path / package.srcDir
-          package.entrypoint = package.path / package.entrypoint
           package.dependencies.add DependencyLink(
             package: "stdlib", alias: "std"
           )
+          package.path =
+            if name == "stdlib": package.path
+            else: curDir / package.path
+          package.srcDir = package.path / package.srcDir
+          package.entrypoint = package.path / package.entrypoint
         echo conf.packageIndex.packages
       except IOError:
         localReport(conf, InternalReport(
@@ -279,6 +280,17 @@ proc loadPackageIndex*(conf: ConfigRef) =
         ))
       else:
         deps[alias] = it.package
+
+  if conf.packageIndex.packages.len == 0:
+    conf.packageIndex.packages["unknown"] = IndexedPackage(path: $conf.projectPath)
+    conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
+
+    for package in conf.packageIndex.packages.mvalues:
+      package.srcDir = package.path / package.srcDir
+      package.entrypoint = package.path / package.entrypoint
+      package.dependencies.add DependencyLink(
+        package: "stdlib", alias: "std"
+      )
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =
