@@ -25,8 +25,10 @@ from compiler / front / cli_reporter import reportFull, legacyReportBridge
 from compiler / front / msgs import defaultDiagHandler
 
 import std/options as std_options # due to legacy reports stupidity
+import std/[sets, algorithm]
 
 import spec
+import hashing
 import boring
 import mutate
 
@@ -67,6 +69,9 @@ proc calculateScore(config: ConfigRef; n: PNode): int =
     result = size(n)
 
 proc dustReportHook(conf: ConfigRef, report: Report): TErrorHandling =
+  # uncomment below to see all errors+
+  # if conf.severity(report) >= rsevError:
+  #   echo conf.reportFull(report)
   doDefault
 
 proc dust*(filename: AbsoluteFile): ErrorCode =
@@ -92,15 +97,16 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
           errorKind = rep.kind
         elif errorKind == rep.kind:
           config.structuredReportHook = dustReportHook
+    # uncomment below to see all errors+
+    # if config.severity(rep) >= rsevError:
+    #   echo config.reportFull(rep)
+
   # in the first pass, we add the program to our cache
   semcheck:
     # basically, just taking advantage of cache and config values...
     best = toPNode(parseString(readFile(filename.string),
                        cache = cache, config = config, line = 0,
                        filename = filename.string))
-    score = size(best)
-    remains.add best
-    assert len(remains) > 0
 
   # if the semcheck passes, we have nothing to do
   if config.errorCounter == 0:
@@ -112,39 +118,63 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
 
   # make note of the expected number of errors
   let expected = config.errorCounter
+  var seen: HashSet[SigHash]
 
-  while len(remains) > 0:
-    echo rendered
-    echo "remaining: ", len(remains), " best: ", score
-    let node = pop(remains)
+  while true:
+    var remains: seq[(SigHash, PNode)]
+    # gather all possible, not-yet-tried mutations:
+    for mutant in mutations(best):
+      let hash = hashNode(mutant)
+      if hash notin seen:
+        remains.add (hash, mutant)
+  
+    if remains.len == 0:
+      # there are none; we're done
+      break
+    # sort by their score. The one with the lowest score has to come first
+    sort(remains, proc(a, b: auto): int =
+      calculateScore(config, a[1]) - calculateScore(config, b[1]))
 
-    semcheck:
-      try:
-        writeFile(filename.string, $node)
-      except IndexError:
-        echo "cheating to get around rendering bug"
-        continue
+    echo best
+    echo "----- current score: ", calculateScore(config, best)
 
-    # extra errors are a problem
-    if config.errorCounter > expected:
-      echo "(unexpected errors)"
-    # if we didn't unhook the errors,
-    # it means we didn't find the error we were looking for
-    elif config.structuredReportHook != dustReportHook:
-      echo "(uninteresting errors)"
-    # i guess this node is a viable reproduction
-    else:
-      let z = calculateScore(config, node)
-      if z < score:
-        echo "(new high score)"
-        best = node
-        score = z
-        rendered = $best
-      for mutant in mutations(node):
-        remains.add mutant
+    var found = PNode nil
+    # try all candidates, starting with the smallest one
+    for (hash, node) in remains.items:
+      seen.incl(hash)
+
+      semcheck:
+        try:
+          writeFile(filename.string, $node)
+        except IndexError:
+          echo "cheating to get around rendering bug"
+          continue
+
+      # extra errors are a problem
+      if config.errorCounter > expected:
+        echo "(unexpected errors)"
+      # if we didn't unhook the errors,
+      # it means we didn't find the error we were looking for
+      elif config.structuredReportHook != dustReportHook:
+        echo "(uninteresting errors)"
+      # i guess this node is a viable reproduction
+      else:
+        # found a viable tree
+        found = node
+        break
+    
+    if found.isNil:
+      # none of the candidates reproduces the property; we're done
+      break
+
+    # note: it's possible, and valid, for the new best to have the same score
+    # as the previous best. This is because some reductions (e.g., replacing
+    # an `nkIntLit` with a `nkEmpty`) don't change the number of nodes
+    best = found
 
   if not best.isNil:
     debug best
+    score = calculateScore(config, best)
     echo "=== minimal after ", counter, "/", remains.count, " semchecks; scored ", score
     echo best
     writeFile(filename.string, $best)
