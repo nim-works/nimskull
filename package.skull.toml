@@ -1,5 +1,5 @@
 format = 0
 
 [package]
-name = "github.com/nim-works/nimskull"
+name = "nim.works/compiler"
 srcDir = "compiler"
