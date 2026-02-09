@@ -36,7 +36,7 @@ from compiler / front / commands import procSwitchResultToEvents,
 const
   NimCfg* {.strdefine.} = "nim".addFileExt "cfg"
 
-template excludeAllNotes(config: ConfigRef; n: typed) =
+template excludeAllNotes(config: ConfigRef; n: typed) {.used.} =
   config.notes.excl n
   when compiles(config.mainPackageNotes):
     config.mainPackageNotes.excl n
