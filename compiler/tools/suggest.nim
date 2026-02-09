@@ -68,7 +68,7 @@ import
   ]
 
 when defined(nimsuggest):
-  import compiler/sem/passes, compiler/utils/pathutils # importer
+  import compiler/utils/pathutils # importer
 else:
   # prevent warnings from routines only used by nimsuggest
   {.push hint[XDeclaredButNotUsed]: off.}
