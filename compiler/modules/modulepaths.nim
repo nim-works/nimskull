@@ -74,8 +74,6 @@ proc checkModuleName*(
 ): FileIndex =
   # This returns the full canonical path for a given module import
   let modulename = getModuleName(conf, n)
-  echo "checkModuleName.modulename: ", modulename
-  echo "checkModuleName.pkgId: ", pkgId
   let fullPath = findModule(conf, modulename, toFullPath(conf, n.info), pkgId)
   if fullPath.isEmpty:
     if doLocalError:

@@ -1480,7 +1480,7 @@ proc findModule*(
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
     let
-      stripped = modulename.substr(pkgPrefix.len)
+      stripped = m.substr(pkgPrefix.len)
       (pkgId, _) = conf.findPackage(modulename, currentModulePackageId)
 
     if pkgId.len > 0:
@@ -1497,7 +1497,7 @@ proc findModule*(
   if not fileExists(result):
     let (pkgId, _) = conf.findPackage(modulename, currentModulePackageId)
     if pkgId.len > 0:
-      result = conf.getPackageEntry(pkgId, modulename)
+      result = conf.getPackageEntry(pkgId, m)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project

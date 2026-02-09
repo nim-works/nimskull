@@ -249,8 +249,8 @@ proc loadPackageIndex*(conf: ConfigRef) =
             if name == "stdlib": package.path
             else: curDir / package.path
           package.srcDir = package.path / package.srcDir
-          package.entrypoint = package.path / package.entrypoint
-        echo conf.packageIndex.packages
+          # Entrypoint is relative to the srcDir
+          package.entrypoint = package.srcDir / package.entrypoint
       except IOError:
         localReport(conf, InternalReport(
           kind: rintCannotOpenFile,
@@ -282,7 +282,6 @@ proc loadPackageIndex*(conf: ConfigRef) =
         deps[alias] = it.package
 
   if conf.packageIndex.packages.len == 0:
-    echo "WE ARE EXECUTING"
     conf.packageIndex.packages["unknown"] = IndexedPackage(path: $conf.projectPath)
     conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
 
