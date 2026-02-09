@@ -5,7 +5,6 @@ import std/os
 import
   compiler / ast / [
     ast,
-    astalgo,
     idents,
     lineinfos,
     parser,
@@ -84,7 +83,6 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
     counter = 0
     score: int
     remains: Remains
-    rendered: string
 
   result = ErrorCode.success
 

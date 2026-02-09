@@ -1,5 +1,5 @@
 import
-  compiler / ast / [ lineinfos, renderer, ast, astalgo, ]
+  compiler / ast / [ lineinfos, renderer, ast, ]
 
 import spec
 import hashing
