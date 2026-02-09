@@ -1438,7 +1438,7 @@ proc getPackageEntry*(
     for candidate in stdlibDirs.items:
       let path = (pkg.path / candidate / stripped)
       if fileExists(path):
-        result = AbsoluteFile path
+        result = AbsoluteFile addFileExt(path, NimExt)
         break
   else:
     let 
@@ -1458,7 +1458,7 @@ proc getPackageEntry*(
       # Case: import alias/sub -> uses srcDir/sub
       path = srcDir / remainder
 
-    result = AbsoluteFile(absolutePath(addFileExt(path, NimExt), $conf.packageDir))
+    result = AbsoluteFile(addFileExt(path, NimExt))
 
 proc findModule*(
   conf: ConfigRef,

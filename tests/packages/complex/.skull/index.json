@@ -49,7 +49,7 @@
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/bar": {
       "path": "pkgs/bar",
       "srcDir": "src",
-      "entrypoint": "src/lib.nim",
+      "entrypoint": "lib.nim",
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/bar",
@@ -68,7 +68,7 @@
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/baz": {
       "path": "pkgs/baz",
       "srcDir": "baz",
-      "entrypoint": "baz.nim",
+      "entrypoint": "../baz.nim",
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/complex/pkgs/baz",
@@ -90,7 +90,7 @@
     "github.com/nim-works/nimskull/tests/packages/complex/pkgs/quux": {
       "path": "pkgs/quux",
       "srcDir": "src/quux",
-      "entrypoint": "src/quux.nim",
+      "entrypoint": "../quux.nim",
       "dependencies": [
         {
           "package": "github.com/nim-works/nimskull/tests/packages/complex",
