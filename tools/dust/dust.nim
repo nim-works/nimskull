@@ -51,6 +51,10 @@ template semcheck(body: untyped) {.dirty.} =
   if not setup(cache, config, graph, args):
     return ErrorCode.setupError
 
+  # make sure there's a main module provided
+  if not wantMainModule(config):
+    return ErrorCode.fileNotProvided
+
   config.verbosity = compVerbosityMin   # reduce spam
 
   body
@@ -70,7 +74,7 @@ proc dustReportHook(conf: ConfigRef, report: Report): TErrorHandling =
   #   echo conf.reportFull(report)
   doDefault
 
-proc dust*(filename: AbsoluteFile): ErrorCode =
+proc dust*(args: openArray[string]): ErrorCode =
   var
     graph: ModuleGraph
     cache: IdentCache
@@ -99,9 +103,9 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
   # in the first pass, we add the program to our cache
   semcheck:
     # basically, just taking advantage of cache and config values...
-    best = toPNode(parseString(readFile(filename.string),
+    best = toPNode(parseString(readFile(config.projectFull.string),
                        cache = cache, config = config, line = 0,
-                       filename = filename.string))
+                       filename = config.projectFull.string))
 
   # if the semcheck passes, we have nothing to do
   if config.errorCounter == 0:
@@ -140,7 +144,7 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
 
       semcheck:
         try:
-          writeFile(filename.string, $node)
+          writeFile(config.projectFull.string, $node)
         except IndexError:
           echo "cheating to get around rendering bug"
           continue
@@ -172,27 +176,18 @@ proc dust*(filename: AbsoluteFile): ErrorCode =
     score = calculateScore(config, best)
     echo "=== minimal after ", counter, "/", remains.count, " semchecks; scored ", score
     echo best
-    writeFile(filename.string, $best)
+    writeFile(config.projectFull.string, $best)
 
 when isMainModule:
-  from std/strutils import strip
-
-  if paramCount() > 0 and paramStr(paramCount()).strip() != "":
-    let
-      file = paramStr(paramCount())
-      absFile = toAbsolute(file, AbsoluteDir(getCurrentDir()))
-      code = dust(absFile)
-    case code
-    of ErrorCode.setupError:
-      echo "crashing due to error during setup"
-    of ErrorCode.noError:
-      echo "error: " & file & " passes the semcheck"
-    of ErrorCode.fileNotProvided:
-      echo "args: ", commandLineParams()
-      echo "supply a source file to inspect"
-    of ErrorCode.success:
-      echo "success: " & file
-    quit ord(code)
-  else:
+  let args = getExecArgs()
+  let code = dust(args)
+  case code
+  of ErrorCode.setupError:
+    echo "crashing due to error during setup"
+  of ErrorCode.noError:
+    echo "error: module passes the semcheck"
+  of ErrorCode.fileNotProvided:
     echo "supply a source file to inspect"
-    quit ord(ErrorCode.fileNotProvided)
+  of ErrorCode.success:
+    echo "success"
+  quit ord(code)

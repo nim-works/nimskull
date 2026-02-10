@@ -8,8 +8,6 @@ import std/times
 import std/os
 import std/parseopt
 
-from std/strutils import endsWith
-
 import
   compiler / ast / [
     idents,
@@ -19,7 +17,6 @@ import
       cmdlinehelper,
       # commands,
       condsyms,
-      msgs,
       options,
       optionsprocessor,
   ],
@@ -30,8 +27,9 @@ import
   compiler / utils / pathutils
 
 from compiler / front / commands import procSwitchResultToEvents,
-                                        cliEventLogger,
-                                        showMsg
+                                        cliEventLogger
+
+from compiler/front/main import customizeForBackend
 
 template excludeAllNotes(config: ConfigRef; n: typed) {.used.} =
   config.notes.excl n
@@ -43,26 +41,20 @@ template excludeAllNotes(config: ConfigRef; n: typed) {.used.} =
 proc processArgument(pass: TCmdLinePass; p: OptParser;
                      argsCount: var int; config: ConfigRef): bool =
   if argsCount == 0:
-    if p.key.endsWith(".nim"):
-      config.setCmd cmdCompileToC
-      config.projectName = unixToNativePath(p.key)
-      config.arguments = cmdLineRest(p)
-      result = true
-    elif pass != passCmd2: setCommandEarly(config, p.key)
-  else:
-    if pass == passCmd1: config.commandArgs.add p.key
-    if argsCount == 1:
-      # support UNIX style filenames everywhere for portable build scripts:
-      if config.projectName.len == 0 and config.inputMode == pimFile:
-        config.projectName = unixToNativePath(p.key)
-      config.arguments = cmdLineRest(p)
-      result = true
+    # the first argument is the file
+    config.projectName = unixToNativePath(p.key)
+    config.arguments = cmdLineRest(p) # consume the rest
+    result = true
   inc argsCount
 
 proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
   ## parse the command-line into the config
   var p = initOptParser(cmd)
   var argsCount = 0
+
+  # the 'check' command (which best approximates dust's operation) is implied
+  if pass != passCmd2:
+    setCommandEarly(config, "check")
 
   config.commandLine.setLen 0  # some bug
   while true:
@@ -95,23 +87,6 @@ proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
       if processArgument(pass, p, argsCount, config):
         break
 
-  when false:
-    if pass == passCmd2:
-      if {optRun, optWasNimscript} * config.globalOptions == {} and
-          config.arguments.len > 0 and
-          config.command.normalize notin ["run", "e"]:
-        rawMessage(config, errGenerated, errArgsNeedRunOption)
-
-proc helpOnError(config: ConfigRef) =
-  const
-    Usage = """
-  dust [options] [projectfile]
-
-  Options: Same options that the Nimskull compiler supports.
-  """
-  showMsg(config, Usage)
-  msgQuit 0
-
 proc reset*(graph: ModuleGraph) =
   ## reset the module graph so it is ready for recompilation
   # we're not dirty if we don't have a fileindex
@@ -136,25 +111,34 @@ proc compile*(graph: ModuleGraph) =
   config.setErrorMaxHighMaybe                 # for now, we honor errorMax
   defineSymbol(config, "nimcheck")            # useful for static: reasons
 
+  customizeForBackend(graph, config, backendC)# use C as the default target
+
   graph.suggestMode = true                    # needed for dirty flags
   compileProject graph                        # process the graph
 
-proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph): bool =
-  proc noop(graph: ModuleGraph) {.used.} = discard
-  let prog = NimProg(supportsStdinFile: true,
-                     processCmdLine: cmdLine) #, mainCommand: mainCommand)
+proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph,
+            argv: openArray[string]): bool =
+  let prog = NimProg(
+    supportsStdinFile: false,
+    processCmdLine: cmdLine
+  )
   initDefinesProg(prog, config, "dust")
-  if paramCount() == 0:
-    helpOnError(config)
+  processCmdLineAndProjectPath(prog, config, argv)
+  result = loadConfigsAndProcessCmdLine(prog, cache, config, graph, argv)
+
+  #excludeAllNotes(result, hintConf)
+  #excludeAllNotes(result, hintLineTooLong)
+
+  # force enable/disable some options
+  incl config, optStaticBoundsCheck
+  excl config, optWarns
+  excl config, optHints
+
+proc wantMainModule*(config: ConfigRef): bool =
+  ## Sets the main module to the file whose path was provided on the command
+  ## line, returning false if this isn't possible (because there's no path).
+  if config.projectFull.isEmpty:
+    result = false
   else:
-    let argv = getExecArgs()
-    processCmdLineAndProjectPath(prog, config, argv)
-    result = loadConfigsAndProcessCmdLine(prog, cache, config, graph, argv)
-
-    #excludeAllNotes(result, hintConf)
-    #excludeAllNotes(result, hintLineTooLong)
-
-    # force enable/disable some options
-    incl config, optStaticBoundsCheck
-    excl config, optWarns
-    excl config, optHints
+    modules.wantMainModule(config)
+    result = true
