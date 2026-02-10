@@ -1,10 +1,6 @@
 import
   compiler / ast / [ lineinfos, renderer, ast, ]
 
-import spec
-import hashing
-
-
 const
   FixedSize = {
       nkDiscardStmt, nkCast, nkConv, nkAsgn, nkAddr, nkReturnStmt,
@@ -161,8 +157,3 @@ iterator mutations*(n: PNode): PNode =
     var index = i
     yield reduce(n, index)
     assert index < 0 # sanity check
-
-proc init*(remains: var Remains; n: PNode) =
-  let h = hashNode(n)
-  if h notin remains:
-    remains.add(n, h)

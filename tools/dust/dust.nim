@@ -83,7 +83,6 @@ proc dust*(args: openArray[string]): ErrorCode =
     best: PNode
     counter = 0
     score: int
-    remains: Remains
 
   result = ErrorCode.success
 
@@ -174,7 +173,7 @@ proc dust*(args: openArray[string]): ErrorCode =
   if not best.isNil:
     debug best
     score = calculateScore(config, best)
-    echo "=== minimal after ", counter, "/", remains.count, " semchecks; scored ", score
+    echo "=== minimal after ", counter, " semchecks; scored ", score
     echo best
     writeFile(config.projectFull.string, $best)
 
