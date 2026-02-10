@@ -31,12 +31,6 @@ from compiler / front / commands import procSwitchResultToEvents,
 
 from compiler/front/main import customizeForBackend
 
-template excludeAllNotes(config: ConfigRef; n: typed) {.used.} =
-  config.notes.excl n
-  when compiles(config.mainPackageNotes):
-    config.mainPackageNotes.excl n
-  when compiles(config.foreignPackageNotes):
-    config.foreignPackageNotes.excl n
 
 proc processArgument(pass: TCmdLinePass; p: OptParser;
                      argsCount: var int; config: ConfigRef): bool =
@@ -87,20 +81,9 @@ proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
       if processArgument(pass, p, argsCount, config):
         break
 
-proc reset*(graph: ModuleGraph) =
-  ## reset the module graph so it is ready for recompilation
-  # we're not dirty if we don't have a fileindex
-  if graph.config.projectMainIdx != InvalidFileIdx:
-    # mark the program as dirty
-    graph.markDirty graph.config.projectMainIdx
-    # mark dependencies as dirty
-    graph.markClientsDirty graph.config.projectMainIdx
-    # reset the error counter
-    graph.config.errorCounter = 0
 
 proc compile*(graph: ModuleGraph) =
   ## compile a module graph
-  reset graph
   let config = graph.config
   config.lastCmdTime = epochTime()
   if config.libpath notin config.searchPaths:
@@ -113,7 +96,6 @@ proc compile*(graph: ModuleGraph) =
 
   customizeForBackend(graph, config, backendC)# use C as the default target
 
-  graph.suggestMode = true                    # needed for dirty flags
   compileProject graph                        # process the graph
 
 proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph,
@@ -125,9 +107,6 @@ proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph,
   initDefinesProg(prog, config, "dust")
   processCmdLineAndProjectPath(prog, config, argv)
   result = loadConfigsAndProcessCmdLine(prog, cache, config, graph, argv)
-
-  #excludeAllNotes(result, hintConf)
-  #excludeAllNotes(result, hintLineTooLong)
 
   # force enable/disable some options
   incl config, optStaticBoundsCheck
