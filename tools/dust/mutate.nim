@@ -1,6 +1,7 @@
 import
   compiler / ast / [ lineinfos, renderer, ast, ]
 
+
 const
   DynamicSize = {nkBracket, nkCurly, nkRecList, nkTupleTy, nkPragma,
       nkGenericParams}
@@ -23,6 +24,7 @@ const
     ## syntax that must always have at least one element
   IfLike = {nkIfExpr, nkIfStmt, nkWhenStmt, nkRecWhen}
     ## syntax that has branches (e.g., `nkElse`, `nkElifBranch`, etc.) as children
+
 
 proc numSteps*(n: PNode): int =
   ## Computes the number of distinct single modifications (i.e., removing a
@@ -71,6 +73,7 @@ proc numSteps*(n: PNode): int =
   else:
     # everything else has to keep all their children
     result = count(n)
+
 
 proc reduce*(n: PNode, index: var int): PNode =
   ## Computes the tree corresponding to a step.
@@ -162,6 +165,7 @@ proc reduce*(n: PNode, index: var int): PNode =
       result = reduceAll(n, index)
   else:
     result = reduceAll(n, index)
+
 
 iterator mutations*(n: PNode): PNode =
   for i in 0 ..< numSteps(n):

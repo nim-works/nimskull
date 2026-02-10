@@ -31,12 +31,14 @@ import hashing
 import boring
 import mutate
 
+
 type
   ErrorCode* = enum
     success = 0
     fileNotProvided = 1
     setupError = 2
     noError = 3
+
 
 template semcheck(body: untyped) {.dirty.} =
   ## perform the complete setup and compilation process
@@ -62,17 +64,20 @@ template semcheck(body: untyped) {.dirty.} =
   compile graph                         # run the compile
   inc counter
 
+
 proc calculateScore(config: ConfigRef; n: PNode): int =
   when defined(dustFewerLines):
     result = config.linesCompiled
   else:
     result = size(n)
 
+
 proc dustReportHook(conf: ConfigRef, report: Report): TErrorHandling =
   # uncomment below to see all errors+
   # if conf.severity(report) >= rsevError:
   #   echo conf.reportFull(report)
   doDefault
+
 
 proc dust*(args: openArray[string]): ErrorCode =
   var
@@ -176,6 +181,7 @@ proc dust*(args: openArray[string]): ErrorCode =
     echo "=== minimal after ", counter, " semchecks; scored ", score
     echo best
     writeFile(config.projectFull.string, $best)
+
 
 when isMainModule:
   let args = getExecArgs()

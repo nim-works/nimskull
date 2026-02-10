@@ -41,6 +41,7 @@ proc processArgument(pass: TCmdLinePass; p: OptParser;
     result = true
   inc argsCount
 
+
 proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
   ## parse the command-line into the config
   var p = initOptParser(cmd)
@@ -98,6 +99,7 @@ proc compile*(graph: ModuleGraph) =
 
   compileProject graph                        # process the graph
 
+
 proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph,
             argv: openArray[string]): bool =
   let prog = NimProg(
@@ -112,6 +114,7 @@ proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph,
   incl config, optStaticBoundsCheck
   excl config, optWarns
   excl config, optHints
+
 
 proc wantMainModule*(config: ConfigRef): bool =
   ## Sets the main module to the file whose path was provided on the command
