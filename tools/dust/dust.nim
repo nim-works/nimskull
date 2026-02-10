@@ -16,7 +16,7 @@ import
     passes,
     sem,
   ],
-  compiler / utils / [ astrepr, pathutils, ]
+  compiler / utils / [ astrepr, ]
 
 # legacy reports stupidity
 from compiler / ast / reports import Report, location, kind

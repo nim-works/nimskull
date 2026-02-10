@@ -11,7 +11,6 @@ import std/parseopt
 import
   compiler / ast / [
     idents,
-    lineinfos,
   ],
   compiler / front / [
       cmdlinehelper,
