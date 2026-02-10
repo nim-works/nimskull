@@ -33,9 +33,6 @@ from compiler / front / commands import procSwitchResultToEvents,
                                         cliEventLogger,
                                         showMsg
 
-const
-  NimCfg* {.strdefine.} = "nim".addFileExt "cfg"
-
 template excludeAllNotes(config: ConfigRef; n: typed) {.used.} =
   config.notes.excl n
   when compiles(config.mainPackageNotes):
@@ -134,6 +131,8 @@ proc compile*(graph: ModuleGraph) =
   if config.libpath notin config.searchPaths:
     config.searchPaths.add config.libpath     # make sure we can import
 
+  initDefines(config.symbols)
+
   config.setErrorMaxHighMaybe                 # for now, we honor errorMax
   defineSymbol(config, "nimcheck")            # useful for static: reasons
 
@@ -152,35 +151,10 @@ proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph): bool =
     processCmdLineAndProjectPath(prog, config, argv)
     result = loadConfigsAndProcessCmdLine(prog, cache, config, graph, argv)
 
-proc parentDir(file: AbsoluteFile): AbsoluteDir =
-  result = AbsoluteDir(file) / RelativeDir".."
+    #excludeAllNotes(result, hintConf)
+    #excludeAllNotes(result, hintLineTooLong)
 
-proc loadConfig*(graph: ModuleGraph; fn: AbsoluteFile) =
-  ## use the ident cache to load the project config for the given filename
-  var result = graph.config
-
-  #excludeAllNotes(result, hintConf)
-  #excludeAllNotes(result, hintLineTooLong)
-
-  initDefines(result.symbols)
-
-  let compilerPath = AbsoluteFile findExe"nim"
-  result.prefixDir = parentDir(compilerPath) / RelativeDir".."
-  result.projectPath = parentDir(fn)
-
-  when false:
-    let cfg = fn.string & ExtSep & "cfg"
-    if fileExists(cfg):
-      if not readConfigFile(cfg.AbsoluteFile, graph.cache, result):
-        raise newException(ValueError, "couldn't parse " & cfg)
-  else:
-    let cwd = getCurrentDir()
-    setCurrentDir $result.projectPath
-    try:
-      discard loadConfigs(NimCfg.RelativeFile, graph.cache, result)
-    finally:
-      setCurrentDir cwd
-
-  incl result, optStaticBoundsCheck
-  excl result, optWarns
-  excl result, optHints
+    # force enable/disable some options
+    incl config, optStaticBoundsCheck
+    excl config, optWarns
+    excl config, optHints

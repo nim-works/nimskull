@@ -45,16 +45,13 @@ template semcheck(body: untyped) {.dirty.} =
   config.diagHandler = msgs.defaultDiagHandler
   config.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   graph = newModuleGraph(cache, config)
-  graph.loadConfig(filename)
 
-  # perform boring setup of the config using the cache
-  if not setup(cache, config, graph):
+  # perform boring setup of the config and graph (command line parsing, config
+  # file loading, etc.)
+  if not setup(cache, config, graph, args):
     return ErrorCode.setupError
 
   config.verbosity = compVerbosityMin   # reduce spam
-
-  # create a new module graph
-  #graph = newModuleGraph(cache, config)
 
   body
   registerPass graph, semPass           # perform semcheck
