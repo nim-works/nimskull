@@ -2,24 +2,27 @@ import
   compiler / ast / [ lineinfos, renderer, ast, ]
 
 const
-  FixedSize = {
-      nkDiscardStmt, nkCast, nkConv, nkAsgn, nkAddr, nkReturnStmt,
-      nkYieldStmt, nkDotExpr, nkPar, nkBreakStmt, nkContinueStmt, nkTypeDef,
-      nkObjectTy, nkRefTy}
-    ## syntax with a fixed number of children
-  WithBody = callableDefs + {nkElifExpr, nkElifBranch, nkElse, nkElseExpr,
-      nkWhileStmt, nkForStmt, nkBlockExpr, nkBlockStmt, nkPragmaBlock, nkOfBranch}
+  DynamicSize = {nkBracket, nkCurly, nkRecList, nkTupleTy, nkPragma,
+      nkGenericParams}
+    ## syntax where an arbitrary number of children is allowed (including none)
+  WithBody = callableDefs +
+      {nkElifExpr, nkElifBranch, nkElse, nkElseExpr, nkWhileStmt, nkForStmt,
+       nkBlockExpr, nkBlockStmt, nkPragmaBlock, nkOfBranch}
     ## syntax with a fixed number of children, where the last child represents
     ## a body (statement or expression)
-  WithBodyReplaceable = callableDefs + {nkWhileStmt, nkForStmt, nkBlockExpr,
-      nkBlockStmt, nkPragmaBlock}
+  WithBodyReplaceable = callableDefs +
+      {nkWhileStmt, nkForStmt, nkBlockExpr, nkBlockStmt, nkPragmaBlock}
     ## syntax that may be replace with its body (i.e., the last child)
-  ListLike = {nkTupleConstr, nkVarSection, nkLetSection, nkConstSection,
-      nkTypeSection, nkStmtList, nkStmtListExpr}
+  FixedFirstChild = {nkCall, nkCurlyExpr, nkBracketExpr, nkObjConstr} -
+      {nkPostFix}
+    ## syntax where the child has to always be present
+  ListLike = {nkTupleConstr, nkTableConstr, nkVarSection, nkLetSection,
+      nkConstSection, nkTypeSection, nkStmtList, nkStmtListExpr,
+      nkFormalParams, nkBindStmt, nkMixinStmt, nkEnumTy, nkUsingStmt,
+      nkImportStmt}
     ## syntax that must always have at least one element
-  IfLike = {nkIfExpr, nkIfStmt, nkWhenStmt}
+  IfLike = {nkIfExpr, nkIfStmt, nkWhenStmt, nkRecWhen}
     ## syntax that has branches (e.g., `nkElse`, `nkElifBranch`, etc.) as children
-
 
 proc numSteps*(n: PNode): int =
   ## Computes the number of distinct single modifications (i.e., removing a
@@ -35,18 +38,20 @@ proc numSteps*(n: PNode): int =
     result = 0
   of nkIdentDefs:
     # the identdefs must always have at least one element
-    result = count(n) + (if n.len > 3: n.len - 2 else: 0) + ord(n[^1].kind != nkEmpty)
+    result = count(n) + (if n.len > 3: n.len - 2 else: 0) +
+      ord(n[^1].kind != nkEmpty)
   of nkConstDef:
     # similar to an identdefs, but the value expression cannot be removed
     result = count(n) + (if n.len > 3: n.len - 2 else: 0)
-  of FixedSize:
-    result = count(n)
+  of DynamicSize:
+    result = count(n) + n.len
   of WithBody:
-    result = count(n) + ord(n[^1].kind != nkEmpty) + ord(n.kind in WithBodyReplaceable)
+    result = count(n) + ord(n[^1].kind != nkEmpty) +
+      ord(n.kind in WithBodyReplaceable)
   of nkCaseStmt, nkRecCase:
     # the selector must be kept, but replacing with branch bodies is possible
     result = count(n) + (n.len - 1) + (n.len - 1)
-  of nkCallKinds - {nkPostfix}, nkCurlyExpr, nkBracketExpr:
+  of FixedFirstChild:
     # the first node must always stay
     result = count(n) + n.len - 1
   of ListLike:
@@ -56,15 +61,16 @@ proc numSteps*(n: PNode): int =
     # the statement/expression can also be reduced by replacing it with
     # one of the bodies
     result = count(n) + (if n.len > 1: n.len else: 0) + n.len
+  of nkCommand:
+    result = count(n) + (if n.len > 2: (n.len - 1) else: 0)
   of nkPostfix:
     # the postfix can be replaced with its body
     result = count(n) + 1
   of nkPragmaExpr:
     result = count(n) + 1
   else:
-    # the rest can be fully reduced
-    result = count(n) + n.len
-
+    # everything else has to keep all their children
+    result = count(n)
 
 proc reduce*(n: PNode, index: var int): PNode =
   ## Computes the tree corresponding to a step.
@@ -110,8 +116,8 @@ proc reduce*(n: PNode, index: var int): PNode =
     else:
       index -= (n.len - 1)
       result = reduceWithRemove(n, 1, index) # the selector is always present
-  of nkCallKinds - {nkPostfix}, nkBracketExpr, nkCurlyExpr:
-    result = reduceWithRemove(n, 1, index) # the selector is always present
+  of FixedFirstChild:
+    result = reduceWithRemove(n, 1, index)
   of WithBody:
     result = reduceAll(n, index)
     if n[^1].kind != nkEmpty:
@@ -121,8 +127,8 @@ proc reduce*(n: PNode, index: var int): PNode =
     if n.kind in WithBodyReplaceable and doStep():
       # replace with the body
       result = result[^1]
-  of FixedSize:
-    result = reduceAll(n, index)
+  of DynamicSize:
+    result = reduceWithRemove(n, 0, index)
   of ListLike:
     if n.len > 1:
       result = reduceWithRemove(n, 0, index)
@@ -139,6 +145,11 @@ proc reduce*(n: PNode, index: var int): PNode =
         result = reduceWithRemove(n, 0, index)
       else:
         result = reduceAll(n, index)
+  of nkCommand:
+    if n.len > 2:
+      result = reduceWithRemove(n, 1, index)
+    else:
+      result = reduceAll(n, index)
   of nkPostfix:
     if doStep():
       result = n[1]
@@ -150,7 +161,7 @@ proc reduce*(n: PNode, index: var int): PNode =
     else:
       result = reduceAll(n, index)
   else:
-    result = reduceWithRemove(n, 0, index)
+    result = reduceAll(n, index)
 
 iterator mutations*(n: PNode): PNode =
   for i in 0 ..< numSteps(n):
