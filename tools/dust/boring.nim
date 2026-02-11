@@ -110,7 +110,6 @@ proc setup*(cache: IdentCache; config: ConfigRef; graph: ModuleGraph,
   result = loadConfigsAndProcessCmdLine(prog, cache, config, graph, argv)
 
   # force enable/disable some options
-  incl config, optStaticBoundsCheck
   excl config, optWarns
   excl config, optHints
 
