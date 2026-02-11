@@ -1,5 +1,4 @@
 import experimental/cmdline
-from compiler/utils/pathutils import AbsoluteFile
 from std/os import walkDir, PathComponent
 from std/osproc import execCmdEx
 from std/strutils import endsWith
