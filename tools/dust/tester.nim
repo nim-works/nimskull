@@ -12,9 +12,7 @@ proc main(testsDir: string = "./tools/dust/tests") =
     failed = 0
 
   for pc, file in walkDir(testsDir):
-    if pc != PathComponent.pcFile:
-      continue
-    if file.endsWith(".nim"):
+    if pc == PathComponent.pcFile and file.endsWith(".nim"):
       echo "testing: " & file
       let
         cmd = "./bin/dust " & file
@@ -25,10 +23,7 @@ proc main(testsDir: string = "./tools/dust/tests") =
       of ErrorCode.success:
         echo "success: " & file
         inc success
-      of ErrorCode.fileNotProvided:
-        echo "error: " & file & " with code " & $code
-        inc error
-      of ErrorCode.setupError:
+      of ErrorCode.fileNotProvided, ErrorCode.setupError:
         echo "error: " & file & " with code " & $code
         inc error
       of ErrorCode.noError:
