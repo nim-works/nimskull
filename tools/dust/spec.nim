@@ -12,6 +12,12 @@ import
 
 
 type
+  ErrorCode* = enum
+    success = 0
+    fileNotProvided = 1
+    setupError = 2
+    noError = 3
+
   DustContext* = ref object of PPassContext
     mainIndex*: FileIndex
     ignore*: bool

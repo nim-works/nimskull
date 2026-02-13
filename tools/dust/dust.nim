@@ -32,14 +32,6 @@ from compiler/front/cli_reporter import reportFull, legacyReportBridge
 from compiler/front/msgs import defaultDiagHandler
 
 
-type
-  ErrorCode* = enum
-    success = 0
-    fileNotProvided = 1
-    setupError = 2
-    noError = 3
-
-
 template semcheck(body: untyped) {.dirty.} =
   ## perform the complete setup and compilation process
   cache = newIdentCache()
