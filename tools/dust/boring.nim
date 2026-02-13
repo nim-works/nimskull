@@ -1,11 +1,12 @@
 ## The boring (compiler integration) bits that really aren't very relevant to
 ## dust.
 
-import std/times
-import std/os
-import std/parseopt
-
 import
+  std/[
+    times,
+    os,
+    parseopt,
+  ],
   compiler/ast/idents,
   compiler/front/[
       cmdlinehelper,
