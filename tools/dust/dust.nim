@@ -5,6 +5,11 @@ import std/os
 {.define(nimcore).}
 
 import
+  std/[
+    algorithm,
+    os,
+    sets
+  ],
   compiler/ast/[
     ast,
     idents,
@@ -33,7 +38,8 @@ from compiler/front/msgs import defaultDiagHandler
 
 
 template semcheck(body: untyped) {.dirty.} =
-  ## Perform the complete setup and compilation process.
+  ## First performs the complete setup, then runs `body`, and finally runs
+  ## sem-checking on the graph.
   cache = newIdentCache()
   config = newConfigRef(uhoh)
   config.diagHandler = msgs.defaultDiagHandler

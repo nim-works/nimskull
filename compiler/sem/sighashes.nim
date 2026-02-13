@@ -108,7 +108,7 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
 
 
 proc hashTree*(n: PNode; flags: set[ConsiderFlag] = considerAll): SigHash =
-  ## Compute the hash of an AST node (`n`) using the given flags.
+  ## Computes the hash of an AST node (`n`) using the given flags.
   var c: MD5Context
   md5Init c
   hashTree(c, n, flags)

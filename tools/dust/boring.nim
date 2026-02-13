@@ -36,7 +36,7 @@ proc processArgument(pass: TCmdLinePass; p: OptParser;
 
 
 proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
-  ## Parse the command-line into the config.
+  ## Parses the command-line into the config.
   var p = initOptParser(cmd)
   var argsCount = 0
 
@@ -77,7 +77,7 @@ proc cmdLine(pass: TCmdLinePass, cmd: openArray[string]; config: ConfigRef) =
 
 
 proc compile*(graph: ModuleGraph) =
-  ## Compile a module graph.
+  ## Compiles a module graph.
   let config = graph.config
   config.lastCmdTime = epochTime()
   if config.libpath notin config.searchPaths:
