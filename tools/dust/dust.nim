@@ -17,12 +17,12 @@ import
   compiler/sem/[
     passes,
     sem,
+    sighashes,
   ],
   compiler/utils/[astrepr,],
   std/options as std_options, # due to legacy reports stupidity
   std/[sets, algorithm,],
   spec,
-  hashing,
   boring,
   mutate
 
@@ -119,7 +119,7 @@ proc dust*(args: openArray[string]): ErrorCode =
     var remains: seq[(SigHash, PNode)]
     # gather all possible, not-yet-tried mutations:
     for mutant in mutations(best):
-      let hash = hashNode(mutant)
+      let hash = hashTree(mutant)
       if hash notin seen:
         remains.add (hash, mutant)
   
