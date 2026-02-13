@@ -577,6 +577,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemNoUnionForJs:
       result = "`{.union.}` is not implemented for js backend."
 
+    of rsemUndeclaredSymUsed:
+      result = "symbol used before declaration: "
+      result.add conf.getSymRepr r.sym
+
     of rsemBitsizeRequiresPositive:
       result = "bitsize needs to be positive"
 
@@ -698,6 +702,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemCannotCodegenCompiletimeProc:
       result = "request to generate code for .compileTime proc: " & r.symstr
+
+    of rsemNameCollision:
+      result = "a symbol with the same external name ('$1') exists already" % [r.str]
 
     of rsemFieldAssignmentInvalid:
       result = "Invalid field assignment '$1'" % r.ast.render
@@ -1741,9 +1748,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemNodeNotAllowed:
       result = "'$1' not allowed here" % r.ast.render
-
-    of rsemCustomGlobalError:
-      result = r.str
 
     of rsemCannotImportItself:
       result = "module '$1' cannot import itself" % r.symstr
@@ -2839,6 +2843,12 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   of rbackTargetNotSupported:
     "Compiler '$1' doesn't support the requested target" % r.usedCompiler
 
+  of rbackTlsEmulationNotImplemented:
+    "Thread-local storage emulation is currently not implemented"
+
+  of rbackHeaderGenerationNotImplemented:
+    "C header generation is currently not implemented"
+
   of rbackJsonScriptMismatch:
     (
       "jsonscript command outputFile '$1' must " &
@@ -3335,7 +3345,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: kind,
         ast: diag.wrongNode)
   of adSemDotOperatorsNotEnabled,
-     adSemCallOperatorsNotEnabled:
+     adSemCallOperatorsNotEnabled,
+     adSemGeneratedSymUsed:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,

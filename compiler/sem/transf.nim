@@ -571,6 +571,10 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
     [conv, newNodeIT(nkNilLit, prc.info, getSysType(c.graph, prc.info, tyNil))]
 
 proc transformConv(c: PTransf, n: PNode): PNode =
+  if sameType(n.typ.skipTypes({tySink}), n[1].typ.skipTypes({tySink})):
+    # the conversion doesn't modify the type, drop it
+    return transform(c, n[1])
+
   # numeric types need range checks:
   var dest = skipTypes(n.typ, abstractVarRange)
   var source = skipTypes(n[1].typ, abstractVarRange)
@@ -627,8 +631,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     of tyObject:
       let diff = inheritanceDiff(dest, source)
       if diff == 0 or diff == high(int):
-        result = transform(c, n[1])
-        result.typ = n.typ
+        result = transformSons(c, n)
       else:
         result = newTreeIT(
           if diff < 0: nkObjUpConv else: nkObjDownConv,
@@ -638,8 +641,8 @@ proc transformConv(c: PTransf, n: PNode): PNode =
   of tyObject:
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):
-      result = transform(c, n[1])
-      result.typ = n.typ
+      # must be some distinct type conversion; keep
+      result = transformSons(c, n)
     else:
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,
@@ -1134,7 +1137,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     else:
       result = s
 
-    if result[0].typ != nil and result[0].typ.callConv == ccTailcall and
+    if result[0].typ != nil and
+       result[0].typ.skipTypes(abstractInst).callConv == ccTailcall and
        sfGeneratedOp notin getCurrOwner(c).flags and
        getCurrOwner(c).typ != nil and
        getCurrOwner(c).typ.callConv == ccTailcall and
@@ -1442,7 +1446,8 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     if active:
       if n.kind in nkCallKinds and
-         n[0].typ != nil and n[0].typ.callConv == ccTailcall:
+         n[0].typ != nil and
+         n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
         n = newTreeI(nkReturnStmt, n.info, n)
       else:
         n = newTreeI(nkReturnStmt, n.info,

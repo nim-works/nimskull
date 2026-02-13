@@ -1925,52 +1925,39 @@ proc dial*(address: string, port: Port,
   let sockType = protocol.toSockType()
 
   let aiList = getAddrInfo(address, port, AF_UNSPEC, sockType, protocol)
+  defer: freeaddrinfo(aiList)
 
-  var fdPerDomain: array[low(Domain).ord..high(Domain).ord, SocketHandle]
-  for i in low(fdPerDomain)..high(fdPerDomain):
-    fdPerDomain[i] = osInvalidSocket
-  template closeUnusedFds(domainToKeep = -1) {.dirty.} =
-    for i, fd in fdPerDomain:
-      if fd != osInvalidSocket and i != domainToKeep:
-        fd.close()
-
-  var success = false
-  var lastError: OSErrorCode
   var it = aiList
-  var domain: Domain
-  var lastFd: SocketHandle
+  var lastError: OSErrorCode
   while it != nil:
     let domainOpt = it.ai_family.toKnownDomain()
     if domainOpt.isNone:
       it = it.ai_next
       continue
-    domain = domainOpt.unsafeGet()
-    lastFd = fdPerDomain[ord(domain)]
-    if lastFd == osInvalidSocket:
-      lastFd = createNativeSocket(domain, sockType, protocol)
-      if lastFd == osInvalidSocket:
-        # we always raise if socket creation failed, because it means a
-        # network system problem (e.g. not enough FDs), and not an unreachable
-        # address.
-        let err = osLastError()
-        freeaddrinfo(aiList)
-        closeUnusedFds()
-        raiseOSError(err)
-      fdPerDomain[ord(domain)] = lastFd
-    if connect(lastFd, it.ai_addr, it.ai_addrlen.SockLen) == 0'i32:
-      success = true
-      break
+
+    let domain = domainOpt.unsafeGet()
+    var fd = createNativeSocket(domain, sockType, protocol)
+    if fd == osInvalidSocket:
+      # we always raise if socket creation failed, because it means a
+      # network system problem (e.g. not enough FDs), and not an unreachable
+      # address.
+      let err = osLastError()
+      raiseOSError(err)
+    defer: close(fd)
+
+    if connect(fd, it.ai_addr, it.ai_addrlen.SockLen) == 0'i32:
+      result = newSocket(fd, domain, sockType, protocol)
+      fd = osInvalidSocket # prevents result fd from being closed by defer
+      return
+
     lastError = osLastError()
     it = it.ai_next
-  freeaddrinfo(aiList)
-  closeUnusedFds(ord(domain))
 
-  if success:
-    result = newSocket(lastFd, domain, sockType, protocol)
-  elif lastError != 0.OSErrorCode:
+  if lastError != 0.OSErrorCode:
+    # FIXME: This should be a collection of errors for each attempt, not the last one
     raiseOSError(lastError)
   else:
-    raise newException(IOError, "Couldn't resolve address: " & address)
+    raise newException(IOError, "No usable addresses found for: " & address)
 
 proc connect*(socket: Socket, address: string,
     port = Port(0)) {.tags: [ReadIOEffect].} =

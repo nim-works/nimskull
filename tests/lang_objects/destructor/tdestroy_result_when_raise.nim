@@ -4,6 +4,7 @@ discard """
     the procedure exits due to a `raise`
   '''
   targets: c js vm
+  joinable: false
 """
 
 import mhelper

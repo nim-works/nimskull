@@ -20,6 +20,7 @@
   </p>
 
 [![Matrix](https://img.shields.io/badge/matrix-nim--works-success?style=flat&logo=matrix)][nim-works-matrix]
+[![Discord](https://img.shields.io/badge/discord-nim--works-success?style=flat&logo=discord)][nim-works-discord]
 [![IRC](https://img.shields.io/badge/chat-%23nimworks%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks)
 [![IRC #nimworks-dev](https://img.shields.io/badge/chat-%23nimworks--dev%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks-dev)
 
@@ -260,7 +261,7 @@ features to end up with a slim down core. Some areas of contribution:
 <summary class="blue">Any chat room on matrix/irc/discord?</summary>
 </br>
 
-Yes! Feel free to join us on our [nim-works channel][nim-works-matrix]! Please have a read of our [Code of Conduct](https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md)
+Yes! Feel free to join us on our [nim-works channel][nim-works-matrix] or [nim.works discord server][nim-works-discord]! Please have a read of our [Code of Conduct](https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md).
 
 </details>
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -270,4 +271,5 @@ MIT
 
 [nim-site]: https://nim-lang.org
 [csources-v1-repo]: https://github.com/nim-works/csources_v1
-[nim-works-matrix]: https://matrix.to/#/#nimworks:envs.net?client=element.io
+[nim-works-matrix]: https://matrix.to/#/#space:nim.works?client=element.io&via=matrix.org&via=envs.net&via=nim.works
+[nim-works-discord]: https://discord.gg/sNBG9E2zbB

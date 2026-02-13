@@ -161,7 +161,6 @@ type
     cmdSwitchExpandarc
     cmdSwitchBenchmarkvm
     cmdSwitchProfilevm
-    cmdSwitchSinkinference
     cmdSwitchCursorinference
     cmdSwitchPanics
     cmdSwitchSourcemap
@@ -291,7 +290,6 @@ type
     fullSwitchTxtExpandarc           = "expandarc"
     fullSwitchTxtBenchmarkvm         = "benchmarkvm"
     fullSwitchTxtProfilevm           = "profilevm"
-    fullSwitchTxtSinkinference       = "sinkinference"
     fullSwitchTxtCursorinference     = "cursorinference"
     fullSwitchTxtPanics              = "panics"
     fullSwitchTxtSourcemap           = "sourcemap"
@@ -419,7 +417,6 @@ const
       cmdSwitchExpandarc          : {fullSwitchTxtExpandarc},
       cmdSwitchBenchmarkvm        : {fullSwitchTxtBenchmarkvm},
       cmdSwitchProfilevm          : {fullSwitchTxtProfilevm},
-      cmdSwitchSinkinference      : {fullSwitchTxtSinkinference},
       cmdSwitchCursorinference    : {fullSwitchTxtCursorinference},
       cmdSwitchPanics             : {fullSwitchTxtPanics},
       cmdSwitchSourcemap          : {fullSwitchTxtSourcemap},
@@ -1604,9 +1601,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "profilevm":
     setSwitchAndSrc cmdSwitchProfilevm
     processOnOffSwitchG(conf, {optProfileVM}, arg, switch)
-  of "sinkinference":
-    setSwitchAndSrc cmdSwitchSinkinference
-    processOnOffSwitch(conf, {optSinkInference}, arg, switch)
   of "cursorinference":
     setSwitchAndSrc cmdSwitchCursorinference
     # undocumented, for debugging purposes only:
@@ -1757,7 +1751,7 @@ proc setCmd*(conf: ConfigRef, cmd: Command) =
   # Note that `--backend` can override the backend, so the logic here must remain reversible.
   conf.cmd = cmd
   case cmd
-  of cmdCompileToC, cmdCrun, cmdTcc: conf.backend = backendC
+  of cmdCompileToC, cmdCrun: conf.backend = backendC
   of cmdCompileToJS: conf.backend = backendJs
   of cmdCompileToVM: conf.backend = backendNimVm
   else: discard
@@ -1770,7 +1764,6 @@ proc parseCommand(command: string): Command =
   of "js", "compiletojs": cmdCompileToJS
   of "vm", "compiletovm": cmdCompileToVM
   of "r": cmdCrun
-  of "run": cmdTcc
   of "check": cmdCheck
   of "e": cmdNimscript
   of "doc2", "doc": cmdDoc

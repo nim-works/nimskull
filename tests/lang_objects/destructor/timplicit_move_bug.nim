@@ -14,7 +14,7 @@ var wasDestroyed = false
 
 proc `=destroy`(x: var Object) =
   if x.has:
-    inc wasDestroyed
+    wasDestroyed = true
 
 proc f_sink(x: sink Object) =
   # disarm the destructor:

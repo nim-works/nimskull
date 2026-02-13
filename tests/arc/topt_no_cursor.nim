@@ -26,10 +26,9 @@ scope:
   def _6: Target = (consume _3, consume _4, consume _5)
   result := move _6
   =destroy(name splat)
-  goto [L1]
+return result
 finally (L0):
-  continue [Resume]
-L1:
+  continue [Unwind]
 -- end of expandArc ------------------------
 --expandArc: delete
 
@@ -48,6 +47,7 @@ scope:
   def_cursor _9: Node = sibling
   =sink(name _9[].parent, arg saved)
   =destroy(name sibling)
+return
 -- end of expandArc ------------------------
 --expandArc: p1
 
@@ -68,6 +68,7 @@ scope:
   =destroy(name _)
   =destroy(name lnext)
   =destroy(name lvalue)
+return result
 -- end of expandArc ------------------------
 --expandArc: tt
 
@@ -89,8 +90,9 @@ scope:
     continue [L0]
   finally (L0):
     =destroy(name a)
-    continue [Resume]
+    continue [Unwind]
   L2:
+return
 -- end of expandArc ------------------------
 --expandArc: extractConfig
 
@@ -140,8 +142,9 @@ scope:
   goto [L7]
   finally (L3):
     =destroy(name lan_ip)
-    continue [Resume]
+    continue [Unwind]
   L7:
+return
 --expandArc: mergeShadowScope
 
 scope:
@@ -181,8 +184,9 @@ scope:
   goto [L6]
   finally (L0):
     =destroy(name shadowScope)
-    continue [Resume]
+    continue [Unwind]
   L6:
+return
 -- end of expandArc ------------------------
 --expandArc: treturn
 
@@ -210,21 +214,21 @@ scope:
     =destroy(name x)
     continue [L5]
   L4:
-goto [L1]
-finally (L5):
-  continue [Resume]
 L1:
+return result
+finally (L5):
+  continue [Unwind]
 
 -- end of expandArc ------------------------
 --expandArc: check
 
 scope:
   def_cursor _2: string = this[].value
-  this[].isValid = fileExists(arg _2) -> [Resume]
+  this[].isValid = fileExists(arg _2) -> [Unwind]
   def _4: tuple[dir: string, front: string]
   scope:
     def_cursor _5: string = this[].value
-    def _6: bool = dirExists(arg _5) -> [Resume]
+    def _6: bool = dirExists(arg _5) -> [Unwind]
     if _6:
       scope:
         def _7: string
@@ -233,10 +237,9 @@ scope:
         goto [L1]
   scope:
     def_cursor _8: string = this[].value
-    def _9: string = parentDir(arg _8) -> [Resume]
-    def _10: string
-    =copy(name _10, arg this[].value)
-    def _11: tuple[head: string, tail: string] = splitPath(consume _10) -> [L2]
+    def _9: string = parentDir(arg _8) -> [Unwind]
+    def_cursor _10: string = this[].value
+    def _11: tuple[head: string, tail: string] = splitPath(arg _10) -> [L2]
     bind_mut _19: string = _11.1
     def _12: string = move _19
     wasMoved(name _19)
@@ -245,7 +248,7 @@ scope:
     goto [L3]
     finally (L2):
       =destroy(name _9)
-      continue [Resume]
+      continue [Unwind]
     L3:
   L1:
   def par: tuple[dir: string, front: string] = move _4
@@ -267,8 +270,9 @@ scope:
   goto [L7]
   finally (L4):
     =destroy(name par)
-    continue [Resume]
+    continue [Unwind]
   L7:
+return
 
 -- end of expandArc ------------------------'''
 """
@@ -463,7 +467,7 @@ type
 proc rawCloseScope(c: PContext) =
   c.currentScope = c.currentScope.parent
 
-proc addInterfaceDecl(c: PContext; s: Symbol) =
+proc addInterfaceDecl(c: PContext; s: sink Symbol) =
   c.currentScope.symbols.add s
 
 proc mergeShadowScope*(c: PContext) =

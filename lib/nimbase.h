@@ -96,18 +96,23 @@ __EMSCRIPTEN__
   /* the test for __POCC__ has to come before the test for _MSC_VER,
      because PellesC defines _MSC_VER too. This is brain-dead. */
 #  define N_INLINE(rettype, name) inline rettype name
+#  define N_CINLINE inline
 #elif defined(__BORLANDC__) || defined(_MSC_VER)
 /* Borland's compiler is really STRANGE here; note that the __fastcall
    keyword cannot be before the return type, but __inline cannot be after
    the return type, so we do not handle this mess in the code generator
    but rather here. */
 #  define N_INLINE(rettype, name) __inline rettype name
+#  define N_CINLINE inline
 #elif defined(__DMC__)
 #  define N_INLINE(rettype, name) inline rettype name
+#  define N_CINLINE inline
 #elif defined(__WATCOMC__)
 #  define N_INLINE(rettype, name) __inline rettype name
+#  define N_CINLINE __inline
 #else /* others are less picky: */
 #  define N_INLINE(rettype, name) rettype __inline name
+#  define N_CINLINE __inline
 #endif
 
 #define N_INLINE_PTR(rettype, name) rettype (*name)
@@ -240,10 +245,13 @@ __EMSCRIPTEN__
 
 #if defined(__GNUC__) || defined(__ICC__)
 #  define N_NOINLINE(rettype, name) rettype __attribute__((__noinline__)) name
+#  define N_CNOINLINE __attribute__((__noinline__))
 #elif defined(_MSC_VER)
 #  define N_NOINLINE(rettype, name) __declspec(noinline) rettype name
+#  define N_CNOINLINE __declspec(noinline)
 #else
 #  define N_NOINLINE(rettype, name) rettype name
+#  define N_CNOINLINE
 #endif
 
 #define N_NOINLINE_PTR(rettype, name) rettype (*name)
@@ -600,5 +608,27 @@ NIM_STATIC_ASSERT(sizeof(NI) == sizeof(void*) && NIM_INTBITS == sizeof(NI)*8, ""
 
 #define NIM_NOALIAS __restrict
 /* __restrict is said to work for all the C(++) compilers out there that we support */
+
+#ifdef __GNUC__
+  #define NIM_UNREACHABLE() __builtin_unreachable()
+#elif defined(_MSC_VER) // MSVC
+  #define NIM_UNREACHABLE() __assume(false)
+#else
+  // the macro is only a hint in the end, so if no extension is available, it
+  // simply expands to nothing
+  #define NIM_UNREACHABLE() (void)
+#endif
+
+/* struct packing compatibility macros */
+#ifdef __GNUC__
+  /* note: while GCC/Clang do support the pack push/pop pragmas, their
+     behaviour does not match that of MSVC's push/pop pragmas w.r.t. fields
+     with explicitly specified alignment */
+  #define N_PACKED_START __attribute__((__packed__))
+  #define N_PACKED_END
+#elif defined(_MSC_VER) /* MSVC */
+  #define N_PACKED_START __pragma(pack(push, 1))
+  #define N_PACKED_END   __pragma(pack(pop))
+#endif
 
 #endif /* NIMBASE_H */

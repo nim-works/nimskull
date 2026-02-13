@@ -42,6 +42,7 @@ let reprConfig = block:
   rc.flags.excl trfShowFullSymTypes
   rc.flags.excl trfShowNodeTypes
   rc.flags.incl trfShowSymKind
+  rc.flags.incl trfShowSymId
   rc
 
 template isEnabled(config: ConfigRef, ir: IrName, name: string): bool =

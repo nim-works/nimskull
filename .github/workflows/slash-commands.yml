@@ -17,7 +17,7 @@ jobs:
           app-id: ${{ secrets.CHORE_APP_ID }}
           private-key: ${{ secrets.CHORE_APP_KEY }}
 
-      - uses: peter-evans/slash-command-dispatch@v4
+      - uses: peter-evans/slash-command-dispatch@v5
         with:
           token: ${{ steps.token.outputs.token }}
           reaction-token: ${{ steps.token.outputs.token }}

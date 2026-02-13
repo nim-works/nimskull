@@ -28,7 +28,6 @@ import
     renderer,
     types,
     nimsets,
-    errorreporting,
     errorhandling,
     astmsgs,
     lineinfos,
@@ -85,7 +84,7 @@ import
     vmdef,
   ]
 
-from std/options as std_options import some, none
+from std/options as std_options import some, none, isSome, unsafeGet
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
@@ -99,12 +98,11 @@ from compiler/ast/reports_sem import SemReport,
 # TODO: `semtypes` misuses `VMReport` to indicate a compile time error, it's a
 #       semantic analysis error born of compile time evaluation
 from compiler/ast/reports_vm import VMReport
-from compiler/ast/report_enums import ReportKind
+from compiler/ast/report_enums import ReportKind, ReportCategory
 
-when defined(nimsuggest):
-  # TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
-  #       it's silly that the compiler hook looks so broadly
-  from compiler/ast/reports import Report
+# TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
+#       it's silly that the compiler hook looks so broadly
+from compiler/ast/reports import Report, ReportSeverity
 
 import compiler/tools/suggest
 
@@ -398,9 +396,7 @@ proc commonType*(c: PContext; x: PType, y: PNode): PType =
   result = commonType(c, x, y.typ)
 
 proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
-  let (ident, err) = considerQuotedIdent(c, n)
-  if err != nil:
-    localReport(c.config, err)
+  let (ident, _) = considerQuotedIdent(c, n)
   result = newSym(kind, ident, nextSymId c.idgen, getCurrOwner(c), n.info)
   when defined(nimsuggest):
     suggestDecl(c, n, result)
@@ -466,7 +462,10 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
       # xxx: we really should guard on `sfGenSym`; but macros can transplant
       #      symbols from pretty much anywhere, so we don't know where gensym
       #      really came from.
-      if n.sym.kind in {kind, skTemp}:
+      if n.sym.kind in {kind, skTemp, skGenerated}:
+        # declaration position converts generated sym to the correct type
+        if n.sym.kind == skGenerated:
+          n.sym.kind = kind
         n.sym.owner = currOwner # xxx: modifying the sym owner is suss
         n
       else:
@@ -602,23 +601,34 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
     #      - ``paramTypesMatchAux``
     return nil
 
-  let oldErrorCount = c.config.errorCounter
-  let oldErrorMax = c.config.errorMax
-  let oldErrorOutputs = c.config.m.errorOutputs
+  let oldHandler = move c.config.diagHandler
+  var diags: seq[Report]
+  c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
+    # abort on the first error, capture all other diagnostics
+    if conf.severity(rep) == rsevError:
+      raise ERecoverableError.newException("")
+    else:
+      diags.add rep
 
-  c.config.m.errorOutputs = {}
-  c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
+  # TODO: figuring out whether an expression is "constant" must not require
+  #       tentatively evaluating it first. Instead, semantic analysis itself
+  #       needs to keep track of the constness of expressions
+  try:
+    result = evalConstExpr(c.module, c.idgen, c.graph, result)
+    case result.kind
+    of nkError, nkEmpty:
+      result = nil
+    else:
+      discard
+  except ERecoverableError:
+    result = nil # evaluation failed
 
-  result = evalConstExpr(c.module, c.idgen, c.graph, result)
-  case result.kind
-  of nkError, nkEmpty:
-    result = nil
-  else:
-    discard
-
-  c.config.errorCounter = oldErrorCount
-  c.config.errorMax = oldErrorMax
-  c.config.m.errorOutputs = oldErrorOutputs
+  c.config.setDiagHandler(oldHandler)
+  # emit all captured diagnostics when the expression really is a
+  # constant expression
+  if result != nil:
+    for it in diags.items:
+      c.config.localReport(it)
 
 proc evalConstExpr(c: PContext, n: PNode): PNode =
   ## Tries to turn the expression `n` into AST that represents a concrete
@@ -667,12 +677,10 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   let e = semExprWithType(c, n)
   popExecCon(c)
   if e.isError:
-    localReport(c.config, e)
     return n
 
   result = evalConstExpr(c, e)
   if result.isError:
-    localReport(c.config, result)
     result = e # error correction
 
 proc semRealConstExpr(c: PContext, n: PNode): PNode =
@@ -713,9 +721,6 @@ proc tryEvalStaticArgument(c: PContext, n: PNode): PNode =
       if e == n: copyNodeWithKids(n)
       else:      n
     result.typ = typ
-
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
 
 include hlo, seminst, semcall
 
@@ -922,7 +927,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
 # -- code-myopen
 
 proc myOpen(graph: ModuleGraph; module: PSym;
-            idgen: IdGenerator): PPassContext {.nosinks.} =
+            idgen: IdGenerator): PPassContext =
   var c = newContext(graph, module)
   c.idgen = idgen
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
@@ -975,7 +980,7 @@ proc recoverContext(c: PContext) =
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
   c.executionCons.setLen(1)
 
-proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
+proc myProcess(context: PPassContext, n: PNode): PNode =
   ## Entry point for the semantic analysis pass, this proc is part of the
   ## compiler graph `passes` interface. This adapts that interface to the sem
   ## implementation by wrapping `semStmtAndGenerateGenerics`.

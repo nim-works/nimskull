@@ -74,7 +74,7 @@ type
     nes: NES
     cpu: CPU
 
-proc initAPU(nes: sink NES): APU {.nosinks.} =
+proc initAPU(nes: sink NES): APU =
   result.nes = nes
   result.cpu = nes.cpu
 

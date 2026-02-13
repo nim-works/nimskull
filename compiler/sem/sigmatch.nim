@@ -21,7 +21,6 @@ import
     idents,
     trees,
     lineinfos,
-    errorreporting,
     errorhandling,
   ],
   compiler/modules/[
@@ -55,6 +54,19 @@ from compiler/ast/report_enums import ReportKind,
 from compiler/ast/reports import Report
 
 type
+  DiagContext* = ref object
+    ## Context to which captured diagnostics are registered to.
+    slots: seq[seq[ref SemReport]]
+      ## for each operand of matched call, the list of diagnostics captured
+      ## during its analysis, or nil, if none were emitted/captured
+    general: seq[ref SemReport]
+    isGeneral: bool
+      ## whether to record to the `general` buffer
+    current: int
+      ## the slot to store captured diagnostics in
+    maxSlots {.requiresInit.}: int
+      ## the maximum possible number of slots
+
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
 
@@ -90,6 +102,8 @@ type
                               ## table in the future.
     inheritancePenalty: int   ## to prefer closest father object type
     error*: SemCallMismatch
+    diagnostics: seq[ref SemReport]
+      ## diagnostics captured during typing/analysis of the candidate
 
   TTypeRelFlag* = enum
     trDontBind
@@ -143,6 +157,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.genericConverter = false
   c.inheritancePenalty = 0
   c.error = SemCallMismatch()
+  c.diagnostics = @[]
   initIdTable(c.bindings)
 
 proc initCallCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
@@ -182,6 +197,7 @@ proc copyCandidate(a: var TCandidate, b: TCandidate) =
   a.calleeSym = b.calleeSym
   a.call = copyTree(b.call)
   a.baseTypeMatch = b.baseTypeMatch
+  a.diagnostics = b.diagnostics
   copyIdTable(a.bindings, b.bindings)
 
 proc typeRel*(c: var TCandidate, f, aOrig: PType,
@@ -2204,11 +2220,6 @@ proc instantiateRoutineExpr(c: PContext, bindings: TIdTable, n: PNode): PNode =
   case n.kind
   of nkProcDef, nkFuncDef, nkIteratorDef, nkLambdaKinds:
     result = c.semInferredLambda(c, bindings, n)
-    if result.kind == nkError:
-      # xxx: output the error now otherwise we'll just get an inferred lambda
-      #      failure without an explanation, ideally this should be
-      #      explained/added context of the inferred lambda error itself.
-      c.config.localReport(result)
   of nkSym:
     let inferred = c.semGenerateInstance(c, n.sym, bindings, n.info)
     result =
@@ -2340,7 +2351,11 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
 
   if r == isBothMetaConvertible:
     result = instantiateRoutineExpr(c, m.bindings, arg)
-    if result.isNil or result.isError:
+    if result.isNil:
+      return
+    elif result.isError:
+      inc(m.convMatches)
+      m.fauxMatch = tyError
       return
 
     inc(m.convMatches)
@@ -2396,7 +2411,11 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         implicitConv(nkHiddenStdConv, f, arg, m, c)
   of isInferred, isInferredConvertible:
     result = instantiateRoutineExpr(c, m.bindings, arg)
-    if result.isNil or result.isError:
+    if result.isNil:
+      return
+    elif result.isError:
+      inc(m.genericMatches)
+      m.fauxMatch = tyError
       return
 
     case r
@@ -2480,36 +2499,35 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       else:
         r = typeRel(m, base(f), a)
 
-        if arg.isError:
-          result = arg
-          m.baseTypeMatch = false
-          return
-
         case r
         of isGeneric:
           inc(m.convMatches)
           result = copyTree(arg)
           result.typ = getInstantiatedType(c, arg, m, base(f))
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isFromIntLit:
           inc(m.intConvMatches, 256)
           result = implicitConv(nkHiddenStdConv, f[0], arg, m, c)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isEqual:
           inc(m.convMatches)
           result = copyTree(arg)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         of isSubtype: # bug #4799, varargs accepting subtype relation object
           inc(m.subtypeMatches)
           if base(f).kind == tyTypeDesc:
             result = arg
           else:
             result = implicitConv(nkHiddenSubConv, base(f), arg, m, c)
-          m.baseTypeMatch = result.kind != nkError
+          m.baseTypeMatch = true
         else:
           result = userConvMatch(c, m, base(f), a, arg)
           if result != nil:
-            m.baseTypeMatch = result.kind != nkError
+            if result.kind == nkError:
+              # XXX: is it actually possible for ``userConvMatch`` to return
+              #      an error if the input isn't one already?
+              m.fauxMatch = tyError
+            m.baseTypeMatch = true
 
 proc paramTypesMatch*(
     candidate: var TCandidate,
@@ -2624,6 +2642,23 @@ proc setSon(father: PNode, at: int, son: PNode) =
   # insert potential 'void' parameters:
   #for i in oldLen..<at:
   #  father[i] = newNodeIT(nkEmpty, son.info, getSysType(tyVoid))
+
+proc setCurrent(diags: DiagContext, to: int) {.inline.} =
+  if diags != nil:
+    diags.isGeneral = false
+    diags.current = to
+
+proc inheritDiags(m: var TCandidate, diags: DiagContext) =
+  if diags != nil and diags.current < diags.slots.len:
+    m.diagnostics.add diags.slots[diags.current]
+    m.diagnostics.add diags.general
+    diags.general.shrink(0)
+
+proc addAllDiagnostics*(m: var TCandidate, diags: DiagContext) =
+  ## Adds all non-general diagnostics recored with `diags` to `m`.
+  if diags != nil:
+    for it in diags.slots.items:
+      m.diagnostics.add it
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
 proc prepareOperand(c: PContext; formal: PType; a, aOrig: PNode): PNode =
@@ -2783,12 +2818,14 @@ proc matchesGenericParams*(c: PContext, args: PNode, m: var TCandidate) =
   # the responsibility of the callsite
   m.state = csMatch
 
-proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet) =
+proc matchesAux(c: PContext, n, nOrig: PNode, diags: DiagContext,
+                m: var TCandidate, marker: var IntSet) =
   ## used to match a call `n` with a candidate `m`, noting matched formal
   ## params in `marker` by position. `m` and `marker` are out parameters and
   ## updated with the produced results.
 
   template noMatchAux() =
+    inheritDiags(m, diags)
     m.state = csNoMatch
     m.error.firstMismatch.pos = a
     m.error.firstMismatch.arg = operand
@@ -2798,14 +2835,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
     noMatchAux()
-
-  template noMatchDueToError() =
-    {.line.}:
-      ## found an nkError along the way so wrap the call in an error, do not use
-      ## if the legacy `localReport`s etc are being used.
-      c.closeShadowScope # don't merge changes
-      m.call = wrapError(c.config, m.call)
-      noMatchAux()
 
   template checkConstraint(n: untyped) {.dirty.} =
     if not formal.constraint.isNil:
@@ -2869,6 +2898,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     c.openShadowScope
 
     operand = n[a] # initialize to current arg in case of early `noMatch`
+    diags.setCurrent(a)
 
     # untyped varargs
     if a >= formalLen - 1 and              # last or finished passing args
@@ -2956,18 +2986,15 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       if m.baseTypeMatch or (arg.isError and container.isNil):
         #assert(container.isNil())
         container = newNodeIT(nkBracket, n[a].info, arrayConstr(c, arg))
+        container.typ.flags.incl tfVarargs
         container.add arg
-        setSon(m.call, formal.position + 1, container)
+        setSon(m.call, formal.position + 1,
+          implicitConv(nkHiddenStdConv, formal.typ, container, m, c))
 
         if f != formalLen - 1: # not the last formal param
           container = nil      # xxx: is this more vararg stuff?
       else:
         setSon(m.call, formal.position + 1, arg)
-
-      if operand.kind == nkError:
-        discard "could be a faux match, rejected in semResolvedCall"
-      elif arg.isError:
-        noMatchDueToError()
 
       inc f
     else:                                  # unnamed param `foo("baz")`
@@ -3024,11 +3051,6 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           else:
             container.add arg
             incrIndexType(container.typ)
-
-          if operand.kind == nkError:
-            discard "could be a faux match, rejected in semResolvedCall"
-          elif arg.kind == nkError:
-            noMatchDueToError()
 
           if m.baseTypeMatch: # match type `T` in `varargs[T]`
             checkConstraint(operand)
@@ -3119,12 +3141,13 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
             noMatch()
 
-          if operand.kind == nkError:
-            discard "could be a faux match, rejected in semResolvedCall"
-          elif arg.kind == nkError:
-            noMatchDueToError()
-
         checkConstraint(operand)
+
+    # for typed arguments, all diags captured for the argument are added to
+    # the candidate
+    if formal.isNil or
+       (formal.typ.kind != tyUntyped and not formal.typ.isVarargsUntyped):
+      inheritDiags(m, diags)
 
     if m.state == csMatch and
        not (m.calleeSym != nil and m.calleeSym.kind in {skTemplate, skMacro}):
@@ -3269,9 +3292,10 @@ proc semFinishOperands*(c: PContext, n: PNode) =
 proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   # for 'suggest' support:
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  matchesAux(c, n, nOrig, nil, m, marker)
 
-proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+proc matches*(c: PContext, n, nOrig: PNode, diags: DiagContext,
+              m: var TCandidate) =
   addInNimDebugUtils(c.config, "matches", n, m)
 
   if n.kind == nkError:
@@ -3298,10 +3322,16 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   if m.callee.kind == tyGenericBody:
     matchesType(c, n, m, marker)
   else:
-    matchesAux(c, n, nOrig, m, marker)
+    matchesAux(c, n, nOrig, diags, m, marker)
 
   if m.state == csNoMatch:
     return
+
+  # record error during handling of default parameter to the general list
+  # TODO: change default parameter handling such that no diagnostics
+  #       are emitted
+  if diags != nil:
+    diags.isGeneral = true
 
   # check that every formal parameter got a value:
   for f in 1..<m.callee.n.len:
@@ -3347,10 +3377,6 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
             # detected after instantiation
             copyTree(formal.ast)
 
-        if defaultValue.isError:
-          # xxx: change this to propagate
-          c.config.localReport(defaultValue)
-
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam
 
@@ -3363,6 +3389,11 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
         
         defaultValue.flags.incl nfDefaultParam
         setSon(m.call, formal.position + 1, defaultValue)
+
+  if diags != nil:
+    # handle diagnostics emitted during default parameter handling
+    m.diagnostics.add diags.general
+    diags.general.shrink(0)
 
   if m.calleeSym != nil and m.calleeSym.isGenericRoutineStrict:
     # check that every formal generic parameter got a value or type. Note that
@@ -3399,11 +3430,8 @@ proc argtypeMatches*(c: PContext, f, a: PType, fromHlo = false): bool =
   else:
     res != nil
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
 proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
-                      op: TTypeAttachedOp; col: int): PSym {.nosinks.} =
+                      op: TTypeAttachedOp; col: int): PSym =
   var m = newCandidate(c, dc.typ)
   if col >= dc.typ.len:
     localReport(c.config, info, reportSym(rsemCannotInstantiate, dc))
@@ -3420,6 +3448,33 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:
       assert sfFromGeneric in result.flags
+
+proc newDiagContext*(num: int): DiagContext =
+  ## Create a new diagnostic context for a call with `num` arguments.
+  DiagContext(maxSlots: num)
+
+proc record*(diags: DiagContext, rep: sink SemReport) =
+  ## Records `rep` with the context.
+  let diag = new SemReport
+  diag[] = rep
+  if diags.isGeneral:
+    diags.general.add diag
+  else:
+    if diags.slots.len == 0:
+      # allocate once, and only when needed
+      diags.slots.setLen(diags.maxSlots)
+    diags.slots[diags.current].add diag
+
+proc shift*(diags: DiagContext) =
+  ## A hack to support the dot field, dot call, and dot setter resolution.
+  if diags.slots.len != 0:
+    # all arguments are now at their original position + 1
+    diags.slots.insert(@[], 1)
+
+proc emitDiagnostics*(c: PContext, m: TCandidate) =
+  ## Emits all diagnostics gathered for the candidate.
+  for it in m.diagnostics.items:
+    c.config.localReport(it[])
 
 when not declared(tests):
   template tests(s: untyped) = discard

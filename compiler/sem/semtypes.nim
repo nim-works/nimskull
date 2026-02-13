@@ -106,9 +106,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
         e = newSymS(skEnumField, n[i][0][0], c)
         identToReplace = addr n[i][0][0]
         n[i][0][1] = pragmaDecl(c, e, n[i][0][1], enumFieldPragmas)
-        # check if we got any errors and if so report them
-        for e in ifErrorWalkErrors(c.config, n[i][0][1]):
-          localReport(c.config, e)
       else:
         e = newSymS(skEnumField, n[i][0], c)
         identToReplace = addr n[i][0]
@@ -160,9 +157,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
     of nkPragmaExpr:
       e = newSymS(skEnumField, n[i][0], c)
       n[i][1] = pragmaDecl(c, e, n[i][1], enumFieldPragmas)
-      # check if we got any errors and if so report them
-      for e in ifErrorWalkErrors(c.config, n[i][1]):
-        localReport(c.config, e)
 
       identToReplace = addr n[i][0]
     else:
@@ -285,9 +279,7 @@ proc semVarargs(c: PContext, n: PNode, prev: PType): PType =
     var base = semTypeNode(c, n[1], nil)
     addSonSkipIntLit(result, base, c.idgen)
     if n.len == 3:
-      let (ident, err) = considerQuotedIdent(c, n[2])
-      if err != nil:
-        localReport(c.config, err)
+      let (ident, _) = considerQuotedIdent(c, n[2])
       result.n = newIdentNode(ident, n[2].info)
   else:
     c.config.semReportParamCountMismatch(n, result, 1, n.len - 1)
@@ -394,15 +386,13 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
     result.n.add it
 
   let
-    rangeT = range.mapIt(it.typ.skipTypes({tyStatic}).skipIntLit(c.idgen))
+    rangeT = range.mapIt(principalType(it.typ, c.idgen))
     hasUnknownTypes = tyFromExpr in {rangeT[0].kind, rangeT[1].kind}
 
   if not hasUnknownTypes:
     if not sameType(rangeT[0].skipTypes({tyRange}), rangeT[1].skipTypes({tyRange})):
       # XXX: errors from the previous analysis need to be taken into account
-      let r = typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
-      if r.kind == nkError:
-        localReport(c.config, r)
+      discard typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
 
     elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat64} or
         rangeT[0].kind == tyBool:
@@ -552,8 +542,6 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
       result = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared})
     if result.isError:
       markUsed(c, n.info, result)
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.config, result.ast)
     elif result != nil:
       markUsed(c, n.info, result)
 
@@ -567,7 +555,6 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           return result
         if result.typ.sym == nil:
           let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-          localReport(c.config, err)
           return errorSym(c, n, err)
         result = result.typ.sym.copySym(nextSymId c.idgen)
         result.typ = exactReplica(result.typ)
@@ -582,20 +569,15 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           return
         else:
           let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-          localReport(c.config, err)
           return errorSym(c, n, err)
       if result.kind != skType and result.magic notin {mStatic, mType, mTypeOf}:
         var ov: TOverloadIter
         var amb = initOverloadIter(ov, c, n)
         while amb != nil and amb.kind != skType:
-          if amb.isError:
-            localReport(c.config, amb.ast)
           amb = nextOverloadIter(ov, c, n)
         if amb != nil: result = amb
         else:
           let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-          if result.kind != skError:
-            localReport(c.config, err)
           return errorSym(c, n, err)
       if result.typ.kind != tyGenericParam:
         # XXX get rid of this hack!
@@ -609,7 +591,6 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         n.typ = result.typ
     else:
       let err = newError(c.config, n, PAstDiag(kind: adSemExpectedIdentifier))
-      localReport(c.config, err)
       result = errorSym(c, n, err)
 
 proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
@@ -685,16 +666,9 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
       # transformed to a symbol and we need to use that here:
       let
         identNode = newSymGNode(kind, n[1], c)
-        (star, err) = considerQuotedIdent(c, n[0])
+        (star, _) = considerQuotedIdent(c, n[0])
 
       result = getDefNameSymOrRecover(identNode)
-
-      # TODO: remove all this reports stupidity
-      if identNode.kind == nkError:
-        localReport(c.config, identNode)
-
-      if err != nil:
-        localReport(c.config, err)
 
       # xxx: we can move the export allowed check much earlier
       if sfExported in allowed and star.id == ord(wStar):
@@ -709,9 +683,6 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
         n, "Expected two nodes for postfix expression, but found " & $n.len)
   else:
     let sym = newSymGNode(kind, n, c)
-    if sym.kind == nkError:
-      # XXX: replace with propagating the error
-      localReport(c.config, sym)
     result = getDefNameSymOrRecover(sym)
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
@@ -729,9 +700,6 @@ proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
     of skLet:   n[1] = pragmaDecl(c, result, n[1], letPragmas)
     of skConst: n[1] = pragmaDecl(c, result, n[1], constPragmas)
     else: discard
-    # check if we got any errors and if so report them
-    for e in ifErrorWalkErrors(c.config, n[1]):
-      localReport(c.config, e)
 
   else:
     result = semIdentVis(c, kind, n, allowed)
@@ -936,22 +904,23 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     localReport(c.config, n[0].info, reportTyp(
       rsemExpectedOrdinalOrFloat, typ))
 
-  if firstOrd(c.config, typ) != 0:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedLow0Discriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(0),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
-  elif lengthOrd(c.config, typ) > 0x00007FFF:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedHighCappedDiscriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(32768),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
+  if chckCovered:
+    if firstOrd(c.config, typ) != 0:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedLow0Discriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(0),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
+    elif lengthOrd(c.config, typ) > 0x00007FFF:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedHighCappedDiscriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(32768),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
 
   for i in 1..<n.len:
     let b = n[i]
@@ -959,9 +928,6 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     of nkOfBranch:
       a.add semCaseBranch(c, a[0].typ, b, covered)
       checkBranchForOverlap(c, a, i, a[^1].len - 1)
-      # XXX: errors need to be propagated
-      for e in walkErrors(c.config, a[^1]):
-        localReport(c.config, e)
     of nkElse:
       checkSonsLen(b, 1, c.config)
       if chckCovered and covered == toCover(c, a[0].typ):
@@ -1159,9 +1125,6 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     var s = newSymS(skType, newIdentNode(getIdent(c.cache, "dummy"), n.info), c)
     s.typ = result
     n[0] = pragmaDecl(c, s, n[0], typePragmas)
-    # check if we got any errors and if so report them
-    for e in ifErrorWalkErrors(c.config, n[0]):
-      localReport(c.config, e)
 
   if realBase == nil and tfInheritable notin result.flags:
     incl(result.flags, tfFinal)
@@ -1529,8 +1492,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       block determineType:
         if genericParams.isGenericParams:
           def = semGenericStmt(c, def)
-          if def.isError:
-            localReport(c.config, def)
           if hasUnresolvedArgs(c, def):
             def.typ = makeTypeFromExpr(c, def.copyTree)
             break determineType
@@ -1542,7 +1503,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
           def.flags.incl nfDefaultRefsParam
 
       if typ == nil:
-        typ = def.typ
+        typ = principalType(def.typ, c.idgen)
         if isEmptyContainer(typ):
           localReport(c.config, a, reportAst(
             rsemCannotInferParameterType, a[0]))
@@ -1568,11 +1529,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
           def = semConstExpr(c, def)
           def = fitNode(c, typ, def, def.info)
 
-    if def.isError:
-      # xxx: yet another place where we report errors
-      #      got lazy, but this should propagate
-      localReport(c.config, def)
-
     if not hasType and not hasDefault:
       c.config.internalAssert(not isType, a.info, "':' expected")
       if kind in {skTemplate, skMacro}:
@@ -1586,14 +1542,8 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
         argNode = newSymGNode(skParam, givenArg, c)
         arg = getDefNameSymOrRecover(argNode)
 
-      if argNode.kind == nkError:
-        localReport(c.config, argNode)
-
       if a[j].kind == nkPragmaExpr:
         a[j][1] = pragmaDecl(c, arg, a[j][1], paramPragmas)
-        # check if we got any errors and if so report them
-        for e in ifErrorWalkErrors(c.config, a[j][1]):
-          localReport(c.config, e)
 
       if not hasType and not hasDefault and kind notin {skTemplate, skMacro}:
         let param = strTableGet(c.signatures, arg.name)
@@ -1740,15 +1690,12 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   else:
     var m = newCandidate(c, t)
     m.isNoCall = true
-    matches(c, n, copyNodeWithKids(n), m)
+    matches(c, n, copyNodeWithKids(n), nil, m)
 
     case m.state
     of csMatch:
       if m.fauxMatch == tyError:
-        # not a real match, report the errors and return
-        # XXX: this needs to use proper error propagation
-        for it in walkErrors(c.config, m.call):
-          localReport(c.config, it)
+        # not a real match; return
         return newOrPrevType(tyError, prev, c)
     else:
       localReport(c.config, n.info):
@@ -1801,10 +1748,10 @@ proc maybeAliasType(c: PContext; typeExpr, prev: PType): PType =
     result.sym = prev.sym
     assignType(prev, result)
 
-proc fixupTypeOf(c: PContext, prev: PType, typExpr: PNode) =
+proc fixupTypeOf(c: PContext, prev: PType, typ: PType) =
   if prev != nil:
     let result = newTypeS(tyAlias, c)
-    result.rawAddSon typExpr.typ
+    result.rawAddSon typ
     result.sym = prev.sym
     assignType(prev, result)
 
@@ -1902,8 +1849,6 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     addDecl(c, dummyParam)
 
   result.n[3] = semConceptBody(c, n[3])
-  if result.n[3].isError:
-    localReport(c.config, result.n[3])
   closeScope(c)
 
 proc prepareTailcallProc(c: PContext, info: TLineInfo, typ: PType) =
@@ -1916,7 +1861,11 @@ proc prepareTailcallProc(c: PContext, info: TLineInfo, typ: PType) =
   else:
     invoc.rawAddSon(typ[0])
 
-  let inst = instGenericContainer(c, info, invoc)
+  # if the return type is generic, delay instantiation of the ``Continuation``
+  # until the proc type is instantiated
+  let inst =
+    if containsGenericType(typ[0]): invoc
+    else: instGenericContainer(c, info, invoc)
   # we cannot override the return type right away, since that'd leak the
   # Continuation implementation detail. Therefore the type is hidden away
   # in the effect list...
@@ -1945,15 +1894,12 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
     # we're still interested in implicit tags and raises pragmas
     n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
 
+  when useEffectSystem:
+    setEffectsForProcType(c.graph, result, n[1])
+
   # instantiate the type of the continuation for .tailcall procedures
   if result.callConv == ccTailcall:
     prepareTailcallProc(c, n.info, result)
-
-  when true:
-    # check if we got any errors and if so report them
-    for e in ifErrorWalkErrors(c.config, n[1]):
-      localReport(c.config, e)
-    when useEffectSystem: setEffectsForProcType(c.graph, result, n[1])
   closeScope(c)
 
 proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
@@ -1967,7 +1913,6 @@ proc symFromExpectedTypeNode(c: PContext, n: PNode): PSym =
     result = symFromType(c, n.typ, n.info)
   else:
     let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-    localReport(c.config, err)
     result = errorSym(c, n, err)
 
 proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType =
@@ -1995,8 +1940,8 @@ proc semTypeOf(c: PContext; n: PNode; prev: PType): PType =
       if result.n.isNil:
         result.n = t
     else:
-      fixupTypeOf(c, prev, t)
-      result = t.typ
+      result = principalType(t.typ, c.idgen)
+      fixupTypeOf(c, prev, result)
 
 proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   openScope(c)
@@ -2028,8 +1973,8 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
       if result.n.isNil:
         result.n = t
     else:
-      fixupTypeOf(c, prev, t)
-      result = t.typ
+      result = principalType(t.typ, c.idgen)
+      fixupTypeOf(c, prev, result)
 
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
@@ -2110,9 +2055,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     elif n[0].kind notin nkIdentKinds:
       result = semTypeExpr(c, n, prev)
     else:
-      let (op, err) = considerQuotedIdent(c, n[0])
-      if err != nil:
-        localReport(c.config, err)
+      let (op, _) = considerQuotedIdent(c, n[0])
       if op.id == ord(wAnd) or op.id == ord(wOr) or op.s == "|":
         checkSonsLen(n, 3, c.config)
         var
@@ -2275,8 +2218,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
            # the dot expression may refer to a concept type in
            # a different module. allow a normal alias then.
         let preprocessed = semGenericStmt(c, n)
-        if preprocessed.isError:
-          localReport(c.config, preprocessed)
         result = makeTypeFromExpr(c, preprocessed.copyTree)
       else:
         let alias = maybeAliasType(c, result, prev)
@@ -2575,9 +2516,6 @@ proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
               skType
           sNode = newSymGNode(sKind, paramName, c)
           s = getDefNameSymOrRecover(sNode).linkTo(finalType)
-
-        if sNode.kind == nkError:
-          c.config.localReport(sNode)
 
         if covarianceFlag != tfUnresolved: s.typ.flags.incl(covarianceFlag)
         if def.kind != nkEmpty: s.ast = def

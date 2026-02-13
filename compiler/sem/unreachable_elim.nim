@@ -160,9 +160,10 @@ proc process(c: var PassContext, n: PNode): PNode =
       n[i][1] = recurse(n[i][1])
       if doesntReturn(n[i][1]):
         # turn the operands so far into a valid statement list:
-        result = newNodeIT(nkStmtList, n.info, c.voidType, i - 1)
+        result = newNodeIT(nkStmtList, n.info, c.voidType, i)
         for j in 1..<i:
           result[j - 1] = newTreeI(nkDiscardStmt, n[j][1].info, n[j][1])
+        result[i - 1] = n[i][1]
         return
 
     result = n

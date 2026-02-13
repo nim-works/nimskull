@@ -4,24 +4,25 @@ discard """
   nimout: '''--expandArc: main
 
 scope:
-  def_cursor x: (string, int) = <D0>
+  def_cursor x: (string, int) = <const> ("hi", 5)
   scope:
     if cond:
       scope:
-        x = <D1>
+        x = <const> ("different", 54)
         goto [L1]
   scope:
-    x = <D2>
+    x = <const> ("string here", 80)
   L1:
   def_cursor _3: (string, int) = x
-  def _4: string = $(arg _3) -> [Resume]
+  def _4: string = $(arg _3) -> [Unwind]
   echo(arg type(array[0..0, string]), arg _4) -> [L2]
   =destroy(name _4)
   goto [L3]
   finally (L2):
     =destroy(name _4)
-    continue [Resume]
+    continue [Unwind]
   L3:
+return
 -- end of expandArc ------------------------
 --expandArc: sio
 
@@ -29,7 +30,7 @@ scope:
   scope:
     def_cursor filename: string = "debug.txt"
     def_cursor _3: string = filename
-    def f: File = open(arg _3, arg fmRead, arg 8000) -> [Resume]
+    def f: File = open(arg _3, arg fmRead, arg 8000) -> [Unwind]
     def _4: uint32
     scope:
       def res: string = newStringOfCap(arg 80)
@@ -66,7 +67,7 @@ scope:
       def _13: bool = eqI(arg _4, arg 1'u32)
       if _13:
         nimAbortException(arg true)
-      continue [Resume]
+      continue [Unwind]
     L7:
     case _4
     of 0'u32: goto L9
@@ -74,8 +75,9 @@ scope:
     L9:
     goto [L11]
     L10:
-    raise -> [Resume]
+    raise -> [Unwind]
     L11:
+return
 
 -- end of expandArc ------------------------'''
 """

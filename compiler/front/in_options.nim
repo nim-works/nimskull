@@ -105,7 +105,6 @@ type
                       ## evaluation
     optTrMacros       ## en/disable pattern matching
     optMemTracker
-    optSinkInference  ## 'sink T' inference
     optCursorInference
     optImportHidden
 
@@ -119,7 +118,6 @@ type
     cmdCompileToJS
     cmdCompileToVM
     cmdCrun        ## compile and run in nimache
-    cmdTcc         ## run the project via TCC backend
     cmdCheck       ## semantic checking for whole project
     cmdParse       ## parse a single file (for debugging)
     cmdScan        ## scan/lexically analyse a single file (for debugging)

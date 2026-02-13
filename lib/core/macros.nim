@@ -145,7 +145,7 @@ type
     nskProc, nskFunc, nskMethod, nskIterator,
     nskConverter, nskMacro, nskTemplate, nskField,
     nskEnumField, nskForVar, nskLabel,
-    nskStub
+    nskStub, nskGenerated
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
@@ -432,10 +432,37 @@ proc bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): NimNode {.
   ##
   ## See the `manual <manual.html#macros-bindsym>`_ for more details.
 
-proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
-  magic: "NGenSym", noSideEffect.}
-  ## Generates a fresh symbol that is guaranteed to be unique. The symbol
-  ## needs to occur in a declaration context.
+when defined(nimskullHasUnaryGenSym):
+  proc genSym*(ident = ""): NimNode {.magic: "NGenSym", noSideEffect.}
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+
+  template genSym*(kind: NimSymKind = nskGenerated; ident: string): NimNode {.
+    deprecated: "genSym no longer takes a `kind` parameter".} =
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+    ##
+    ## This is a compatibility alias for `genSym <#genSym,string>`_, the `kind`
+    ## parameter is ignored.
+    {.line.}:
+      discard kind 
+      genSym(ident)
+
+  template genSym*(kind: NimSymKind): NimNode {.
+    deprecated: "genSym no longer takes a `kind` parameter".} =
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+    ##
+    ## This is a compatibility alias for `genSym <#genSym,string>`_, the `kind`
+    ## parameter is ignored.
+    {.line.}:
+      discard kind
+      genSym()
+
+else:
+  # Old prototype for bootstrapping
+  proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
+    magic: "NGenSym", noSideEffect.}
 
 proc callsite*(): NimNode {.magic: "NCallSite", benign, deprecated:
   "Deprecated since v0.18.1; use `varargs[untyped]` in the macro prototype instead".}

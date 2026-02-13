@@ -15,7 +15,11 @@ proc typSym*(t: PType): PSym =
     result = t.skipTypes({tyGenericInst}).sym
 
 proc addDeclaredLoc*(result: var string, conf: ConfigRef; sym: PSym) =
-  result.add " [$1 declared in $2]" % [sym.kind.toHumanStr, toFileLineCol(conf, sym.info)]
+  case sym.kind
+  of skGenerated:
+    result.add " [generated in $1]" % [toFileLineCol(conf, sym.info)]
+  else:
+    result.add " [$1 declared in $2]" % [sym.kind.toHumanStr, toFileLineCol(conf, sym.info)]
 
 proc addDeclaredLocMaybe*(result: var string, conf: ConfigRef; sym: PSym) =
   if optDeclaredLocs in conf.globalOptions and sym != nil:

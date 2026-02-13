@@ -8,6 +8,9 @@ macros api OK
 '''
 """
 
+# TODO: replace this test with one that tests the C code generator directly,
+#       without going through the source language first
+
 type
   TMyEnum = enum
     tmOne, tmTwo, tmThree, tmFour
@@ -52,6 +55,8 @@ macro testSizeAlignOf(args: varargs[untyped]): untyped =
         failed = true
     )
 
+{.checks: off.}
+# disable checks as otherwise the offsetof hack won't work
 
 macro testOffsetOf(a, b: untyped): untyped =
   let typeName = newLit(a.repr)
@@ -79,10 +84,15 @@ macro c_offsetof(fieldAccess: typed): int32 =
           else: fieldAccess
   let a = s[0].getTypeInst
   let b = s[1]
+  # HACK: there's no way to get access to just the field's name, so `.emit`
+  #       shenanigans are used to emulate C's offsetof
   result = wrapBlock(quote do:
-    var res: int32
-    {.emit: [res, " = offsetof(", `a`, ", ", `b`, ");"] .}
-    res
+    var tmp: `a`
+    var p: pointer
+    # need to use emit because `addr` is not available for all fields.
+    # This also only works when checks are disabled
+    {.emit: [p, " = &", tmp.`b`, ";"].}
+    int32(cast[csize_t](p) - cast[csize_t](addr tmp))
   )
 
 template c_offsetof(t: typedesc, a: untyped): int32 =

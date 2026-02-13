@@ -126,7 +126,7 @@ const
   IntegralTypes = {tyBool, tyEnum, tyChar, tyInt..tyUInt64}
 
 proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
-  let srcTyp = src.typ.skipTypes({tyStatic})
+  let srcTyp = principalType(src.typ, c.idgen)
   result = convOK
   if sameType(targetTyp, srcTyp) and targetTyp.sym == srcTyp.sym:
     # don't annoy conversions that may be needed on another processor:
@@ -692,8 +692,13 @@ proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
     return    # return an error
   else:
     discard
-  
-  n.typ = newType # `n` is either the wrongNode in an error or same as `result`
+
+  if newType.kind in {tyVar, tyLent} and n.kind != nkHiddenAddr:
+    n.typ = newType[0]
+    result = newTreeIT(nkHiddenAddr, n.info, newType, n)
+  else:
+    n.typ = newType # `n` is either the wrongNode in an error or same as `result`
+
   if hasError and result.kind != nkError:
     result = c.config.wrapError(result)
 
@@ -813,14 +818,9 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
       inc lastIndex
 
-    # watch out for ``sink T``!
-    # XXX: things would be easier if ``sink T`` only exists for the operands
-    #      of a ``tyProc``
-    typ = typ.skipTypes({tySink})
-
     # finish the array type:
     rawAddSon(result.typ, createRange(firstIndex, lastIndex, indexType))
-    addSonSkipIntLit(result.typ, typ, c.idgen)
+    rawAddSon(result.typ, principalType(typ, c.idgen))
 
     var hasError = false
     # fit all elements to be of the derived common type
@@ -871,9 +871,7 @@ proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
   of nkSym:
     return isUnresolvedSym(n.sym)
   of nkIdent, nkAccQuoted:
-    let (ident, err) = considerQuotedIdent(c, n)
-    if err != nil:
-      localReport(c.config, err)
+    let (ident, _) = considerQuotedIdent(c, n)
     var amb = false
     let sym = searchInScopes(c, ident, amb)
     if sym != nil:
@@ -1142,10 +1140,10 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
     # for typeof support.
     # for ``typeof(countup(1,3))``, see ``tests/ttoseq``.
-    result = semOverloadedCall(c, n, copyNodeWithKids(n),
+    result = semOverloadedCall(c, n,
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate, skIterator}, flags)
   else:
-    result = semOverloadedCall(c, n, copyNodeWithKids(n),
+    result = semOverloadedCall(c, n,
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate}, flags)
 
   if result != nil and result.kind != nkError:
@@ -1162,7 +1160,6 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
         let err = newError(c.config, n,
                     PAstDiag(kind:adSemRecursiveDependencyIterator,
                              recurrCallee: callee))
-        localReport(c.config, err)
 
         # error correction, prevents endless for loop elimination in transf.
         # See bug #2051:
@@ -1173,7 +1170,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc resolveIndirectCall(c: PContext; n: PNode;
                          t: PType): TCandidate =
   initCandidate(c, result, t)
-  matches(c, n, copyNodeWithKids(n), result)
+  matches(c, n, copyNodeWithKids(n), nil, result)
 
 proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if n.kind == nkError:
@@ -1328,25 +1325,19 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # This is a proc variable, apply normal overload resolution
       let m = resolveIndirectCall(c, n, t)
       if m.state != csMatch:
-        result =
-          if c.config.m.errorOutputs == {}:
-            # speed up error generation:
-            globalReport(c.config, n.info, SemReport(kind: rsemTypeMismatch))
-            c.graph.emptyNode
-          else:
-            var hasErrorType = false
-            for i in 1..<n.len:
-              if n[i].typ.kind == tyError:
-                hasErrorType = true
-                break
+        var hasErrorType = false
+        for i in 1..<n.len:
+          if n[i].typ.kind == tyError:
+            hasErrorType = true
+            break
 
-            if hasErrorType:
-              # XXX: legacy path, consolidate with nkError
-              errorNode(c, n)
-            else:
-              c.config.newError(n,
-                  PAstDiag(kind: adSemCallIndirectTypeMismatch,
-                          indirCallTyp: n[0].typ))
+        if hasErrorType:
+          # XXX: legacy path, consolidate with nkError
+          result = errorNode(c, n)
+        else:
+          result = c.config.newError(n,
+            PAstDiag(kind: adSemCallIndirectTypeMismatch,
+                    indirCallTyp: n[0].typ))
       else:
         result = m.call
         instGenericConvertersSons(c, result, m)
@@ -1361,37 +1352,40 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
     # the original callee (which is likely an nkIdent) has to be restored:
     n[0] = orig[0]
 
-    # there is a call operator overload and we need to try it, save it here
-    let callOpr = overloadedCallOpr(c, n)
+    proc tryOverloadedCall(c: PContext, n: PNode, flags: TExprFlags
+                          ): PNode {.nimcall.} =
+      ## Tries to analyze `n` as a direct operation, returning the typed call
+      ## expression on success, nil otherwise.
+      let oldHandler = move c.config.diagHandler
+      var captures: seq[Report]
+      var wasError: bool
+      c.config.setDiagHandler proc(conf: ConfigRef, rep: sink Report) =
+        if conf.severity(rep) == rsevError:
+          # cannot raise, as that would require being able to restore the
+          # previous sem state (scope, generics, etc.)
+          wasError = true
+        else:
+          captures.add rep
 
-    # `prc` might just be a poorly resolved symbol we're recovering now
-    result = semOverloadedCallAnalyseEffects(c, n, flags)
-
-    if callOpr != nil and (result.isNil or result.kind == nkError):
-      # we're here for 1 of 2 reasons:
-      # 1. nil result and last ditch attempt with `callOpr`
-      # 2. error result and maybe `callOpr` will save us
-      let attempt = semExpr(c, callOpr, flags)
-      if attempt.isNil and result.isError:
-        # don't update `result` if the attempt produced nothing or we'd
-        # overwrite a pre-existing, and more precise, error
-        discard "don't bother changing `result`"
+      result = semOverloadedCallAnalyseEffects(c, n, flags)
+      if wasError:
+        result = nil
       else:
-        # we either recovered or even callOpr came up with an error
-        result = attempt
+        for it in captures.mitems:
+          oldHandler(c.config, move it)
 
-    # xxx: `semcall` and `sigmatch` avoid altering input the AST which leads to
-    #      arguments not being analysed. This leads to poor error messages, we
-    #      do that here with a guard for `compiles` context to avoid the extra
-    #      work when a human won't see errors. Fundamentally, this shouldn't be
-    #      necessary as we're throwing away the analysis somewhere in the
-    #      `sigmatch` and `semcall` tire fire.
-    if result.isError and result.diag.wrongNode.kind in nkCallKinds:
-      discard semOpAux(c, result.diag.wrongNode)
+      c.config.setDiagHandler(oldHandler)
 
-    if result.isNil:
-      result = c.config.newError(n,
-                  PAstDiag(kind: adSemExpressionCannotBeCalled))
+    # there might be a call operator available as a fallback
+    let callOpr = overloadedCallOpr(c, n)
+    if callOpr.isNil:
+      return semDirectOp(c, n, flags-{efNoUndeclared})
+    else:
+      # if overload resolution fails, fall back to the call operator
+      result = tryOverloadedCall(c, n, flags)
+      if result.isNil:
+        return semDirectOp(c, callOpr, flags)
+      # else: use the after-call analysis below
 
   if result.kind in nkCallKinds:
     # overloadedCallOpr may produce other kinds, see related issue:
@@ -1665,6 +1659,11 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       # the owner should have been set by now by addParamOrResult
       c.config.internalAssert s.owner != nil
     result = newSymNode(s, n.info)
+  of skGenerated:
+    let info = getCallLineInfo(n)
+    markUsed(c, info, s)
+    result = c.config.newError(newSymNode(s, info),
+                               PAstDiag(kind: adSemGeneratedSymUsed))
   else:
     let info = getCallLineInfo(n)
     markUsed(c, info, s)
@@ -2520,9 +2519,7 @@ proc lookUpForDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PSym =
   case n.kind
   of nkIdent, nkAccQuoted:
     var amb = false
-    let (ident, err) = considerQuotedIdent(c, n)
-    if err != nil:
-      localReport(c.config, err)
+    let (ident, _) = considerQuotedIdent(c, n)
     result = if onlyCurrentScope:
                localSearchInScope(c, ident)
              else:
@@ -2578,8 +2575,6 @@ proc semExpandToAst(c: PContext, n: PNode): PNode =
       if symx.kind in {skTemplate, skMacro} and symx.typ.len == macroCall.len:
         cand = symx
         inc cands
-      elif symx.isError:
-        localReport(c.config, symx.ast)
       symx = nextOverloadIter(o, c, headSymbol)
     if cands == 0:
       localReport(c.config, n.info, semReportCountMismatch(
@@ -2702,15 +2697,6 @@ proc semQuoteAst(c: PContext, n: PNode): PNode =
   result = semDirectOp(c, call, {})
 
 proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
-  # watch out, hacks ahead:
-  when defined(nimsuggest):
-    # Remove the error hook so nimsuggest doesn't report errors there
-    let tempHook = c.graph.config.structuredReportHook
-    c.graph.config.structuredReportHook =
-      proc(conf: ConfigRef, report: Report): TErrorHandling = discard
-
-  let oldErrorCount = c.config.errorCounter
-  let oldErrorMax = c.config.errorMax
   let oldCompilesId = c.compilesContextId
   # if this is a nested 'when compiles', do not increase the ID so that
   # generic instantiations can still be cached for this level.
@@ -2718,15 +2704,12 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     inc c.compilesContextIdGenerator
     c.compilesContextId = c.compilesContextIdGenerator
 
-  c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
-
   # open a scope for temporary symbol inclusions:
   let oldScope = c.currentScope
   openScope(c)
   let oldOwnerLen = c.graph.owners.len
   let oldGenerics = c.generics
-  let oldErrorOutputs = c.config.m.errorOutputs
-  if efExplain notin flags: c.config.m.errorOutputs = {}
+  let oldHandler = move c.config.diagHandler
   let oldContextLen = msgs.getInfoContextLen(c.config)
   let oldExecConsLen = c.executionCons.len
 
@@ -2736,16 +2719,20 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldProcCon = c.p
   c.generics = @[]
 
+  c.config.setDiagHandler proc(config: ConfigRef, rep: sink Report) =
+    # abort the sub-compilation on the first error
+    if severity(config, rep) == rsevError:
+      raise ERecoverableError.newException("")
+    else:
+      discard "drop everything else"
+
   try:
     result = semExpr(c, n, flags)
     if result != nil and efNoSem2Check notin flags:
       result = foldInAst(c.module, result, c.idgen, c.graph)
       trackStmt(c, c.module, result, isTopLevel = false)
-    if c.config.errorCounter != oldErrorCount and
-       result != nil and result.kind != nkError:
-      result = nil
   except ERecoverableError:
-    discard
+    result = nil # analysis failed
   # undo symbol table changes (as far as it's possible):
   c.compilesContextId = oldCompilesId
   c.generics = oldGenerics
@@ -2754,15 +2741,10 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inGenericInst = oldInGenericInst
   c.p = oldProcCon
   setLen(c.executionCons, oldExecConsLen)
+  c.config.setDiagHandler(oldHandler)
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope
-  c.config.m.errorOutputs = oldErrorOutputs
-  c.config.errorCounter = oldErrorCount
-  c.config.errorMax = oldErrorMax
-  when defined(nimsuggest):
-    # Restore the error hook
-    c.graph.config.structuredReportHook = tempHook
 
 proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # we replace this node by a 'true' or 'false' node:
@@ -3012,7 +2994,7 @@ proc semSetConstr(c: PContext, n: PNode): PNode =
         elem = result[i].typ
 
       if typ.isNil:
-        typ = skipTypes(elem, {tyGenericInst, tyOrdinal, tyAlias, tySink})
+        typ = principalType(elem, c.idgen)
 
     if not isOrdinalType(typ, allowEnumWithHoles=true):
       if typ.kind != tyError:
@@ -3022,7 +3004,7 @@ proc semSetConstr(c: PContext, n: PNode): PNode =
     elif lengthOrd(c.config, typ) > MaxSetElements:
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
-    addSonSkipIntLit(result.typ, typ, c.idgen)
+    rawAddSon(result.typ, typ)
 
     var hasError = false
     template handleError(n: PNode): PNode =
@@ -3146,7 +3128,7 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         fieldValue
 
     # the field type is the rhs' type
-    fieldSym.typ = skipIntLit(n[i][1].typ, c.idgen)
+    fieldSym.typ = principalType(n[i][1].typ, c.idgen)
     rawAddSon(typ, fieldSym.typ)
 
     typ.n.add newSymNode(fieldSym) # the type remembers fields as a "schema"
@@ -3189,7 +3171,7 @@ proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       etyp = tupExp[i].typ
 
     hasError = hasError or tupExp[i].isError
-    addSonSkipIntLit(typ, etyp, c.idgen)
+    rawAddSon(typ, principalType(etyp, c.idgen))
 
   tupExp.typ = typ
 
@@ -3409,8 +3391,6 @@ proc semExport(c: PContext, n: PNode): PNode =
       while s != nil:
         if s.kind == skEnumField:
           localReport(c.config, a.info, reportSym(rsemCannotExport, s))
-        elif s.isError:
-          localReport(c.config, s.ast)
 
         if s.kind in ExportableSymKinds+{skModule} and sfError notin s.flags:
           result.add(newSymNode(s, a.info))
@@ -3453,8 +3433,6 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
     if n.kind in {nkIdent, nkAccQuoted}:
       let s = qualifiedLookUp(c, n, {})
       if s.isError:
-        # XXX: move to propagating nkError, skError, and tyError
-        localReport(c.config, s.ast)
         result = false
       else:
         result = s != nil and isGenericRoutineStrict(s)
@@ -3536,8 +3514,6 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
     if a.kind in OverloadableSyms-{skModule}:
       inc(i)
       if i > 1: break
-    elif a.isError:
-      localReport(c.config, a.ast)
     a = nextOverloadIter(o, c, n)
   let info = getCallLineInfo(n)
   if i <= 1:
@@ -3554,8 +3530,6 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
-      elif a.isError:
-        localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
 
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
@@ -3778,9 +3752,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkPragmaExpr:
     let
       pragma = n[1]
-      (pragmaName, err) = considerQuotedIdent(c, pragma[0])
-    if err != nil:
-      localReport(c.config, err)
+      (pragmaName, _) = considerQuotedIdent(c, pragma[0])
 
     case whichKeyword(pragmaName)
     of wExplain:

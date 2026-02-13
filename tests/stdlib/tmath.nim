@@ -1,5 +1,6 @@
 discard """
-  targets: "c js"
+  description: "Tests for the math module"
+  targets: "c js vm"
   matrix:"; -d:danger"
 """
 
@@ -422,11 +423,9 @@ template main() =
     doAssert log2(-0.0) == -Inf
     doAssert log2(-12.0).isNaN
 
-    when nimvm: discard
-    else:
-      doAssert frexp(0.0) == (0.0, 0)
-      doAssert frexp(-0.0) == (-0.0, 0)
-      doAssert classify(frexp(-0.0)[0]) == fcNegZero
+    doAssert frexp(0.0) == (0.0, 0)
+    doAssert frexp(-0.0) == (-0.0, 0)
+    doAssert classify(frexp(-0.0)[0]) == fcNegZero
 
     when not defined(js):
       doAssert gamma(0.0) == Inf

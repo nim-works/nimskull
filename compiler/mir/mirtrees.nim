@@ -85,8 +85,7 @@ type
     mnkMagic  ## only allowed in a callee position. Refers to a magic
               ## procedure
 
-    mnkResume    ## special action in a target list that means "resume
-                 ## exception handling in caller"
+    mnkUnwind    ## special target for exceptional control-flow
 
     mnkDef       ## marks the start of existence of a local, global, procedure,
                  ## or temporary. Supports an optional intial value (except for
@@ -227,6 +226,8 @@ type
               ## value of the operand
     mnkBranch ## a branch in a ``mnkCase`` dispatcher
     mnkLoop   ## unconditional jump to the associated-with loop start
+    mnkReturn ## exits the procedure, returning the value stored in the
+              ## result local
 
     mnkJoin   ## join point for gotos and branches
     mnkLoopJoin## join point for loops. Represents the start of a loop
@@ -281,9 +282,9 @@ type
       imm*: uint32 ## meaning depends on the context
     of mnkMagic:
       magic*: TMagic
-    of mnkNone, mnkNilLit, mnkType, mnkResume:
+    of mnkNone, mnkNilLit, mnkType, mnkUnwind:
       discard
-    of {low(MirNodeKind)..high(MirNodeKind)} - {mnkNone..mnkResume}:
+    of {low(MirNodeKind)..high(MirNodeKind)} - {mnkNone..mnkUnwind}:
       len*: uint32
 
   MirTree* = seq[MirNode]
@@ -308,7 +309,7 @@ const
     ## Node kinds that represent definition statements (i.e. something that
     ## introduces a named entity)
 
-  AtomNodes* = {mnkNone..mnkResume}
+  AtomNodes* = {mnkNone..mnkUnwind}
     ## Nodes that don't support sub nodes.
 
   SubTreeNodes* = AllNodeKinds - AtomNodes
@@ -343,7 +344,7 @@ const
   StmtNodes* = {mnkScope, mnkGoto, mnkIf, mnkCase, mnkLoop, mnkJoin,
                 mnkLoopJoin, mnkExcept, mnkFinally, mnkContinue, mnkEndStruct,
                 mnkInit, mnkAsgn, mnkSwitch, mnkVoid, mnkRaise, mnkDestroy,
-                mnkEmit, mnkAsm, mnkEndScope} + DefNodes
+                mnkEmit, mnkAsm, mnkEndScope, mnkReturn} + DefNodes
     ## Nodes that are treated like statements, in terms of syntax.
 
   # --- semantics-focused sets:
@@ -420,7 +421,7 @@ template `[]`*(tree: MirTree, i: NodePosition | OpValue): untyped =
 
 template isAtom(kind: MirNodeKind): bool =
   # much faster than an `in SubTreeNodes` test
-  ord(kind) <= ord(mnkResume)
+  ord(kind) <= ord(mnkUnwind)
 
 func parent*(tree: MirTree, n: NodePosition): NodePosition =
   result = n
@@ -542,6 +543,16 @@ func skip*(tree: MirTree, n: OpValue, kind: MirNodeKind): OpValue =
   if tree[n].kind == kind: tree.operand(n)
   else:                    n
 
+iterator items*(tree: MirTree, n: NodePosition; start = 0, last = ^1
+               ): NodePosition =
+  ## Returns in order of apperance all direct child nodes of `n`, starting with
+  ## `start`.
+  let e = tree[n].len.int - ord(last)
+  var n = tree.child(n, start)
+  for _ in start..e:
+    yield n
+    n = tree.sibling(n)
+
 iterator pairs*(tree: MirTree): (NodePosition, lent MirNode) =
   var i = 0
   let L = tree.len
@@ -554,7 +565,7 @@ iterator subNodes*(tree: MirTree, n: NodePosition; start = 0): NodePosition =
   ## `start`.
   let L = tree[n].len
   var n = tree.child(n, start)
-  for _ in 0..<L:
+  for _ in start..<int(L):
     yield n
     n = tree.sibling(n)
 

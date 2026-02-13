@@ -1,685 +1,1207 @@
-#
-#
-#           The Nim Compiler
-#        (c) Copyright 2015 Andreas Rumpf
-#
-#    See the file "copying.txt", included in this
-#    distribution, for details about the copyright.
-#
-
-## This module implements the C code generator.
+## Implements the C code generator. The code generator takes CGIR modules as
+## input and produces C translation units, nothing else.
+##
+## Only a subset of the CGIR is supported:
+## * no support for exception handling
+## * limited support for array types; array types always have to be named
 
 import
   std/[
-    hashes,
-    intsets,
-    os,
-    math,
-    tables,
-    sets
+    math, # for float classification
+    packedsets,
+    strutils,
+    tables
   ],
   std/private/[
     containers
   ],
-  compiler/ast/[
-    ast_query,
-    ast_types,
-    ast_idgen,
-    astalgo,
-    trees,
-    idents,
-    types,
-    typesrenderer,
-    wordrecg,
-    renderer,
-    lineinfos,
-    ndi
-  ],
-  compiler/modules/[
-    magicsys,
-    modulegraphs
-  ],
-  compiler/mir/[
-    mirenv,
-    mirtrees,
-    mirtypes
-  ],
-  compiler/front/[
-    options,
-    msgs
-  ],
-  compiler/utils/[
-    platform,
-    nversion,
-    bitsets,
-    ropes,
-    pathutils,
-    int128,
-    tracer
-  ],
-  compiler/sem/[
-    rodutils,
-    lowerings,
-  ],
   compiler/backend/[
-    compat,
-    extccomp,
-    ccgutils,
-    cgendata,
-    cgir,
-    mangling
+    cgir2
   ],
-  compiler/plugins/[
+  compiler/ic/[
+    bitabs
   ]
 
-import std/options as std_options
-
-# xxx: reports are a code smell meaning data types are misplaced...
-#      like the backend report sem errors.
-from compiler/ast/reports_sem import SemReport,
-  reportSem,
-  reportStr,
-  reportSym,
-  reportTyp
-from compiler/ast/report_enums import ReportKind
-
-from compiler/sem/passes import moduleHasChanged # XXX: leftover dependency
-import std/strutils except `%`, addf # collides with ropes.`%`
-
-from compiler/ast/ast import newType, rawAddSon
-
-when defined(nimCompilerStacktraceHints):
-  import compiler/utils/debugutils
-
-when options.hasTinyCBackend:
-  import backend/tccgen
-
-const NonMagics* = {mNewString, mNewStringOfCap, mNewSeq, mSetLengthSeq,
-                    mAppendSeqElem, mEnumToStr, mExit,
-                    mAbsI, mDotDot, mEqCString, mIsolate}
-  ## magics that are treated like normal procedures by the code generator.
-
-const
-  sfTopLevel* = sfMainModule
-    ## the procedure contains top-level code, which currently affects how
-    ## emit, asm, and error handling works
-
-template types(m: BModule): TypeEnv =
-  m.g.env.types
-
-template getString(p: BProc, n: CgNode): string =
-  p.env[n.strVal]
-
-proc findPendingModule(m: BModule, s: PSym): BModule =
-  let ms = s.itemId.module  #getModule(s)
-  result = m.g.modules[ms]
-
-proc fieldName(p: BProc, typ: PType, field: PSym): string =
-  ## Returns the C name for the given `field`.
-  # the type the field is part of must have been emitted into the module
-  # already
-  p.module.fields[lookupField(p.module.types, p.module.types[typ],
-                              field.position.int32)]
-
-proc initLoc(result: var TLoc, k: TLocKind, lode: CgNode, s: TStorageLoc) =
-  result.k = k
-  result.storage = s
-  result.lode = lode
-  result.r = ""
-  result.flags = {}
-
-func initLoc(kind: TLocKind, n: CgNode, name: sink string, storage: TStorageLoc): TLoc =
-  TLoc(k: kind, storage: storage, lode: n, r: name, flags: {})
-
-proc fillLoc(a: var TLoc, k: TLocKind, lode: CgNode, r: Rope, s: TStorageLoc) =
-  ## fills the loc if it is not already initialized
-  if a.k == locNone:
-    a.k = k
-    a.lode = lode
-    a.storage = s
-    if a.r == "": a.r = r
-
-proc t(a: TLoc): PType {.inline.} =
-  a.lode.typ
-
-proc lodeTyp(t: PType): CgNode =
-  result = newNode(cnkEmpty, typ = t)
-
-proc isSimpleConst(c: ConfigRef, typ: PType): bool =
-  let t = skipTypes(typ, abstractVar)
-  case t.kind
-  of tyTuple, tyObject, tyArray, tySequence:
-    false
-  of tySet:
-    # small sets can be inlined directly
-    getSize(c, t) <= 8
-  of tyProc:
-    t.callConv != ccClosure
-  else:
-    false
-
-proc useHeader(m: BModule, sym: PSym) =
-  if exfHeader in sym.extFlags:
-    let str = getStr(m.g.graph.getLib(sym.annex).path)
-    m.includeHeader(str)
-
-proc cgsym(m: BModule, name: string): Rope
-
-proc getCFile(m: BModule): AbsoluteFile
-
-import macros
-
-proc cgFormatValue(result: var string; value: string) =
-  result.add value
-
-proc cgFormatValue(result: var string; value: BiggestInt) =
-  result.addInt value
-
-proc cgFormatValue(result: var string; value: Int128) =
-  result.addInt128 value
-
-proc cgFormatValue(result: var string; value: BlockId) =
-  # the trailing underscore makes sure that the name doesn't collide
-  # with other names
-  result.add "LA"
-  result.addInt value.uint32
-  result.add "_"
-
-proc `$`(id: BlockId): string =
-  cgFormatValue(result, id)
-
-# TODO: please document
-macro ropecg(m: BModule, frmt: static[FormatStr], args: untyped): Rope =
-  args.expectKind nnkBracket
-  # echo "ropecg ", newLit(frmt).repr, ", ", args.repr
-  var i = 0
-  result = nnkStmtListExpr.newTree()
-
-  result.add quote do:
-    assert `m` != nil
-
-  let resVar = genSym(nskVar, "res")
-  # during `koch boot` the median of all generates strings from this
-  # macro is around 40 bytes in length.
-  result.add newVarStmt(resVar, newCall(bindSym"newStringOfCap", newLit(80)))
-  let formatValue = bindSym"cgFormatValue"
-
-  var num = 0
-  var strLit = ""
-
-  template flushStrLit() =
-    if strLit != "":
-      result.add newCall(ident "add", resVar, newLit(strLit))
-      strLit.setLen 0
-
-  while i < frmt.len:
-    if frmt[i] == '$':
-      inc(i)                  # skip '$'
-      case frmt[i]
-      of '$':
-        strLit.add '$'
-        inc(i)
-      of '#':
-        flushStrLit()
-        inc(i)
-        result.add newCall(formatValue, resVar, args[num])
-        inc(num)
-      of '0'..'9':
-        var j = 0
-        while true:
-          j = (j * 10) + ord(frmt[i]) - ord('0')
-          inc(i)
-          if i >= frmt.len or not (frmt[i] in {'0'..'9'}): break
-        num = j
-        if j > args.len:
-          error("ropes: invalid format string " & newLit(frmt).repr & " args.len: " & $args.len)
-
-        flushStrLit()
-        result.add newCall(formatValue, resVar, args[j-1])
-      of 'n':
-        flushStrLit()
-        result.add quote do:
-          if optLineDir notin `m`.config.options:
-            `resVar`.add("\L")
-        inc(i)
-      of 'N':
-        strLit.add "\L"
-        inc(i)
-      else:
-        error("ropes: invalid format string $" & frmt[i])
-    elif frmt[i] == '#' and frmt[i+1] in IdentStartChars:
-      inc(i)
-      var j = i
-      while frmt[j] in IdentChars: inc(j)
-      var ident = newLit(substr(frmt, i, j-1))
-      i = j
-      flushStrLit()
-      result.add newCall(formatValue, resVar, newCall(ident"cgsym", m, ident))
-    elif frmt[i] == '#' and frmt[i+1] == '$':
-      inc(i, 2)
-      var j = 0
-      while frmt[i] in Digits:
-        j = (j * 10) + ord(frmt[i]) - ord('0')
-        inc(i)
-      let ident = args[j-1]
-      flushStrLit()
-      result.add newCall(formatValue, resVar, newCall(ident"cgsym", m, ident))
-    var start = i
-    while i < frmt.len:
-      if frmt[i] != '$' and frmt[i] != '#': inc(i)
-      else: break
-    if i - 1 >= start:
-      strLit.add(substr(frmt, start, i - 1))
-
-  flushStrLit()
-  result.add newCall(ident"rope", resVar)
-
-proc indentLine(p: BProc, r: Rope): Rope =
-  result = r
-  for i in 0..<p.blocks.len:
-    prepend(result, "\t".rope)
-
-template appcg(m: BModule, c: var Rope, frmt: FormatStr,
-           args: untyped) =
-  c.add(ropecg(m, frmt, args))
-
-template appcg(m: BModule, sec: TCFileSection, frmt: FormatStr,
-           args: untyped) =
-  m.s[sec].add(ropecg(m, frmt, args))
-
-template line(p: BProc, sec: TCProcSection, r: Rope) =
-  p.s(sec).add(indentLine(p, r))
-
-template line(p: BProc, sec: TCProcSection, r: string) =
-  p.s(sec).add(indentLine(p, r.rope))
-
-template lineF(p: BProc, sec: TCProcSection, frmt: FormatStr,
-              args: untyped) =
-  p.s(sec).add(indentLine(p, frmt % args))
-
-template lineCg(p: BProc, sec: TCProcSection, frmt: FormatStr,
-               args: untyped) =
-  p.s(sec).add(indentLine(p, ropecg(p.module, frmt, args)))
-
-template linefmt(p: BProc, sec: TCProcSection, frmt: FormatStr,
-             args: untyped) =
-  p.s(sec).add(indentLine(p, ropecg(p.module, frmt, args)))
-
-proc safeLineNm(info: TLineInfo): int =
-  result = toLinenumber(info)
-  if result < 0: result = 0 # negative numbers are not allowed in #line
-
-proc genCLineDir(r: var Rope, filename: string, line: int; conf: ConfigRef) =
-  assert line >= 0
-  if optLineDir in conf.options and line > 0:
-    r.addf("$N#line $2 $1$N",
-        [rope(makeSingleLineCString(filename)), rope(line)])
-
-proc genCLineDir(r: var Rope, info: TLineInfo; conf: ConfigRef) =
-  genCLineDir(r, toFullPath(conf, info), info.safeLineNm, conf)
-
-proc freshLineInfo(p: BProc; info: TLineInfo): bool =
-  if p.lastLineInfo.line != info.line or
-     p.lastLineInfo.fileIndex != info.fileIndex:
-    p.lastLineInfo.line = info.line
-    p.lastLineInfo.fileIndex = info.fileIndex
-    result = true
-
-proc genLineDir(p: BProc, t: CgNode) =
-  let line = t.info.safeLineNm
-
-  if optEmbedOrigSrc in p.config.globalOptions:
-    p.s(cpsStmts).add(~"//" & sourceLine(p.config, t.info) & "\L")
-  genCLineDir(p.s(cpsStmts), toFullPath(p.config, t.info), line, p.config)
-  if ({optLineTrace, optStackTrace} * p.options == {optLineTrace, optStackTrace}) and
-      (p.prc == nil or sfPure notin p.prc.flags) and t.info.fileIndex != InvalidFileIdx:
-    if freshLineInfo(p, t.info):
-      linefmt(p, cpsStmts, "nimln_($1, $2);$n",
-              [line, quotedFilename(p.config, t.info)])
-
-proc registerLateProc(m: BModule, s: PSym): ProcedureId =
-  ## Raises a dependency on `s`, registering it with the environment if it's
-  ## not present there already.
-  result = m.g.env.procedures.add(s)
-  # inline procedure handling needs to know about the dependency...
-  m.extra.add(result)
-
-proc addLate(m: BModule, t: PType): TypeId =
-  ## Temporary workaround for not all type being registered with the type
-  ## environment. Ultimately, a code generator should not modify the type
-  ## environment.
-  if t.isNil:
-    result = VoidType
-  else:
-    result = m.types.add(t)
-    result = m.types.canonical(result)
-
-proc accessThreadLocalVar(p: BProc)
-proc emulatedThreadVars*(conf: ConfigRef): bool {.inline.}
-proc useProc(m: BModule, id: ProcedureId)
-proc raiseInstr(p: BProc, n: CgNode): Rope
-
-proc getTempName(m: BModule): Rope =
-  result = m.tmpBase & rope(m.labels)
-  inc m.labels
-
-proc rdLoc(a: TLoc): Rope =
-  # 'read' location (deref if indirect)
-  result = a.r
-  if lfIndirect in a.flags: result = "(*$1)" % [result]
-
-proc lenExpr(p: BProc; a: TLoc): Rope =
-  result = rdLoc(a) & ".len"
-
-proc dataField(p: BProc): Rope =
-  result = rope".p->data"
-
-include ccgliterals
-include ccgtypes
-
-# ------------------------------ Manager of temporaries ------------------
-
-proc addrLoc(m: BModule; a: TLoc): Rope =
-  result = a.r
-  if lfIndirect notin a.flags and mapType(m, a.t) != ctArray:
-    result = "(&" & result & ")"
-
-proc byRefLoc(p: BProc; a: TLoc): Rope =
-  result = a.r
-  if lfIndirect notin a.flags and mapType(p.module, a.t) != ctArray:
-    result = "(&" & result & ")"
-
-proc rdCharLoc(a: TLoc): Rope =
-  # read a location that may need a char-cast:
-  result = rdLoc(a)
-  if skipTypes(a.t, abstractRange).kind == tyChar:
-    result = "((NU8)($1))" % [result]
-
-proc genObjConstr(p: BProc, e: CgNode, d: var TLoc)
-proc defaultValueExpr(p: BProc, n: CgNode; d: var TLoc)
-proc genAssignment(p: BProc, dest, src: TLoc)
+import system/formatfloat # for float rendering
 
 type
-  ObjConstrMode = enum
-    constructObj,
-    constructRefObj
+  Writer = object
+    indent: int
+    output: string
+    currLine: uint16
+    currFile: StringId
+    # immutable input state:
+    withLine: bool
+      ## whether line directives are enabled
+    anon: Table[Datum, uint32]
+      ## datum -> zero-based name suffix
 
-proc genObjectInitHeader(p: BProc, section: TCProcSection, t: PType, r: Rope,
-                         info: TLineInfo) =
-  var
-    r = r
-    s = skipTypes(t, abstractInst)
+using
+  m: CgModule
+  ast: Ast
+  pos: var NodeIndex
 
-  while s.kind == tyObject and s[0] != nil:
-    r.add(".Sup")
-    s = skipTypes(s[0], skipPtrs)
+const
+  CallingConvToStr = [
+    Default: "N_NOCONV",
+    Nimcall: "N_NIMCALL",  Stdcall:  "N_STDCALL",
+    Cdecl:   "N_CDECL",    Safecall: "N_SAFECALL",
+    Syscall: "N_SYSCALL",  Fastcall: "N_FASTCALL"
+  ]
+  PreferIdentified = {cnkStructTy, cnkUnionTy, cnkArrayTy, cnkProcTy}
+    ## types that must not be inlined where a name exists
 
-  linefmt(p, section, "$1.m_type = $2;$n",
-          [r, genTypeInfoV2(p.module, t, info)])
+func `==`(a, b: Datum): bool {.borrow.}
 
-proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
-                   mode: ObjConstrMode) =
+proc advance(ast, pos): CgNode {.inline.} =
+  result = ast[pos]
+  inc pos
 
-  proc defaultValueExpr(p: BProc, t: PType, info: TLineInfo): TLoc =
-    ## Sets up and returns a loc storing the expression representing the
-    ## default value for `t`.
-    let kind =
-      case t.skipTypes(abstractInst).kind
-      of tyObject: cnkObjConstr
-      of tyTuple:  cnkTupleConstr
-      of tyArray:  cnkArrayConstr
+proc skip(ast, pos) {.inline.} =
+  pos = ast.next(pos)
+
+proc toSet[T](m; val: uint32, _: typedesc[T]): set[T] =
+  cast[set[T]](m.unpackUInt(val))
+
+proc len(n: CgNode): int =
+  n.val.int
+
+proc readInt(m; ast, pos): int64 =
+  m.unpackInt(advance(ast, pos).val)
+proc readUInt(m; ast, pos): uint64 =
+  m.unpackUInt(advance(ast, pos).val)
+proc readSet[T](m; ast; pos; _: typedesc[T]): set[T] =
+  m.toSet(advance(ast, pos).val, T)
+
+proc resolve(m: CgModule, n: NodeIndex): NodeIndex =
+  if m.tast[n].kind == cnkType:
+    m.types[m.tast[n].val.StringId]
+  else:
+    n
+
+proc getType(m; pos: NodeIndex): NodeIndex =
+  ## Returns the index of the type AST representing the result type of the
+  ## expression at `n`.
+  case m.ast[pos].kind
+  of cnkExprs - {cnkCall, cnkNilLit}:
+    m.types[m.ast[pos, 0].val.StringId]
+  of cnkCall:
+    # fetch the return type of the callee's proc type
+    var callee = getType(m, m.ast.child(pos, 0))
+    if m.tast[callee].kind == cnkPtrTy:
+      callee = resolve(m, m.tast.child(callee, 0))
+    m.tast.child(callee, 1)
+  else:
+    unreachable(m.ast[pos].kind)
+
+proc add(r: var Writer, str: string) =
+  r.output.add str
+proc addInt(r: var Writer, i: int64) =
+  r.output.addInt i
+proc addInt(r: var Writer, i: uint64) =
+  r.output.addInt i
+proc addFloat(r: var Writer, f: float) =
+  r.output.addFloat f
+
+proc addChar(r: var Writer, c: char) =
+  ## Emits character value `c`, using a C escape sequence where required.
+  case c
+  of '\0'..'\x1F', '\x7F'..'\xFF':
+    r.output.add '\\'
+    r.output.add toOctal(c)
+  of '\'', '\"', '\\', '?':
+    r.output.add '\\'
+    r.output.add c
+  else:
+    r.output.add c
+
+proc addEscaped(r: var Writer, s: string) =
+  r.output.add '"'
+  for c in s.items:
+    r.addChar(c)
+  r.output.add '"'
+
+proc newLineRaw(r: var Writer) =
+  r.output.add '\n'
+  for i in 0..<r.indent:
+    r.output.add "  "
+
+proc newLine(r: var Writer, m: CgModule, src: uint32) =
+  ## Emits the line break and, if enabled and applicable, a line directive.
+  if r.withLine:
+    if src > 0:
+      let info = m.infos[src - 1]
+      if info.line != r.currLine or info.file != r.currFile:
+        # emit a line directive, without indenting first
+        r.output.add "\n#line "
+        r.output.addInt info.line
+        if r.currFile != info.file:
+          r.output.add ' '
+          r.addEscaped(m.get(info.file))
+          r.currFile = info.file
+        r.currLine = info.line
+        r.newLineRaw()
+      # else: keep the C code on the same line
+    else:
+      if r.currLine != 0:
+        # add a line directive that points to nowhere, so that the code won't
+        # show up in a debugger
+        r.output.add "\n#line 1 \"<none>\""
+        r.currLine = 0
+        r.currFile = StringId(0)
+      r.newLineRaw()
+  else:
+    r.newLineRaw()
+
+proc newLine(r: var Writer) =
+  ## Emits a new line, taking into account line directives.
+  if not r.withLine or r.currLine == 0:
+    r.newLineRaw()
+
+proc startBlock(r: var Writer) =
+  r.output.add '{'
+  inc r.indent
+
+proc closeBlock(r: var Writer) =
+  dec r.indent
+  r.newLine()
+  r.output.add "}"
+
+proc typeToC(m; pos; r: var Writer)
+
+proc genQualDecl(m; name: StringId, attribs: set[CgLocAttrib], bitsize: int,
+                 r: var Writer) =
+  ## Emits a qualified non-function C declaration without a type specifier.
+  if Volatile in attribs:
+    r.add "volatile "
+  if CgLocAttrib.NoAlias in attribs:
+    r.add "NIM_NOALIAS "
+  r.add m.get(name)
+  if bitsize > 0:
+    r.add ":"
+    r.addInt bitsize
+
+proc genDecl(m; pos; name: StringId, attribs: set[CgLocAttrib], bitsize: int,
+             r: var Writer) =
+  ## Emits a full non-function C declaration with the type at `pos`, the
+  ## declarator `name`, and with qualifiers computed from `attribs` and
+  ## `bitsize`.
+  case m.tast[pos].kind
+  of cnkArrayTy:
+    inc pos
+    let len = m.readInt(m.tast, pos)
+    genDecl(m, pos, name, attribs, bitsize, r)
+    r.add "["
+    if len > 0:
+      r.addInt len
+    r.add "]"
+  else:
+    typeToC(m, pos, r)
+    r.add " "
+    genQualDecl(m, name, attribs, bitsize, r)
+
+proc memberToC(m; pos; r: var Writer) =
+  ## Emits the code for a struct/union member declaration.
+  discard advance(m.tast, pos)
+  var tpos = pos
+  skip(m.tast, pos)
+
+  let align = readInt(m, m.tast, pos)
+  let attribs = readSet(m, m.tast, pos, CgLocAttrib)
+  let bitsize = readInt(m, m.tast, pos)
+  let name = advance(m.tast, pos).val.StringId
+
+  if align > 0:
+    r.add "NIM_ALIGN("
+    r.addInt align
+    r.add ") "
+
+  genDecl(m, tpos, name, attribs, bitsize.int, r)
+  r.add ";"
+
+proc structToC(m; pos; name: string, r: var Writer) =
+  ## Translates and emits a struct/union definition.
+  let n = advance(m.tast, pos)
+  let packed = readInt(m, m.tast, pos) == 1
+  if n.kind == cnkStructTy:
+    r.add "struct "
+  else:
+    r.add "union "
+  if packed:
+    r.add "N_PACKED_START "
+  if name.len > 0:
+    r.add name
+    r.add " {"
+  else:
+    r.add "{"
+  inc r.indent
+  for i in 1..<len(n):
+    r.newLineRaw()
+    memberToC(m, pos, r)
+  dec r.indent
+  r.newLineRaw()
+  r.add "}"
+  if packed:
+    r.add " N_PACKED_END"
+
+proc typeRefToC(m; typ: StringId, r: var Writer)
+
+proc typeToC(m; pos; r: var Writer) =
+  ## Emits the body for a type.
+  let n = advance(m.tast, pos)
+  case n.kind
+  of cnkStructTy, cnkUnionTy:
+    # an anonymous inline struct/union
+    dec pos # go back to the header
+    structToC(m, pos, "", r)
+  of cnkVoidTy:
+    r.add "void"
+  of cnkVarargs:
+    r.add "..."
+  of cnkBoolTy:
+    r.add "NIM_BOOL"
+  of cnkCharTy:
+    r.add "NIM_CHAR"
+  of cnkIntTy:
+    r.add "NI"
+    r.addInt readInt(m, m.tast, pos) * 8
+  of cnkUIntTy:
+    r.add "NU"
+    r.addInt readInt(m, m.tast, pos) * 8
+  of cnkFloatTy:
+    r.add "NF"
+    r.addInt readInt(m, m.tast, pos) * 8
+  of cnkType:
+    typeRefToC(m, n.val.StringId, r)
+  of cnkPtrTy:
+    if m.tast[pos].kind == cnkArrayTy:
+      pos = m.tast.child(pos, 1)
+    typeToC(m, pos, r)
+    r.add "*"
+  of cnkOpaqueTy:
+    r.add m.get(advance(m.tast, pos).val.StringId)
+    inc pos # ignore the header name
+  else:
+    unreachable(n.kind)
+
+proc typeRefToC(m; typ: StringId, r: var Writer) =
+  ## Emits the C code for a type reference.
+  case m.tast[m.types[typ]].kind
+  of PreferIdentified:
+    r.add m.get(typ)
+  else:
+    # inline the type expression
+    var pos = m.types[typ]
+    typeToC(m, pos, r)
+
+proc typeRefToC(m; pos; r: var Writer) =
+  let n = advance(m.ast, pos)
+  assert n.kind == cnkType
+  typeRefToC(m, n.val.StringId, r)
+
+proc genDecl(m; typ, name: StringId, attribs: set[CgLocAttrib], bitsize: int,
+             r: var Writer) =
+  ## Convenience wrapper.
+  var pos = m.types[typ]
+  case m.tast[pos].kind
+  of PreferIdentified:
+    typeRefToC(m, typ, r)
+    r.add " "
+    genQualDecl(m, name, attribs, bitsize, r)
+  else:
+    genDecl(m, pos, name, attribs, bitsize, r)
+
+proc exprToC(m; pos; r: var Writer)
+
+proc binOpToC(m; pos; op: string, r: var Writer) =
+  skip(m.ast, pos)
+  r.add "("
+  exprToC(m, pos, r)
+  r.add op
+  exprToC(m, pos, r)
+  r.add ")"
+
+proc indexToC(m; pos; r: var Writer) =
+  ## Emits the C code for an index operand.
+  if m.ast[pos].kind == cnkInt:
+    r.addInt readInt(m, m.ast, pos)
+  else:
+    exprToC(m, pos, r)
+
+proc pathToC(m; pos; tn: NodeIndex, count: int, r: var Writer) =
+  ## Emits a C access sequence with `count` operands starting at `pos`, for
+  ## the type whose description is at `tn`
+  const Access = [false: ".", true: "->"]
+  var tn = tn
+  var deref = false
+  if m.tast[tn].kind == cnkPtrTy:
+    deref = true
+    tn = resolve(m, m.tast.child(tn, 0))
+
+  # the meaning of the index value depends on the corresponding type
+  for _ in 0..<count:
+    case m.tast[tn].kind
+    of cnkStructTy, cnkUnionTy:
+      tn = m.tast.child(tn, 1 + readInt(m, m.ast, pos))
+      let str = m.get(m.tast[tn, 4].val.StringId)
+      # don't add a dot access for anonymous fields
+      if str.len != 0:
+        r.add Access[deref]
+        r.add str
+        deref = false
+      tn = m.tast.child(tn, 0)
+    of cnkOpaqueTy:
+      discard advance(m.ast, pos)
+      tn = m.types[advance(m.ast, pos).val.StringId]
+      r.add Access[deref]
+      r.add m.get(advance(m.ast, pos).val.StringId)
+      deref = false
+    of cnkArrayTy:
+      r.add "["
+      indexToC(m, pos, r)
+      r.add "]"
+      tn = m.tast.child(tn, 1)
+      deref = false
+    else:
+      unreachable(m.tast[tn].kind)
+    tn = resolve(m, tn)
+
+proc valueToC(m; pos; r: var Writer) =
+  ## Emits the C code for a `cnkValue` tree. `pos` is expected to point to
+  ## the first child node.
+  let typ = advance(m.ast, pos).val.StringId
+  let tn = m.types[typ]
+  let v = advance(m.ast, pos)
+  case m.tast[tn].kind
+  of cnkBoolTy:
+    if v.val == 0:
+      r.add "NIM_FALSE"
+    else:
+      r.add "NIM_TRUE"
+  of cnkCharTy:
+    r.add "'"
+    r.addChar(cast[char](m.unpackUInt(v.val)))
+    r.add "'"
+  of cnkIntTy, cnkUIntTy:
+    r.add "("
+    typeRefToC(m, typ, r)
+    r.add ")"
+    # always treat as an int. The C cast ensures the value is correct
+    r.addInt m.unpackInt(v.val)
+  of cnkFloatTy:
+    r.add "("
+    typeRefToC(m, typ, r)
+    r.add ")"
+    let f = m.unpackFloat(v.val)
+    case classify(f)
+    of fcNan:
+      if signbit(f):
+        r.add "-NAN"
       else:
-        unreachable("cannot have embedded type fields")
-
-    defaultValueExpr(p, newExpr(kind, info, t), result)
-
-  case analyseObjectWithTypeField(t)
-  of frNone:
-    discard
-  of frHeader:
-    var r = rdLoc(a)
-    if mode == constructRefObj: r = "(*$1)" % [r]
-    genObjectInitHeader(p, section, t, r, a.lode.info)
-  of frEmbedded:
-      if mode == constructRefObj:
-        let objType = t.skipTypes(abstractInst+{tyRef})
-        let tmp = defaultValueExpr(p, objType, a.lode.info)
-        linefmt(p, cpsStmts,
-            "#nimCopyMem((void*)$1, (NIM_CONST void*)&$2, sizeof($3));$n",
-            [rdLoc(a), rdLoc(tmp), getTypeDesc(p.module, objType)])
-      else:
-        let tmp = defaultValueExpr(p, t, a.lode.info)
-        genAssignment(p, a, tmp)
-
-proc constructLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  case mapType(p.module, loc.t)
-  of ctChar, ctBool, ctInt, ctInt8, ctInt16, ctInt32, ctInt64,
-     ctFloat, ctFloat32, ctFloat64,
-     ctUInt, ctUInt8, ctUInt16, ctUInt32, ctUInt64:
-    # numeric type
-    linefmt(p, cpsStmts, "$1 = 0;$n", [rdLoc(loc)])
-  of ctPtrToArray, ctPtr, ctCString, ctProc:
-    # a simple ptr-like type -> assign nil
-    linefmt(p, cpsStmts, "$1 = NIM_NIL;$n", [rdLoc(loc)])
-  of ctNimStr, ctNimSeq:
-    linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
-  of ctArray, ctStruct, ctNimOpenArray:
-    linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
-            [addrLoc(p.module, loc), getTypeDesc(p.module, loc.t)])
-
-    if doInitObj:
-      genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
-  of ctVoid:
+        r.add "NAN"
+    of fcZero:
+      r.add "0.0"
+    of fcNegZero:
+      r.add "-0.0"
+    of fcInf:
+      r.add "INF"
+    of fcNegInf:
+      r.add "-INF"
+    of fcNormal, fcSubnormal:
+      r.output.addFloatRoundtrip(f)
+  of cnkPtrTy, cnkArrayTy:
+    # can only be a character string
+    r.addEscaped m.get(v.val.StringId)
+  of cnkOpaqueTy:
+    # TODO: remove this case once foreign numeric types are gone
+    r.add "("
+    typeRefToC(m, typ, r)
+    r.add ")"
+    if v.kind == cnkInt:
+      r.addInt m.unpackInt(v.val)
+    else:
+      r.addFloat m.unpackFloat(v.val)
+  else:
     unreachable()
 
-proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
-  # resetting the loc is achieved by constructing a new empty value inside
-  # it
-  constructLoc(p, loc, doInitObj)
+proc argsToC(m; pos; num: int, r: var Writer) =
+  ## Emits the C code for an arugment list with `num` arguments.
+  r.add "("
+  for i in 0..<num:
+    if i > 0:
+      r.add ", "
+    exprToC(m, pos, r)
+  r.add ")"
 
-proc initLocalVar(p: BProc, v: LocalId, immediateAsgn: bool) =
-  if not immediateAsgn and sfNoInit notin p.body[v].flags:
-    # If ``not immediateAsgn`` it is not initialized in a binding like
-    # ``var v = X`` and thus we need to init it.
-    constructLoc(p, p.locals[v])
+proc checkedOpToC(m; pos; open: string, r: var Writer) =
+  ## Emits the C code for a checked arithmetic operation.
+  skip(m.ast, pos)
+  skip(m.ast, pos)
+  r.add open
+  exprToC(m, pos, r)
+  r.add ", "
+  exprToC(m, pos, r)
+  r.add ", "
+  exprToC(m, pos, r)
+  r.add ")"
 
-proc getTemp(p: BProc, t: PType, result: var TLoc) =
-  inc(p.labels)
-  result.r = "T" & rope(p.labels) & "_"
-  linefmt(p, cpsLocals, "$1 $2;$n", [getTypeDesc(p.module, t), result.r])
-  result.k = locTemp
-  result.lode = lodeTyp t
-  result.storage = OnStack
-  result.flags = {}
-  when false:
-    # XXX Introduce a compiler switch in order to detect these easily.
-    if getSize(p.config, t) > 1024 * 1024:
-      if p.prc != nil:
-        echo "ENORMOUS TEMPORARY! ", p.config $ p.prc.info
-      else:
-        echo "ENORMOUS TEMPORARY! ", p.config $ p.lastLineInfo
-      writeStackTrace()
+proc unOpToC(m; pos; name: string, r: var Writer) =
+  ## Emits the C code for an unary operation.
+  r.add name
+  skip(m.ast, pos)
+  exprToC(m, pos, r)
 
-proc localVarDecl(p: BProc; n: CgNode, decl: Local): Rope =
-  let loc = initLoc(locLocalVar, n, mangleLocalName(p, decl.name, n.local),
-                    OnStack)
+proc cmpToC(m; pos; name: string, r: var Writer) =
+  ## Emits the C code for a comparison.
+  skip(m.ast, pos)
+  binOpToC(m, pos, name, r)
 
-  if decl.alignment > 0:
-    result.addf("NIM_ALIGN($1) ", [$decl.alignment])
-
-  result.add getTypeDesc(p.module, p.module.g.env[decl.typ])
-  if true:
-    if sfRegister in decl.flags: result.add(" register")
-    if sfVolatile in decl.flags: result.add(" volatile")
-    if sfNoalias  in decl.flags: result.add(" NIM_NOALIAS")
-    result.add(" ")
-    result.add(loc.r)
-
-  p.locals[n.local] = loc
-
-proc assignLocalVar(p: BProc, n: CgNode) =
-  let nl = if optLineDir in p.config.options: "" else: "\L"
-  let decl = localVarDecl(p, n, p.body[n.local]) & ";" & nl
-  line(p, cpsLocals, decl)
-
-include ccgthreadvars
-
-proc varInDynamicLib(m: BModule, id: GlobalId)
-
-proc fillGlobalLoc*(m: BModule, id: GlobalId) =
-  let
-    s = m.g.env[id]
-    n = CgNode(kind: cnkGlobal, info: s.info, typ: s.typ, global: id)
-  m.globals[id] = initLoc(locGlobalVar, n, mangleName(m.g.graph, s), OnHeap)
-
-proc defineGlobalVar*(m: BModule, id: GlobalId) =
-  let s = m.g.env[id]
-  fillGlobalLoc(m, id)
-
-  assert s.id notin m.declaredThings
-  assert findPendingModule(m, s) == m, "not the attached-to module"
-
-  if exfDynamicLib in s.extFlags:
-    incl(m.declaredThings, s.id)
-    varInDynamicLib(m, id)
-  else:
-    useHeader(m, s)
-    if exfNoDecl notin s.extFlags:
-      incl(m.declaredThings, s.id)
-      var decl = ""
-      var td = getTypeDesc(m, m.globals[id].t)
-      if true:
-        if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
-          decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
-        if sfImportc in s.flags: decl.add("extern ")
-        elif exfExportLib in s.extFlags: decl.add("N_LIB_EXPORT_VAR ")
-        else: decl.add("N_LIB_PRIVATE ")
-        decl.add(td)
-        if sfRegister in s.flags: decl.add(" register")
-        if sfVolatile in s.flags: decl.add(" volatile")
-        if sfNoalias in s.flags: decl.add(" NIM_NOALIAS")
-        decl.addf(" $1;$n", [m.globals[id].r])
-
-      m.s[cfsVars].add(decl)
-
-proc fillProcLoc*(m: BModule; id: ProcedureId) =
-  if id notin m.procs:
-    m.procs[id] = ProcLoc(name: mangleName(m.g.graph, m.g.env[id]))
-
-proc genVarPrototype*(m: BModule, id: GlobalId)
-proc genProcPrototype*(m: BModule, id: ProcedureId)
-proc genStmt(p: BProc, t: CgNode)
-proc expr(p: BProc, n: CgNode, d: var TLoc)
-proc putLocIntoDest(p: BProc, d: var TLoc, s: TLoc)
-proc intLiteral(i: BiggestInt): Rope
-proc intLiteral(p: BProc, i: Int128, ty: PType): Rope
-proc genLiteral(p: BProc, n: CgNode): Rope
-proc raiseExit(p: BProc, n: CgNode)
-
-proc initLocExpr(p: BProc, e: CgNode, result: var TLoc) =
-  initLoc(result, locNone, e, OnUnknown)
-  expr(p, e, result)
-
-proc initLocExpr(p: BProc, e: CgNode, result: var TLoc, flags: set[LocFlag]) =
-  initLoc(result, locNone, e, OnUnknown)
-  result.flags = flags
-  expr(p, e, result)
-
-proc initLocExprSingleUse(p: BProc, e: CgNode, result: var TLoc) =
-  initLoc(result, locNone, e, OnUnknown)
-  if e.kind in {cnkCall, cnkCheckedCall} and
-     getCalleeMagic(p.env, e[0]) == mNone:
-    # We cannot check for tfNoSideEffect here because of mutable parameters.
-    discard "bug #8202; enforce evaluation order for nested calls"
-    # We may need to consider that 'f(g())' cannot be rewritten to 'tmp = g(); f(tmp)'
-    # if 'tmp' lacks a move/assignment operator.
-  else:
-    result.flags.incl lfSingleUse
-  expr(p, e, result)
-
-include ccgcalls, "ccgstmts.nim"
-
-proc initFrame(p: BProc, procname, filename: Rope): Rope =
-  const frameDefines = """
-  $1  define nimfr_(proc, file) \
-      TFrame FR_; \
-      FR_.procname = proc; FR_.filename = file; FR_.line = 0; FR_.len = 0; #nimFrame(&FR_);
-
-  $1  define nimfrs_(proc, file, slots, length) \
-      struct {TFrame* prev;NCSTRING procname;NI line;NCSTRING filename; NI len; VarSlot s[slots];} FR_; \
-      FR_.procname = proc; FR_.filename = file; FR_.line = 0; FR_.len = length; #nimFrame((TFrame*)&FR_);
-
-  $1  define nimln_(n, file) \
-      FR_.line = n; FR_.filename = file;
-  """
-  if p.module.s[cfsFrameDefines].len == 0:
-    appcg(p.module, p.module.s[cfsFrameDefines], frameDefines, ["#"])
-
-  discard cgsym(p.module, "nimFrame")
-  result = ropecg(p.module, "\tnimfr_($1, $2);$n", [procname, filename])
-
-proc deinitFrame(p: BProc): Rope =
-  result = ropecg(p.module, "\t#popFrame();$n", [])
-
-include ccgexprs
-
-proc mangleDynLibProc(sym: PSym): Rope =
-  if sfCompilerProc in sym.flags:
-    # NOTE: sym.extname is the external name!
-    result = rope(sym.name.s)
-  else:
-    result = rope(strutils.`%`("Dl_$1_", $sym.id))
-
-proc fillDynlibProcLoc(m: BModule, id: ProcedureId) =
-  if id notin m.procs:
-    # XXX: a dynlib procedure is not really a ``locProc``, but rather a
-    #      global variable
-    m.procs[id] = ProcLoc(name: mangleDynLibProc(m.g.env[id]))
-
-proc symInDynamicLib*(m: BModule, id: ProcedureId) =
-  fillDynlibProcLoc(m, id)
-  m.s[cfsVars].addf("$2 $1;$n",
-                    [m.procs[id].name, getTypeDesc(m, m.g.env[id].typ)])
-
-
-proc varInDynamicLib(m: BModule, id: GlobalId) =
-  let
-    sym = m.g.env[id]
-    tmp = mangleDynLibProc(sym)
-  incl(m.globals[id].flags, lfIndirect)
-  m.globals[id].r = tmp  # from now on we only need the internal name
-  m.s[cfsVars].addf("$2* $1;$n",
-      [tmp, getTypeDesc(m, sym.typ)])
-
-proc cgsym(m: BModule, name: string): Rope =
-  let sym = magicsys.getCompilerProc(m.g.graph, name)
-  if sym != nil:
-    case sym.kind
-    of skProc, skFunc, skMethod, skConverter, skIterator:
-      useProc(m, registerLateProc(m, sym))
-    of skVar, skResult, skLet:
-      genVarPrototype(m, m.g.env.globals[sym])
-    of skType: discard getTypeDesc(m, sym.typ)
-    else: internalError(m.config, "cgsym: " & name & ": " & $sym.kind)
-  else:
-    # we used to exclude the system module from this check, but for DLL
-    # generation support this sloppyness leads to hard to detect bugs, so
-    # we're picky here for the system module too:
-    localReport(m.config, reportStr(rsemSystemNeeds, name))
-
-  result = sym.extname
-
-proc generateHeaders(m: BModule) =
-  m.s[cfsHeaders].add("\L#include \"nimbase.h\"\L")
-
-  for it in m.headerFiles:
-    if it[0] == '#':
-      m.s[cfsHeaders].add(rope(it.replace('`', '"') & "\L"))
-    elif it[0] notin {'"', '<'}:
-      m.s[cfsHeaders].addf("#include \"$1\"$N", [rope(it)])
+proc exprToC(m; pos; r: var Writer) =
+  ## Emits the C code for expressions and symbols.
+  let n = advance(m.ast, pos)
+  case n.kind
+  of cnkGlobal, cnkProc, cnkLocal:
+    r.add m.get(n.val.StringId)
+  of cnkUse:
+    skip(m.ast, pos)
+    exprToC(m, pos, r)
+  of cnkDatum:
+    r.add "_const_"
+    r.addInt r.anon[n.val.Datum]
+  of cnkValue:
+    valueToC(m, pos, r)
+  of cnkUnknown:
+    # just use the name verbatim
+    skip(m.ast, pos)
+    r.add m.get(advance(m.ast, pos).val.StringId)
+  of cnkNilLit:
+    r.add "NIM_NIL"
+  of cnkUnlikely:
+    r.add "NIM_UNLIKELY("
+    exprToC(m, pos, r)
+    r.add ")"
+  of cnkBitNot: unOpToC(m, pos, "~", r)
+  of cnkBitAnd: binOpToC(m, pos, " & ", r)
+  of cnkBitOr:  binOpToC(m, pos, " | ", r)
+  of cnkBitXor: binOpToC(m, pos, " ^ ", r)
+  of cnkShr:    binOpToC(m, pos, " >> ", r)
+  of cnkShl:    binOpToC(m, pos, " << ", r)
+  of cnkEq:     cmpToC(m, pos, " == ", r)
+  of cnkLe:     cmpToC(m, pos, " <= ", r)
+  of cnkLt:     cmpToC(m, pos, " < ", r)
+  of cnkNot:    unOpToC(m, pos, "!", r)
+  of cnkNeg:    unOpToC(m, pos, "-", r)
+  of cnkAdd:    binOpToC(m, pos, " + ", r)
+  of cnkSub:    binOpToC(m, pos, " - ", r)
+  of cnkMul:    binOpToC(m, pos, " * ", r)
+  of cnkDiv:    binOpToC(m, pos, " / ", r)
+  of cnkMod:    binOpToC(m, pos, " % ", r)
+  of cnkCheckedAdd: checkedOpToC(m, pos, "nimAddInt(", r)
+  of cnkCheckedSub: checkedOpToC(m, pos, "nimAddSub(", r)
+  of cnkCheckedMul: checkedOpToC(m, pos, "nimAddMul(", r)
+  of cnkZext:
+    let typ = advance(m.ast, pos).val.StringId
+    let styp = getType(m, pos)
+    r.add "(("
+    typeRefToC(m, typ, r)
+    r.add ")"
+    if m.tast[styp].kind == cnkIntTy:
+      # convert the input to an unsigned value first, so that zero
+      # extension happens
+      r.add "(NU"
+      r.addInt m.unpackInt(m.tast[styp, 0].val)
+      r.add ")"
+    exprToC(m, pos, r)
+    r.add ")"
+  of cnkSext:
+    let typ = advance(m.ast, pos).val.StringId
+    let styp = getType(m, pos)
+    r.add "(("
+    typeRefToC(m, typ, r)
+    r.add ")"
+    if m.tast[styp].kind == cnkUIntTy:
+      # convert the input to a signed value first, so that sign
+      # extension happens
+      r.add "(NI"
+      r.addInt m.unpackInt(m.tast[styp, 0].val)
+      r.add ")"
+    exprToC(m, pos, r)
+    r.add ")"
+  of cnkFToI, cnkFToU, cnkIToF, cnkUToF:
+    # TODO: make behaviour defined
+    r.add "(("
+    typeRefToC(m, pos, r)
+    r.add ")"
+    exprToC(m, pos, r)
+    r.add ")"
+  of cnkTrunc, cnkPromote, cnkDemote, cnkConv, cnkBitcast, cnkPtrCast:
+    r.add "(("
+    typeRefToC(m, pos, r)
+    r.add ")"
+    exprToC(m, pos, r)
+    r.add ")"
+  of cnkLoad:
+    skip(m.ast, pos)
+    r.add "(*"
+    exprToC(m, pos, r)
+    r.add ")"
+  of cnkAddr:
+    let tn = m.types[advance(m.ast, pos).val.StringId]
+    if m.tast[tn, 0].kind == cnkArrayTy and
+       m.unpackInt(m.tast[m.tast.child(tn, 0), 0].val) > 0:
+      # don't take the address of array lvalues; let them implicitly convert to
+      # pointers to their first element
+      exprToC(m, pos, r)
     else:
-      m.s[cfsHeaders].addf("#include $1$N", [rope(it)])
-  m.s[cfsHeaders].add("""#undef LANGUAGE_C
+      r.add "(&"
+      exprToC(m, pos, r)
+      r.add ")"
+  of cnkCall:
+    exprToC(m, pos, r)
+    argsToC(m, pos, len(n) - 1, r)
+  of cnkSizeof:
+    r.add "("
+    typeRefToC(m, pos, r)
+    r.add ")sizeof("
+    typeRefToC(m, pos, r)
+    r.add ")"
+  of cnkAlignof:
+    r.add "("
+    typeRefToC(m, pos, r)
+    r.add ")NIM_ALIGNOF("
+    typeRefToC(m, pos, r)
+    r.add ")"
+  of cnkOffsetof:
+    r.add "("
+    typeRefToC(m, pos, r)
+    r.add ")offsetof("
+    let typ = m.ast[pos].val.StringId
+    typeRefToC(m, pos, r)
+    r.add ", "
+    let start = r.output.len
+    pathToC(m, pos, m.types[typ], len(n) - 2, r)
+    # remove the leading dot:
+    r.output.delete(start..start)
+    r.add ")"
+  of cnkPath:
+    skip(m.ast, pos)
+    let typ = getType(m, pos)
+    exprToC(m, pos, r)
+    pathToC(m, pos, typ, len(n) - 2, r)
+  of AllNodes - cnkExprs -
+     {cnkUnknown, cnkUnlikely, cnkDatum, cnkProc, cnkGlobal, cnkLocal}:
+    unreachable(n.kind)
+
+proc stmtToC(m; pos; r: var Writer) =
+  ## Emits the C code for statements and blocks.
+  proc emit(m; pos; len: int, r: var Writer) =
+    ## Emits the asm/emit operands without additional formatting.
+    for _ in 0..<len:
+      case m.ast[pos].kind
+      of cnkString:
+        # it's a code snippet that's to be used verbatim
+        r.add m.get(advance(m.ast, pos).val.StringId)
+      of cnkType:
+        typeRefToC(m, pos, r)
+      else:
+        exprToC(m, pos, r)
+
+  let n = advance(m.ast, pos)
+  case n.kind
+  of cnkStmtList:
+    for _ in 0..<len(n):
+      stmtToC(m, pos, r)
+  of cnkDef:
+    r.newLine(m, n.info)
+    let align = readUInt(m, m.ast, pos)
+    let flags = readSet(m, m.ast, pos, CgLocAttrib)
+    if align > 0:
+      r.add "NIM_ALIGN("
+      r.addInt align
+      r.add ") "
+
+    if Register in flags:
+      r.add "register " # a specifier, not a qualfiier
+
+    genDecl(m,
+      advance(m.ast, pos).val.StringId, # type
+      advance(m.ast, pos).val.StringId, # name
+      flags, 0, r)
+    r.add ";"
+  of cnkUnreachable:
+    r.newLine(m, n.info)
+    r.add "NIM_UNREACHABLE();"
+  of cnkDrop:
+    r.newLine(m, n.info)
+    r.add "(void)"
+    exprToC(m, pos, r)
+    r.add ";"
+  of cnkEmit:
+    r.newLine(m, n.info)
+    emit(m, pos, len(n), r)
+  of cnkAsm:
+    r.newLine(m, n.info)
+    case AsmMode(readUInt(m, m.ast, pos))
+    of asmGnu:
+      # GNU inline asm requires each instruction being its own string constant
+      let start = r.output.len
+      emit(m, pos, len(n) - 1, r)
+      let res = r.output[start..^1]
+      r.output.setLen(start)
+      # split up the result
+      r.add "asm("
+      inc r.indent
+      for line in splitLines(res):
+        var i = 0
+        while i < line.len and line[i] in {' ', '\t'}:
+          inc i
+
+        if i < line.len:
+          r.newLineRaw()
+          if line[i] in {'"', ':'}:
+            # keep clobber lists and quoted lines as-is
+            r.add line
+          else:
+            # turn the line into a C constant, with a newline at the end
+            r.add "\""
+            for j in i..<line.len:
+              r.addChar line[j]
+            r.add "\\n\""
+      dec r.indent
+      r.add ");"
+    of asmMsvc:
+      r.add "__asm "
+      r.startBlock()
+      emit(m, pos, len(n) - 1, r)
+      r.closeBlock()
+    of asmJs:
+      unreachable()
+  of cnkScope:
+    r.newLine(m, n.info)
+    r.startBlock()
+    stmtToC(m, pos, r)
+    r.closeBlock()
+  of cnkDispatch:
+    r.newLine(m, n.info)
+    r.add "switch ("
+    exprToC(m, pos, r)
+    r.add ") "
+    r.startBlock()
+    for _ in 1..<len(n):
+      let dest = advance(m.ast, pos)
+      if len(dest) == 1:
+        r.newLine(m, n.info)
+        r.add "default:"
+      else:
+        for _ in 1..<len(dest):
+          r.newLine(m, n.info)
+          r.add "case "
+          exprToC(m, pos, r)
+          r.add ":"
+      stmtToC(m, pos, r)
+      # no 'break' needed, as the statement must end in a terminator
+    r.closeBlock()
+  of cnkAsgn:
+    r.newLine(m, n.info)
+    exprToC(m, pos, r)
+    r.add " = "
+    exprToC(m, pos, r)
+    r.add ";"
+  of cnkStore:
+    r.newLine(m, n.info)
+    r.add "*"
+    exprToC(m, pos, r)
+    r.add " = "
+    exprToC(m, pos, r)
+    r.add ";"
+  of cnkBreak:
+    r.newLine(m, n.info)
+    r.add "goto L"
+    r.addInt advance(m.ast, pos).val
+    r.add "_;"
+  of cnkBlock:
+    let label = advance(m.ast, pos).val
+    stmtToC(m, pos, r)
+    r.newLine(m, n.info)
+    r.add "L"
+    r.addInt label
+    r.add "_:;"
+  of cnkIf:
+    r.newLine(m, n.info)
+    r.add "if ("
+    exprToC(m, pos, r)
+    r.add ") "
+    r.startBlock()
+    stmtToC(m, pos, r)
+    r.closeBlock()
+    if len(n) == 3:
+      r.add " else "
+      r.startBlock()
+      stmtToC(m, pos, r)
+      r.closeBlock()
+  of cnkWhile:
+    r.newLine(m, n.info)
+    r.add "while ("
+    exprToC(m, pos, r)
+    r.add ")"
+    r.startBlock()
+    stmtToC(m, pos, r)
+    r.closeBlock()
+  of cnkReturn:
+    r.newLine(m, n.info)
+    if len(n) > 0:
+      r.add "return "
+      exprToC(m, pos, r)
+      r.add ";"
+    else:
+      r.add "return;"
+  of cnkCall:
+    r.newLine(m, n.info)
+    exprToC(m, pos, r)
+    argsToC(m, pos, len(n) - 1, r)
+    r.add ";"
+  of cnkRaise, cnkCheckedCall, cnkCheckedCallAsgn, cnkTry, cnkTailCall:
+    r.newLine(m, n.info)
+    r.add "NIM_STATIC_ASSERT(0, \"unsupported statement\");"
+  of AllNodes - cnkStmts - cnkBlocks:
+    unreachable()
+
+proc constrToC(m; pos; r: var Writer) =
+  ## Emits the C code for a construction expression.
+  let n = advance(m.ast, pos)
+  case n.kind
+  of cnkProc, cnkGlobal:
+    r.add m.get(n.val.StringId)
+  of cnkDatum:
+    r.add "_const_"
+    r.addInt r.anon[n.val.Datum]
+  of cnkValue:
+    valueToC(m, pos, r)
+  of cnkSizeof, cnkAlignof, cnkOffsetof, cnkPtrCast, cnkAddr:
+    # `exprToC` already implements these
+    dec pos
+    exprToC(m, pos, r)
+  of cnkNilLit:
+    r.add "NIM_NIL"
+  of cnkConstr:
+    skip(m.ast, pos)
+    r.add "{"
+    for i in 1..<len(n):
+      if i > 1:
+        r.add ", "
+      constrToC(m, pos, r)
+    r.add "}"
+  of cnkRecConstr:
+    let typ = m.types[advance(m.ast, pos).val.StringId]
+    r.add "{"
+    for i in 1..<len(n):
+      if i > 1:
+        r.add ", "
+      let init = advance(m.ast, pos)
+      pathToC(m, pos, typ, len(init)-1, r)
+      r.add " = "
+      constrToC(m, pos, r)
+    r.add "}"
+  else:
+    unreachable(n.kind)
+
+proc genProcDecl(m; typ, name: StringId; r: var Writer) =
+  ## Emits the C type and function declarator for `typ` and `name`, using
+  ## unnamed parameters.
+  var pos = m.types[typ]
+  let L = len(advance(m.tast, pos)) - 2
+  r.add CallingConvToStr[CgCallConv(readUInt(m, m.tast, pos))]
+  r.add "("
+  typeToC(m, pos, r)
+  r.add ", "
+  r.add m.get(name)
+  r.add ")("
+  # the names of parameters don't matter; given them locally unique ones
+  for i in 0..<L:
+    if i > 0:
+      r.add ", "
+    if m.tast[pos].kind == cnkVarargs:
+      r.add "..."
+    else:
+      typeToC(m, pos, r)
+      r.add " _"
+      r.addInt i
+
+  if L == 0:
+    r.add "void"
+  r.add ")"
+
+proc genProcDecl(m; typ, name: StringId, params: NodeIndex; r: var Writer) =
+  ## Emits the C type and function declarator for `typ` `name`, and
+  ## parameter list `params`.
+  var pos = m.types[typ]
+  let L = len(advance(m.tast, pos)) - 2
+  r.add CallingConvToStr[CgCallConv(readUInt(m, m.tast, pos))]
+  r.add "("
+  typeToC(m, pos, r)
+  r.add ", "
+  r.add m.get(name)
+  r.add ")("
+  var ppos = params
+  let numParams = len(advance(m.ast, ppos))
+  for i in 0..<numParams:
+    if i > 0:
+      r.add ", "
+    typeToC(m, pos, r)
+    r.add " "
+    inc ppos # skip the Param node
+    let attribs = readSet(m, m.ast, ppos, CgParamAttrib)
+    if CgParamAttrib.NoAlias in attribs:
+      r.add "NIM_NOALIAS "
+    r.add m.get(advance(m.ast, ppos).val.StringId)
+
+  if numParams < L:
+    r.add "..."
+  if L == 0:
+    r.add "void"
+  r.add ")"
+
+proc globalToC(m; pos; r: var Writer) =
+  ## Emits the C type, qualifiers, specifiers, and the declarator - but not
+  ## the initializer - for a global.
+  let storage = cast[CgStorage](readUInt(m, m.ast, pos))
+  if storage == CgStorage.Thread:
+    r.add "NIM_THREADVAR "
+
+  let align = readUInt(m, m.ast, pos)
+  let flags = readSet(m, m.ast, pos, CgLocAttrib)
+  if align > 0:
+    r.add "NIM_ALIGN("
+    r.addInt align
+    r.add ") "
+
+  typeRefToC(m, pos, r)
+  r.add " "
+
+  if storage == Const:
+    r.add "NIM_CONST "
+  if Volatile in flags:
+    r.add "volatile "
+  if CgLocAttrib.NoAlias in flags:
+    r.add "NIM_NOALIAS "
+
+  r.add m.get(advance(m.ast, pos).val.StringId)
+
+type
+  Emit* = object
+    ## Top-level emit and asm statements to add to the C module.
+    includes*: seq[NodeIndex]
+    types*: seq[NodeIndex]
+    globals*: seq[NodeIndex]
+    procs*: seq[NodeIndex]
+
+  ModuleDesc* = object
+    ## Describes the shape of a C module, i.e., what entities need to be
+    ## declared and defined and in what order.
+    headers: seq[StringId]
+    dataFwd: seq[Datum]
+    data: seq[Datum]
+    tdecls: seq[StringId]
+    tdefs: seq[StringId]
+    gdecls: seq[StringId]
+    gdefs: seq[StringId]
+    fdecls: seq[tuple[inlined: bool, name: StringId]]
+    fdefs: seq[tuple[inlined: bool, name: StringId]]
+    emit: Emit
+
+proc initModuleDesc*(m: CgModule, procs, globals: seq[StringId],
+                     emit: sink Emit): ModuleDesc =
+  ## Creates a module description containing all functions and globals given
+  ## by `procs` and `globals`, plus their dependencies.
+  var decls, defs, headers: PackedSet[StringId]
+  var data: Table[Datum, uint8]
+    ## '1' means declared, '2' means defined. A uint8 is used over a bool
+    ## due to the former having space for a default value
+
+  # discovery of dependencies makes up the bulk of the work. All identifiers
+  # that are going to appear in the C code need to be (at least) *declared*
+
+  proc require(m; name: StringId, weak: bool, res: var ModuleDesc) {.closure.}
+  proc requireProc(m; name: StringId, res: var ModuleDesc) {.closure.}
+  proc requireGlobal(m; name: StringId, res: var ModuleDesc) {.closure.}
+  proc requireDatum(m; d: Datum, res: var ModuleDesc) {.closure.}
+
+  proc inclHeader(m; str: StringId, res: var ModuleDesc) =
+    # add the header (if any) to the header list
+    if m.get(str).len > 0 and not headers.containsOrIncl(str):
+      res.headers.add(str)
+
+  proc scanType(m; pos; weak: bool, res: var ModuleDesc) =
+    let n = advance(m.tast, pos)
+    case n.kind
+    of cnkPtrTy:
+      # the pointed-to element doesn't require a definition
+      scanType(m, pos, true, res)
+    of cnkProcTy:
+      for _ in 0..<len(n):
+        scanType(m, pos, weak, res)
+    of cnkType:
+      require(m, n.val.StringId, weak, res)
+    of cnkArrayTy:
+      skip(m.tast, pos)
+      scanType(m, pos, weak, res)
+    of cnkStructTy, cnkUnionTy:
+      skip(m.tast, pos)
+      for _ in 1..<len(n):
+        if advance(m.tast, pos).kind == cnkField:
+          scanType(m, pos, false, res)
+          skip(m.tast, pos)
+          skip(m.tast, pos)
+          skip(m.tast, pos)
+          skip(m.tast, pos)
+        else:
+          scanType(m, pos, false, res)
+          skip(m.tast, pos)
+          skip(m.tast, pos)
+    of cnkFloatTy, cnkIntTy, cnkUIntTy:
+      skip(m.tast, pos)
+    of cnkOpaqueTy:
+      skip(m.tast, pos)
+      inclHeader(m, advance(m.tast, pos).val.StringId, res)
+    of cnkVarargs, cnkInt, cnkString, cnkVoidTy, cnkCharTy, cnkBoolTy:
+      discard
+    else:
+      unreachable()
+
+  proc require(m; name: StringId, weak: bool, res: var ModuleDesc) =
+    var pos = m.types[name]
+    case m.tast[pos].kind
+    of cnkStructTy, cnkUnionTy:
+      if not decls.containsOrIncl(name):
+        res.tdecls.add name
+      if not weak and not defs.containsOrIncl(name):
+        # also mark as declared, so that no additional declaration is emitted
+        scanType(m, pos, false, res)
+        res.tdefs.add name
+    of cnkArrayTy:
+      # an array typedef always needs a defined element type
+      scanType(m, pos, false, res)
+      if not defs.containsOrIncl(name):
+        res.tdefs.add name
+    of cnkProcTy:
+      if not decls.containsOrIncl(name):
+        var pos = m.types[name]
+        # function type declarations don't need a full definition of their
+        # used types
+        scanType(m, pos, true, res)
+        res.tdecls.add name
+    elif not decls.containsOrIncl(name):
+      scanType(m, pos, false, res)
+
+  proc scanParams(m; name: StringId, weak: bool, res: var ModuleDesc) =
+    var pos = m.types[name]
+    scanType(m, pos, weak, res)
+
+  proc requireGlobal(m; name: StringId, res: var ModuleDesc) =
+    if not decls.containsOrIncl(name):
+      # keep scanning a little simpler by always pulling in the full type
+      # definition, even if not needed by how the global is used
+      require(m, m.ast[m.globals[name], 3].val.StringId, false, res)
+      res.gdecls.add name
+
+  proc scanBody(m; pos; res: var ModuleDesc) =
+    ## Scans a statement/expression for proc, type, etc. dependencies and
+    ## registers them.
+    const Relevant = {cnkAlignof, cnkSizeof, cnkOffsetof, cnkLoad,
+                      cnkProc, cnkGlobal, cnkDatum, cnkDef, cnkConv,
+                      cnkPtrCast, cnkPath, cnkUnknown, cnkEmit}
+    case m.ast[pos].kind
+    of cnkAlignof, cnkSizeof:
+      pos = m.ast.child(pos, 1)
+      require(m, advance(m.ast, pos).val.StringId, false, res)
+    of cnkOffsetof:
+      let L = len(m.ast[pos])
+      pos = m.ast.child(pos, 1)
+      require(m, advance(m.ast, pos).val.StringId, false, res)
+      # ignore the rest
+      for _ in 2..<L:
+        skip(m.ast, pos)
+    of cnkLoad:
+      # a C deref requires a complete type
+      pos = m.ast.child(pos, 0)
+      require(m, advance(m.ast, pos).val.StringId, false, res)
+      scanBody(m, pos, res)
+    of cnkConv, cnkPtrCast:
+      # the type operand needs to be available
+      pos = m.ast.child(pos, 0)
+      require(m, advance(m.ast, pos).val.StringId, false, res)
+      scanBody(m, pos, res)
+    of cnkProc:
+      requireProc(m, advance(m.ast, pos).val.StringId, res)
+    of cnkGlobal:
+      requireGlobal(m, advance(m.ast, pos).val.StringId, res)
+    of cnkDatum:
+      requireDatum(m, advance(m.ast, pos).val.Datum, res)
+    of cnkDef:
+      pos = m.ast.child(pos, 2)
+      require(m, advance(m.ast, pos).val.StringId, false, res)
+      skip(m.ast, pos)
+    of cnkUnknown:
+      pos = m.ast.child(pos, 0)
+      inclHeader(m, advance(m.ast, pos).val.StringId, res)
+      skip(m.ast, pos)
+    of cnkPath:
+      let n = advance(m.ast, pos)
+      skip(m.ast, pos) # skip the result type
+      var tn = getType(m, pos)
+      # the root may be a pointer, which is automatically dereferenced first,
+      # requiring a full definition
+      if m.tast[tn].kind == cnkPtrTy:
+        tn = m.tast.child(tn, 0)
+        scanType(m, tn, false, res)
+      for _ in 1..<len(n):
+        scanBody(m, pos, res)
+    of cnkEmit:
+      # types used in emit statements pull in the full definition
+      let len = len(advance(m.ast, pos))
+      for _ in 0..<len:
+        if m.ast[pos].kind == cnkType:
+          var pos2 = m.types[advance(m.ast, pos).val.StringId]
+          scanType(m, pos2, false, res)
+        else:
+          scanBody(m, pos, res)
+    of AllNodes - Relevant:
+      # go over the subtree but only process the relevant parts. This is
+      # faster and requires less recursion than manually handling all
+      # node kinds
+      var last = ord(pos)
+      while ord(pos) <= last:
+        if m.ast[pos].kind in Relevant:
+          let prev = ord(pos)
+          scanBody(m, pos, res)
+          last += (ord(pos) - prev) - 1
+        else:
+          if not isLeaf(m.ast[pos]):
+            last += len(m.ast[pos])
+          inc pos
+
+  proc requireDatum(m; d: Datum, res: var ModuleDesc) =
+    case data.getOrDefault(d, 0)
+    of 0:
+      # not yet seen
+      var pos = m.data[d]
+      # the full type of the datum is required
+      require(m, m.ast[pos, 0].val.StringId, false, res)
+      data[d] = 1
+      # scan the input first
+      scanBody(m, pos, res)
+      res.data.add d
+      data[d] = 2
+    of 1:
+      # cyclic dependency; add a forward declaration
+      res.dataFwd.add d
+      data[d] = 2
+    of 2:
+      discard "already defined, nothing to do"
+    else:
+      unreachable()
+
+  proc requireProc(m; name: StringId, res: var ModuleDesc) =
+    if not decls.containsOrIncl(name):
+      var pos = m.procs[name]
+      case m.ast[pos].kind
+      of cnkProcDef:
+        scanParams(m, m.ast[pos, 1].val.StringId, false, res)
+        if Inline in m.toSet(m.ast[pos, 0].val, CgProcAttrib):
+          # pull in the definition for inline functions so that the C compiler
+          # can do the inlining
+          res.fdecls.add (true, name)
+          pos = m.ast.last(pos)
+          scanBody(m, pos, res)
+          res.fdefs.add (true, name)
+        else:
+          res.fdecls.add (false, name)
+      of cnkProcImp, cnkProcExp:
+        scanParams(m, m.ast[pos, 1].val.StringId, false, res)
+        res.fdecls.add (false, name)
+      else:
+        unreachable()
+
+  proc scanEmits(m; emits: seq[NodeIndex], res: var ModuleDesc) =
+    for it in emits.items:
+      var pos = it
+      scanBody(m, pos, res)
+
+  # no need to scan the extra include section emits; they cannot refer
+  # to anything
+  scanEmits(m, emit.types, result)
+
+  # scan the entities in the order the sections they'll be emitted in
+  # are arranged
+
+  for it in globals.items:
+    var pos = m.globals[it]
+    case m.ast[pos].kind
+    of cnkGlobalDef, cnkGlobalExp:
+      result.gdefs.add it
+      require(m, m.ast[pos, 3].val.StringId, false, result)
+      if m.ast[pos].len == 6:
+        pos = m.ast.child(pos, 5)
+        scanBody(m, pos, result)
+    of cnkGlobalImp:
+      requireGlobal(m, it, result)
+    else:
+      unreachable()
+
+  scanEmits(m, emit.globals, result)
+  scanEmits(m, emit.procs, result)
+
+  for it in procs.items:
+    var pos = m.procs[it]
+    case m.ast[pos].kind
+    of cnkProcDef, cnkProcExp:
+      scanParams(m, m.ast[pos, 1].val.StringId, false, result)
+      scanBody(m, pos, result)
+      result.fdefs.add (false, it)
+    of cnkProcImp:
+      if not containsOrIncl(decls, it):
+        result.fdecls.add (false, it)
+        scanParams(m, m.ast[pos, 1].val.StringId, false, result)
+    else:
+      unreachable()
+
+  result.emit = emit
+
+proc moduleToC*(m: CgModule, desc: ModuleDesc, preamble: string,
+                withLineDir: bool): string =
+  ## Generates the code for a full C translation unit for `m` and `desc`.
+  ## `preamble` is text that's placed at the start of the unit.
+  ## `withLineDir` controls whether C line directives are enabled.
+  var r = Writer(withLine: withLineDir)
+  r.add preamble
+  r.add "#include <nimbase.h>"
+
+  for it in desc.headers.items:
+    let hdr = m.get(it)
+    if hdr[0] == '#':
+      # custom include
+      r.add "\n"
+      r.add hdr.replace('`', '"')
+    elif hdr[0] in {'<', '"'}:
+      r.add "\n#include "
+      r.add hdr
+    else:
+      # put the header name in quotes
+      r.add "\n#include "
+      r.add "\""
+      r.add hdr
+      r.add "\""
+
+  proc emits(m; list: seq[NodeIndex]) =
+    for it in list.items:
+      var pos = it
+      stmtToC(m, pos, r)
+
+  emits(m, desc.emit.includes)
+
+  # undefine various macros that could conflict with identifiers
+  r.add "\n"
+  r.add """#undef LANGUAGE_C
 #undef MIPSEB
 #undef MIPSEL
 #undef PPC
@@ -692,546 +1214,140 @@ proc generateHeaders(m: BModule) =
 #undef far
 #undef powerpc
 #undef unix
-""")
+"""
 
-proc closureSetup(p: BProc, prc: PSym) =
-  if prc.typ.callConv != ccClosure: return
-  # prc.ast[paramsPos].last contains the type we're after:
-  var ls = lastSon(prc.ast[paramsPos])
-  p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
-  p.config.internalAssert(ls.typ == ls.sym.typ) # sanity check
-  var env = ls.sym.position + 1 # parameters start at ID 1
+  emits(m, desc.emit.types)
 
-  let n = newLocalRef(LocalId(env), ls.info, ls.typ)
-  assignLocalVar(p, n)
-  # generate cast assignment:
-  linefmt(p, cpsStmts, "$1 = ($2) ClE_0;$n",
-          [rdLoc(p.locals[n.local]), getTypeDesc(p.module, ls.typ)])
-
-proc isNoReturn(m: BModule; s: PSym): bool {.inline.} =
-  sfNoReturn in s.flags and m.config.exc != excGoto
-
-proc startProc*(m: BModule, id: ProcedureId; procBody: sink Body): BProc =
-  let prc = m.g.env[id]
-  var p = newProc(prc, m)
-  p.body = procBody
-  assert(prc.ast != nil)
-  fillProcLoc(m, id) # ensure that a loc exists
-  if m.procs[id].params.len == 0:
-    # if a prototype was emitted, the parameter list already exists
-    m.procs[id].params = prepareParameters(m, prc)
-
-  synchronize(p.locals, p.body.locals)
-
-  if sfPure notin prc.flags and p.body[resultId].typ != VoidType:
-    let
-      res = resultId
-      typ = m.g.env[p.body[resultId].typ]
-      resNode = newLocalRef(res, prc.info, typ)
-    if not isInvalidReturnType(m, typ):
-      # declare the result symbol:
-      assignLocalVar(p, resNode)
+  # emit the type forward declarations:
+  for name in desc.tdecls.items:
+    r.newLineRaw()
+    let pos = m.types[name]
+    case m.tast[pos].kind
+    of cnkStructTy:
+      r.add "typedef struct "
+      r.add m.get(name)
+      r.add " "
+      r.add m.get(name)
+      r.add ";"
+    of cnkUnionTy:
+      r.add "typedef union "
+      r.add m.get(name)
+      r.add " "
+      r.add m.get(name)
+      r.add ";"
+    of cnkProcTy:
+      r.add "typedef "
+      genProcDecl(m, name, name, r)
+      r.add ";"
     else:
-      p.locals[res] = initResultParamLoc(p.module, resNode)
-      scopeMangledParam(p, p.body[res].name)
-      if skipTypes(resNode.typ, abstractInst).kind == tyArray:
-        #incl(res.locFlags, lfIndirect)
-        p.locals[res].storage = OnUnknown
+      unreachable(m.tast[pos].kind)
 
-  # setup the locs for the parameters:
-  for i in 1..<m.procs[id].params.len:
-    p.locals[LocalId(i)] = m.procs[id].params[i]
-
-  # for now, we treat all compilerprocs as being able to run in a boot
-  # environment where the error flag is not yet accessible. This is not quite
-  # correct, and a dedicated facility for designating runtime procedures as
-  # usable in a boot environment is eventually required
-  # The ``threadProcWrapper`` is special-cased to have the flag disabled too,
-  # as thread-local storage might not have been set up when the flag is first
-  # queried. Making it a compilerproc is not possible, due to it being a
-  # generic routine
-  if sfCompilerProc in prc.flags or (prc.name.s == "threadProcWrapper" and
-     sfSystemModule in getModule(prc).flags):
-    p.flags.incl nimErrorFlagDisabled
-
-  for i in 1..<prc.typ.n.len:
-    let param = prc.typ.n[i].sym
-    if p.params[i].k == locNone: continue
-    scopeMangledParam(p, param.name)
-  closureSetup(p, prc)
-
-  if sfPure notin prc.flags and optStackTrace in prc.options:
-    # HACK: we need to raise the dependencies here already. Doing so when
-    #       finishing the procedure would be too late in the case of
-    #       procedures for which code is generated incrementally
-    discard cgsym(p.module, "nimFrame")
-    discard cgsym(p.module, "popFrame")
-
-  result = p
-
-proc finishProc*(p: BProc, id: ProcedureId): string =
-  if {nimErrorFlagAccessed, nimErrorFlagDeclared} * p.flags == {nimErrorFlagAccessed}:
-    p.flags.incl nimErrorFlagDeclared
-    p.blocks[0].sections[cpsLocals].add(ropecg(p.module, "NIM_BOOL* nimErr_;$n", []))
-    p.blocks[0].sections[cpsInit].add(ropecg(p.module, "nimErr_ = #nimErrorFlag();$n", []))
-
-  let prc = p.env[id]
-  var
-    header = genProcHeader(p.module, prc, p.params)
-    returnStmt = ""
-
-  if sfPure notin prc.flags and
-     not isInvalidReturnType(p.env.types, p.body[resultId].typ):
-    returnStmt = ropecg(p.module, "\treturn $1;$n",
-                        [rdLoc(p.locals[resultId])])
-
-  var generatedProc: Rope
-  generatedProc.genCLineDir prc.info, p.config
-  if isNoReturn(p.module, prc):
-    if hasDeclspec in extccomp.CC[p.config.cCompiler].props:
-      header = "__declspec(noreturn) " & header
-  if sfPure in prc.flags:
-    if hasDeclspec in extccomp.CC[p.config.cCompiler].props:
-      header = "__declspec(naked) " & header
-    generatedProc.add ropecg(p.module, "$1 {$n$2$3$4}$N$N",
-                         [header, p.s(cpsLocals), p.s(cpsInit), p.s(cpsStmts)])
-  else:
-    generatedProc.add ropecg(p.module, "$1 {$n", [header])
-    if optStackTrace in prc.options:
-      generatedProc.add(p.s(cpsLocals))
-      var procname = makeCString(prc.name.s)
-      generatedProc.add(initFrame(p, procname, quotedFilename(p.config, prc.info)))
+  # emit the type definitions:
+  for name in desc.tdefs.items:
+    r.newLineRaw()
+    var pos = m.types[name]
+    case m.tast[pos].kind
+    of cnkStructTy, cnkUnionTy:
+      structToC(m, pos, m.get(name), r)
+      r.add ";"
+    of cnkArrayTy:
+      r.add "typedef "
+      genDecl(m, pos, name, {}, 0, r)
+      r.add ";"
     else:
-      generatedProc.add(p.s(cpsLocals))
-    # this pair of {} was added because C++ is stricter with its control flow
-    # integrity checks, leaving them in
-    if beforeRetNeeded in p.flags: generatedProc.add("{")
-    generatedProc.add(p.s(cpsInit))
-    generatedProc.add(p.s(cpsStmts))
-    if beforeRetNeeded in p.flags: generatedProc.add(~"\t}BeforeRet_: ;$n")
+      unreachable(m.tast[pos].kind)
 
-    if sfTopLevel in prc.flags:
-      generatedProc.add ropecg(p.module, "\t#nimTestErrorFlag();$n", [])
+  # emit declarations for functions:
+  for (inlined, name) in desc.fdecls.items:
+    r.newLineRaw()
+    let pos = m.procs[name]
+    if inlined:
+      r.add "static N_CINLINE "
+    elif m.ast[pos].kind == cnkProcDef:
+      r.add "N_LIB_PRIVATE "
+    genProcDecl(m, m.ast[pos, 1].val.StringId, name, r)
+    r.add ";"
 
-    if optStackTrace in prc.options: generatedProc.add(deinitFrame(p))
-    generatedProc.add(returnStmt)
-    generatedProc.add(~"}$N")
+  # emit declarations for globals:
+  for name in desc.gdecls.items:
+    r.newLineRaw()
+    var pos = m.ast.child(m.globals[name], 0)
+    r.add "extern "
+    globalToC(m, pos, r)
+    r.add ";"
 
-  result = generatedProc
+  # populate the datum suffix table. The idea with the table is to have names
+  # that are stable across compilations as long as the module's content
+  # doesn't change
+  for name in desc.data.items:
+    r.anon[name] = uint32(r.anon.len)
 
-proc genProc*(m: BModule, id: ProcedureId, procBody: sink Body): Rope =
-  ## Generates the code for the procedure `id`, where `procBody` is the code
-  ## of the body with all applicable lowerings and transformation applied.
-  m.config.timeTracer.traceSym(tikCodegen, m.g.env[id])
-  let p = startProc(m, id, procBody)
-  genStmts(p, p.body.code)
-  result = finishProc(p, id)
+  # emit forward declarations for inline constants:
+  for name in desc.dataFwd.items:
+    r.newLineRaw()
+    r.add "static "
+    typeRefToC(m, m.ast[m.data[name], 0].val.StringId, r)
+    r.add " NIM_CONST _const_"
+    r.addInt r.anon[name]
+    r.add ";"
 
-proc genPartial*(p: BProc, n: CgNode) =
-  ## Generates the C code for `n` and appends the result to `p`. This
-  ## is intended for CG IR that wasn't already available when calling
-  ## `startProc`.
-  synchronize(p.locals, p.body.locals)
-  genStmts(p, n)
+  # emit definitions for inline constants:
+  for name in desc.data.items:
+    r.newLineRaw()
+    let it = m.data[name]
+    r.add "static "
+    typeRefToC(m, m.ast[it, 0].val.StringId, r)
+    r.add " NIM_CONST _const_"
+    r.addInt r.anon[name]
+    r.add " = "
+    var pos = it
+    constrToC(m, pos, r)
+    r.add ";"
 
-proc genProcPrototype(m: BModule, id: ProcedureId) =
-  let sym = m.g.env[id]
-  useHeader(m, sym)
-  if exfNoDecl in sym.extFlags: return
-  if exfDynamicLib in sym.extFlags:
-    if sym.itemId.module != m.module.position and
-        not containsOrIncl(m.declaredThings, sym.id):
-      m.s[cfsVars].add(ropecg(m, "$1 $2 $3;$n",
-                        ["extern",
-                        getTypeDesc(m, sym.typ), m.procs[id].name]))
+  emits(m, desc.emit.globals)
 
-  elif not containsOrIncl(m.declaredProtos, sym.id):
-    if m.procs[id].params.len == 0:
-      m.procs[id].params = prepareParameters(m, sym)
-    var header = genProcHeader(m, sym, m.procs[id].params)
-    block:
-      if isNoReturn(m, sym) and hasDeclspec in extccomp.CC[m.config.cCompiler].props:
-        header = "__declspec(noreturn) " & header
-      if sfPure in sym.flags and hasAttribute in CC[m.config.cCompiler].props:
-        header.add(" __attribute__((naked))")
-      if isNoReturn(m, sym) and hasAttribute in CC[m.config.cCompiler].props:
-        header.add(" __attribute__((noreturn))")
-    m.s[cfsProcHeaders].add(ropecg(m, "$1;$N", [header]))
+  # emit definitions for globals:
+  for name in desc.gdefs.items:
+    r.newLineRaw()
+    var pos = m.globals[name]
+    let n = advance(m.ast, pos)
+    if n.kind == cnkGlobalDef:
+      r.add "N_LIB_PRIVATE "
+    else: # cnkGlobalExp
+      r.add "N_LIB_EXPORT_VAR "
+    globalToC(m, pos, r)
+    if len(n) == 6: # has an initializer?
+      r.add " = "
+      constrToC(m, pos, r)
+    r.add ";"
 
-proc useProc(m: BModule, id: ProcedureId) =
-  let prc = m.g.env[id]
-  if exfImportCompilerProc in prc.extFlags:
-    fillProcLoc(m, id)
-    useHeader(m, prc)
-    # dependency to a compilerproc:
-    discard cgsym(m, prc.name.s)
-  elif exfDynamicLib in prc.extFlags:
-    # a special name is used for run-time imported procedures:
-    fillDynlibProcLoc(m, id)
-    genProcPrototype(m, id)
-  elif exfNoDecl in prc.extFlags or sfImportc in prc.flags:
-    fillProcLoc(m, id)
-    genProcPrototype(m, id)
-  else:
-    # mangle based on the attached-to module
-    fillProcLoc(findPendingModule(m, prc), id)
-    genProcPrototype(m, id)
+  emits(m, desc.emit.procs)
 
-proc genVarPrototype(m: BModule, id: GlobalId) =
-  let sym = m.g.env[id]
-  useHeader(m, sym)
-  if (exfNoDecl in sym.extFlags) or contains(m.declaredThings, sym.id):
-    return
-  if sym.owner.id != m.module.id:
-    # else we already have the symbol generated!
-    if sfThread in sym.flags:
-      declareThreadVar(m, id, true)
+  # emit definitions for functions:
+  for (inlined, name) in desc.fdefs.items:
+    r.newLine(m, 0) # no line information
+    var pos = m.procs[name]
+    if inlined:
+      r.add "static " # only visible within the current C module
+    elif m.ast[pos].kind == cnkProcDef:
+      # the symbol doesn't need to be visible outside the dynlib (if any)
+      r.add "N_LIB_PRIVATE "
     else:
-      incl(m.declaredThings, sym.id)
-      if sym.kind in {skLet, skVar, skField, skForVar} and sym.alignment > 0:
-        m.s[cfsVars].addf "NIM_ALIGN($1) ", [rope(sym.alignment)]
-      m.s[cfsVars].add("extern ")
-      m.s[cfsVars].add(getTypeDesc(m, sym.typ))
-      if exfDynamicLib in sym.extFlags: m.s[cfsVars].add("*")
-      if sfRegister in sym.flags: m.s[cfsVars].add(" register")
-      if sfVolatile in sym.flags: m.s[cfsVars].add(" volatile")
-      if sfNoalias in sym.flags: m.s[cfsVars].add(" NIM_NOALIAS")
-      m.s[cfsVars].addf(" $1;$n", [m.globals[id].r])
+      r.add "N_LIB_EXPORT "
 
-proc addNimDefines(result: var Rope; conf: ConfigRef) {.inline.} =
-  result.addf("#define NIM_INTBITS $1\L", [
-    platform.CPU[conf.target.targetCPU].intSize.rope])
-  if conf.isDefined("nimEmulateOverflowChecks"):
-    result.add("#define NIM_EmulateOverflowChecks\L")
+    pos = m.ast.child(pos, 0)
+    let attribs = m.readSet(m.ast, pos, CgProcAttrib)
+    if NoInline in attribs:
+      r.add "N_CNOINLINE "
+    elif Inline in attribs:
+      r.add "N_CINLINE "
 
-proc headerTop(): Rope =
-  result = "/* Generated by Nim Compiler v$1 */$N" % [rope(VersionAsString)]
+    let typ = advance(m.ast, pos).val.StringId
+    skip(m.ast, pos) # skip the name
+    genProcDecl(m, typ, name, pos, r)
+    skip(m.ast, pos) # skip the params
+    r.startBlock()
+    stmtToC(m, pos, r)
+    r.closeBlock()
 
-proc getCopyright(conf: ConfigRef; cfile: Cfile): Rope =
-  result = headerTop()
-  if optCompileOnly notin conf.globalOptions:
-    result.add ("/* Compiled for: $1, $2, $3 */$N" &
-        "/* Command for C compiler:$n   $4 */$N") %
-        [rope(platform.OS[conf.target.targetOS].name),
-        rope(platform.CPU[conf.target.targetCPU].name),
-        rope(extccomp.CC[conf.cCompiler].name),
-        rope(getCompileCFileCmd(conf, cfile))]
-
-proc getFileHeader(conf: ConfigRef; cfile: Cfile): Rope =
-  result = getCopyright(conf, cfile)
-  addNimDefines(result, conf)
-
-proc getSomeNameForModule(m: PSym): Rope =
-  assert m.kind == skModule
-  assert m.owner.kind == skPackage
-  if {sfSystemModule, sfMainModule} * m.flags == {}:
-    result = m.owner.name.s.mangle.rope
-    result.add "_"
-  result.add m.name.s.mangle
-
-proc getSomeInitName(m: BModule, suffix: string): Rope =
-  result = getSomeNameForModule(m.module)
-  result.add suffix
-
-proc getInitName*(m: BModule): Rope =
-  if sfMainModule in m.module.flags:
-    # generate constant name for main module, for "easy" debugging.
-    result = rope"NimMainModule"
-  else:
-    result = getSomeInitName(m, "Init000")
-
-proc getDatInitName*(m: BModule): Rope = getSomeInitName(m, "DatInit000")
-
-proc genMainProc*(m: BModule, body: Rope) =
-  ## this function is called in cgenWriteModules after all modules are closed,
-  ## it means raising dependency on the symbols is too late as it will not propagate
-  ## into other modules, only simple rope manipulations are allowed
-
-  const
-    # not a big deal if we always compile these 3 global vars... makes the HCR code easier
-    PosixCmdLine =
-      "N_LIB_PRIVATE int cmdCount;$N" &
-      "N_LIB_PRIVATE char** cmdLine;$N" &
-      "N_LIB_PRIVATE char** gEnv;$N"
-
-    PreMainBody = "$N" &
-      PosixCmdLine
-
-    MainProcs =
-      "\tNimMain();$N"
-
-    MainProcsWithResult =
-      MainProcs & ("\treturn $1nim_program_result;$N")
-
-    NimMainProc =
-      "N_CDECL(void, NimMain)(void) {$N" &
-        "$1$N" &
-      "}$N$N"
-
-    NimMainBody = NimMainProc
-
-    PosixCMain =
-      "int main(int argc, char** args, char** env) {$N" &
-        "\tcmdLine = args;$N" &
-        "\tcmdCount = argc;$N" &
-        "\tgEnv = env;$N" &
-        MainProcsWithResult &
-      "}$N$N"
-
-    StandaloneCMain =
-      "int main(void) {$N" &
-        MainProcs &
-        "\treturn 0;$N" &
-      "}$N$N"
-
-    WinNimMain = NimMainBody
-
-    WinCMain = "N_STDCALL(int, WinMain)(HINSTANCE hCurInstance, $N" &
-      "                        HINSTANCE hPrevInstance, $N" &
-      "                        LPSTR lpCmdLine, int nCmdShow) {$N" &
-      MainProcsWithResult & "}$N$N"
-
-    WinNimDllMain = "N_LIB_EXPORT " & NimMainProc
-
-    WinCDllMain =
-      "BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fwdreason, $N" &
-      "                    LPVOID lpvReserved) {$N" &
-      "\tif(fwdreason == DLL_PROCESS_ATTACH) {$N" & MainProcs & "}$N" &
-      "\treturn 1;$N}$N$N"
-
-    PosixNimDllMain = WinNimDllMain
-
-    PosixCDllMain =
-      "N_LIB_PRIVATE void NIM_POSIX_INIT NimMainInit(void) {$N" &
-        MainProcs &
-      "}$N$N"
-
-  if m.config.target.targetOS == osWindows and
-      m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
-    m.includeHeader("<windows.h>")
-
-  appcg(m, m.s[cfsProcs], PreMainBody, [])
-
-  if m.config.target.targetOS == osWindows and
-      m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
-    if optGenGuiApp in m.config.globalOptions:
-      const nimMain = WinNimMain
-      appcg(m, m.s[cfsProcs], nimMain,
-        [body])
-    else:
-      const nimMain = WinNimDllMain
-      appcg(m, m.s[cfsProcs], nimMain,
-        [body])
-  elif optGenDynLib in m.config.globalOptions:
-    const nimMain = PosixNimDllMain
-    appcg(m, m.s[cfsProcs], nimMain,
-        [body])
-  elif m.config.target.targetOS == osStandalone:
-    const nimMain = NimMainBody
-    appcg(m, m.s[cfsProcs], nimMain,
-        [body])
-  else:
-    const nimMain = NimMainBody
-    appcg(m, m.s[cfsProcs], nimMain,
-        [body])
-
-  if optNoMain notin m.config.globalOptions:
-    if m.config.target.targetOS == osWindows and
-        m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
-      if optGenGuiApp in m.config.globalOptions:
-        const otherMain = WinCMain
-        appcg(m, m.s[cfsProcs], otherMain, [""])
-      else:
-        const otherMain = WinCDllMain
-        appcg(m, m.s[cfsProcs], otherMain, [])
-    elif optGenDynLib in m.config.globalOptions:
-      const otherMain = PosixCDllMain
-      appcg(m, m.s[cfsProcs], otherMain, [])
-    elif m.config.target.targetOS == osStandalone:
-      const otherMain = StandaloneCMain
-      appcg(m, m.s[cfsProcs], otherMain, [])
-    else:
-      const otherMain = PosixCMain
-      appcg(m, m.s[cfsProcs], otherMain, [""])
-
-proc genDatInitCode*(m: BModule): bool =
-  ## this function is called after all modules are closed,
-  ## it means raising dependency on the symbols is too late as it will not propagate
-  ## into other modules, only simple rope manipulations are allowed
-
-  var moduleDatInitRequired = false
-
-  var prc = "$1 N_NIMCALL(void, $2)(void) {$N" %
-    [rope("N_LIB_PRIVATE"), getDatInitName(m)]
-
-  # we don't want to break into such init code - could happen if a line
-  # directive from a function written by the user spills after itself
-  genCLineDir(prc, "generated_not_to_break_here", 999999, m.config)
-
-  if m.typeNodes > 0:
-    # emit a definition for the node storage, if used
-    appcg(m, m.s[cfsTypeInit1], "static #TNimNode $1[$2];$n",
-          [m.typeNodesName, m.typeNodes])
-
-  for i in cfsTypeInit1..cfsDebugInit:
-    if m.s[i].len != 0:
-      moduleDatInitRequired = true
-      prc.add(m.s[i])
-
-  prc.addf("}$N$N", [])
-
-  if moduleDatInitRequired:
-    m.s[cfsDatInitProc].add(prc)
-    #rememberFlag(m.g.graph, m.module, HasDatInitProc)
-
-  result = moduleDatInitRequired
-
-proc genModule(m: BModule, cfile: Cfile): Rope =
-  var moduleIsEmpty = true
-
-  result = getFileHeader(m.config, cfile)
-
-  generateThreadLocalStorage(m)
-  generateHeaders(m)
-  result.add(m.s[cfsHeaders])
-  if m.s[cfsFrameDefines].len > 0:
-    result.add(m.s[cfsFrameDefines])
-  else:
-    result.add("#define nimfr_(x, y)\n#define nimln_(x, y)\n")
-
-  for i in cfsForwardTypes..cfsProcs:
-    if m.s[i].len > 0:
-      moduleIsEmpty = false
-      result.add(m.s[i])
-
-  if m.s[cfsInitProc].len > 0:
-    moduleIsEmpty = false
-    result.add(m.s[cfsInitProc])
-  if m.s[cfsDatInitProc].len > 0:
-    moduleIsEmpty = false
-    result.add(m.s[cfsDatInitProc])
-
-  if moduleIsEmpty:
-    result = ""
-
-proc rawNewModule*(g: BModuleList; module: PSym, filename: AbsoluteFile): BModule =
-  new(result)
-  result.g = g
-  result.tmpBase = rope("TM" & $hashOwner(module) & "_")
-  result.headerFiles = @[]
-  result.declaredThings = initIntSet()
-  result.declaredProtos = initIntSet()
-  result.cfilename = filename
-  result.filename = filename
-  result.typeCache = initTable[TypeId, Rope]()
-  result.forwTypeCache = initTable[TypeId, Rope]()
-  result.module = module
-  result.typeInfoMarker = initTable[SigHash, Rope]()
-  result.sigConflicts = initCountTable[SigHash]()
-  result.typeNodesName = getTempName(result)
-  # no line tracing for the init sections of the system module so that we
-  # don't generate a TFrame which can confuse the stack bottom initialization:
-  if sfSystemModule in module.flags:
-    incl result.flags, preventStackTrace
-  let ndiName = if optCDebug in g.config.globalOptions: changeFileExt(completeCfilePath(g.config, filename), "ndi")
-                else: AbsoluteFile""
-  open(result.ndi, ndiName, g.config)
-
-proc rawNewModule(g: BModuleList; module: PSym; conf: ConfigRef): BModule =
-  result = rawNewModule(g, module, AbsoluteFile toFullPath(conf, module.position.FileIndex))
-
-proc newModule*(g: BModuleList; module: PSym; conf: ConfigRef): BModule =
-  # we should create only one cgen module for each module sym
-  result = rawNewModule(g, module, conf)
-  if module.position >= g.modules.len:
-    setLen(g.modules, module.position + 1)
-  #growCache g.modules, module.position
-  g.modules[module.position] = result
-
-proc writeHeader(m: BModule) =
-  var result = headerTop()
-  var guard = "__$1__" % [m.filename.splitFile.name.rope]
-  result.addf("#ifndef $1$n#define $1$n", [guard])
-  addNimDefines(result, m.config)
-  generateHeaders(m)
-
-  generateThreadLocalStorage(m)
-  for i in cfsHeaders..cfsProcs:
-    result.add(m.s[i])
-  result.add(m.s[cfsInitProc])
-
-  if optGenDynLib in m.config.globalOptions:
-    result.add("N_LIB_IMPORT ")
-  result.addf("N_CDECL(void, NimMain)(void);$n", [])
-  result.addf("#endif /* $1 */$n", [guard])
-  if not writeRope(result, m.filename):
-    localReport(m.config, reportStr(rsemCannotOpenFile, m.filename.string))
-
-proc getCFile(m: BModule): AbsoluteFile =
-  result = changeFileExt(completeCfilePath(m.config, withPackageName(m.config, m.cfilename)), ".nim.c")
-
-proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
-  if optForceFullMake notin m.config.globalOptions:
-    if not moduleHasChanged(m.g.graph, m.module):
-      result = false
-    elif not equalsFile(code, cfile.cname):
-      when false:
-        #m.config.symbolFiles == readOnlySf: #isDefined(m.config, "nimdiff"):
-        if fileExists(cfile.cname):
-          copyFile(cfile.cname.string, cfile.cname.string & ".backup")
-          echo "diff ", cfile.cname.string, ".backup ", cfile.cname.string
-        else:
-          echo "new file ", cfile.cname.string
-      if not writeRope(code, cfile.cname):
-        localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
-
-      result = true
-    elif fileExists(cfile.obj) and os.fileNewer(cfile.obj.string, cfile.cname.string):
-      result = false
-    else:
-      result = true
-  else:
-    if not writeRope(code, cfile.cname):
-      localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
-
-    result = true
-
-proc finalizeModule*(m: BModule) =
-  discard
-
-proc finalizeMainModule*(m: BModule) =
-  generateThreadVarsSize(m) # TODO: not the job of the code generator
-
-proc writeModule(m: BModule) =
-  template onExit() = close(m.ndi, m.config)
-  let cfile = getCFile(m)
-  var cf = Cfile(nimname: m.module.name.s, cname: cfile,
-                  obj: completeCfilePath(m.config, toObjFile(m.config, cfile)), flags: {})
-  var code = genModule(m, cf)
-  if code != "" or m.config.symbolFiles != disabledSf:
-    when hasTinyCBackend:
-      if m.config.cmd == cmdTcc:
-        tccgen.compileCCode($code, m.config)
-        onExit()
-        return
-
-    if not shouldRecompile(m, code, cf):
-      cf.flags = {CfileFlag.Cached}
-
-    addFileToCompile(m.config, cf)
-  onExit()
-
-proc cgenWriteModules*(backend: RootRef, config: ConfigRef) =
-  config.timeTracer.traceStr("cgenWriteModules")
-
-  let g = BModuleList(backend)
-  g.config = config
-
-  # note: we don't need to call ``writeModule`` in module closed order
-  # anymore, as the procedure now does what its name implies: writing the
-  # module to disk. However, it also queues the C file for compilation,
-  # so we still keep the behaviour for now
-  for m in cgenModules(g):
-    m.writeModule()
-  writeMapping(config, g.mapping)
-  if g.generatedHeader != nil: writeHeader(g.generatedHeader)
+  result = r.output

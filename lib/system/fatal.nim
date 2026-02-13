@@ -46,7 +46,7 @@ elif defined(nimPanics) and not defined(nimscript) and not defined(vm):
     sysFatal(exceptn, message, "")
 
 else:
-  proc sysFatal(exceptn: typedesc, message: string) {.inline, noreturn.} =
+  proc sysFatal(exceptn: typedesc, message: sink string) {.inline, noreturn.} =
     raise (ref exceptn)(msg: message)
 
   proc sysFatal(exceptn: typedesc, message, arg: string) {.inline, noreturn.} =

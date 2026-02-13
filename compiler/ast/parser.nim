@@ -134,7 +134,7 @@ proc getTok(p: var Parser) =
   p.lex.rawGetTok(p.tok)
 
   if p.tok.tokType == tkError:
-    p.lex.config.handleLexerDiag(p.tok.error, instLoc(-1), doAbort)
+    p.lex.config.handleLexerDiag(p.tok.error, instLoc(-1), isFatal=true)
 
   for d in p.lex.errorsHintsAndWarnings(lexDiagOffset):
     p.lex.config.handleLexerDiag(d, instLoc(-1))

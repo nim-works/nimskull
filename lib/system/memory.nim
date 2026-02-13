@@ -16,7 +16,9 @@ proc nimCopyMem*(dest, source: pointer, size: Natural) {.compilerproc, inline.} 
       d[i] = s[i]
       inc i
 
-proc nimSetMem*(a: pointer, v: cint, size: Natural) {.inline.} =
+proc nimSetMem*(a: pointer, v: cint, size: Natural) {.compilerproc, inline.} =
+  # XXX: currently not a compilerproc itself, but its marked as such in order
+  #      to eliminate unnecessary error handling
   when useLibC:
     c_memset(a, v, cast[csize_t](size))
   else:

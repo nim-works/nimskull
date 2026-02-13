@@ -84,7 +84,7 @@ template checkIsolate(scratchAssignList: seq[NimNode], procParam, scratchDotExpr
   #   scratch.a = extract(isolateA)
   #   var isoTempB = isolate(literal)
   #   scratch.b = extract(isolateB)
-  let isolatedTemp = genSym(nskTemp, "isoTemp")
+  let isolatedTemp = genSym("isoTemp")
   scratchAssignList.add newVarStmt(isolatedTemp, newCall(newidentNode("isolate"), procParam))
   scratchAssignList.add newAssignment(scratchDotExpr,
       newcall(newIdentNode("extract"), isolatedTemp))
@@ -94,7 +94,7 @@ template addAllNode(assignParam: NimNode, procParam: NimNode) =
 
   checkIsolate(scratchAssignList, procParam, scratchDotExpr)
 
-  let tempNode = genSym(kind = nskTemp, ident = formalParams[i][0].strVal)
+  let tempNode = genSym(formalParams[i][0].strVal)
   callNode.add nnkExprEqExpr.newTree(formalParams[i][0], tempNode)
   tempAssignList.add newLetStmt(tempNode, newDotExpr(objTemp, formalParams[i][0]))
   scratchRecList.add newIdentDefs(newIdentNode(formalParams[i][0].strVal), assignParam)
@@ -117,7 +117,7 @@ macro toTask*(e: typed{nkCall | nkInfix | nkPrefix | nkPostfix | nkCommand | nkC
     error("closure call is not allowed")
 
   if e.len > 1:
-    let scratchIdent = genSym(kind = nskTemp, ident = "scratch")
+    let scratchIdent = genSym("scratch")
     let impl = e[0].getTypeInst
 
     when defined(nimTasksDebug):
@@ -132,7 +132,7 @@ macro toTask*(e: typed{nkCall | nkInfix | nkPrefix | nkPostfix | nkCommand | nkC
       callNode: seq[NimNode]
 
     let
-      objTemp = genSym(nskTemp, ident = "objTemp")
+      objTemp = genSym("objTemp")
 
     for i in 1 ..< formalParams.len:
       var param = formalParams[i][1]
@@ -169,7 +169,7 @@ macro toTask*(e: typed{nkCall | nkInfix | nkPrefix | nkPostfix | nkCommand | nkC
       else:
         error("not supported type kinds")
 
-    let scratchObjType = genSym(kind = nskType, ident = "ScratchObj")
+    let scratchObjType = genSym("ScratchObj")
     let scratchObj = nnkTypeSection.newTree(
                       nnkTypeDef.newTree(
                         scratchObjType,
@@ -207,9 +207,9 @@ macro toTask*(e: typed{nkCall | nkInfix | nkPrefix | nkPostfix | nkCommand | nkC
     functionStmtList.add tempAssignList
     functionStmtList.add funcCall
 
-    let funcName = genSym(nskProc, e[0].strVal)
-    let destroyName = genSym(nskProc, "destroyScratch")
-    let objTemp2 = genSym(ident = "obj")
+    let funcName = genSym(e[0].strVal)
+    let destroyName = genSym("destroyScratch")
+    let objTemp2 = genSym("obj")
     let tempNode = quote("@") do:
         `=destroy`(@objTemp2[])
 
@@ -227,7 +227,7 @@ macro toTask*(e: typed{nkCall | nkInfix | nkPrefix | nkPostfix | nkCommand | nkC
       Task(callback: `funcName`, args: `scratchIdent`, destroy: `destroyName`)
   else:
     let funcCall = newCall(e[0])
-    let funcName = genSym(nskProc, e[0].strVal)
+    let funcName = genSym(e[0].strVal)
 
     result = quote do:
       proc `funcName`(args: pointer) {.gcsafe, nimcall.} =

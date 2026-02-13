@@ -4,6 +4,7 @@ import
   std/[
     deques,
     dynlib, # for computing possible candidate names
+    strutils,
     strtabs,
     tables
   ],
@@ -66,6 +67,14 @@ type
       ## if ``true``, indicates that a procedure with a body should not be
       ## treated as imported, even if it's marked as such
 
+  EmitSection* = enum
+    ## The code-generator-specific section where top-level emit/asm statements
+    ## should be placed.
+    secIncludes
+    secTypes
+    secVars
+    secProcedures
+
   DiscoveryData* = object
     ## Bundles all data needed during the disovery of alive, backend-relevant
     ## entities.
@@ -74,11 +83,6 @@ type
       ## translated, scanned, etc.)
     libs*: seq[LibId]
       ## all dynamic libraries that the alive graph depends on
-
-    overrides: Table[ProcedureId, FileIndex]
-      ## maps a procedure to the module it needs to be queued with.
-      ## If not overriden, a procedure is queued with the module it's
-      ## discovered from.
 
   BackendEventKind* = enum
     bekDiscovered## a new entity was discovered during MIR processing. This
@@ -93,13 +97,12 @@ type
                  ## became available
     bekProcedure ## a complete procedure was processed and transformed
     bekImported  ## an alive runtime-imported procedure finished processing
+    bekEmit      ## a top-level emit or asm statement was discovered
 
   BackendEvent* = object
     ## Progress event returned by the ``process`` iterator.
     module*: FileIndex
-      ## the module in whose context the processing happens. For actions
-      ## related to .inline procedures, this is not necessarily the module
-      ## the symbol is attached to
+      ## the module in whose context the processing happens
 
     case kind*: BackendEventKind
     of bekDiscovered:
@@ -117,6 +120,10 @@ type
         ## the symbol of the procedure the event is about
         ## XXX: only here for convenience, remove it once feasible
       body*: MirBody
+    of bekEmit:
+      stmt*: MirBody
+        ## a single emit or asm statement
+      section*: EmitSection
 
   WorkItemKind = enum
     wikPreprocess
@@ -152,6 +159,8 @@ type
         ## the unprocessed identdefs of globals lifted from a procedure's
         ## body. Due to how ``transf`` handles inlining, this list can
         ## contain duplicates
+      module: FileIndex
+        ## the module the globals are attached to
     of wikImported:
       imported: ProcedureId
     of wikReport:
@@ -160,26 +169,33 @@ type
       frag: MirBody
 
   WorkQueue = object
-    items: Deque[tuple[item: WorkItem, fr: FileIndex]]
-      ## the queued steps to run. Each item is associated with a module:
-      ## it indicate used for events reported to the caller
+    items: Deque[WorkItem]
+      ## the queued steps to run
     config: BackendConfig
-
-func prepend(queue: var WorkQueue, m: FileIndex,
-             item: sink WorkItem) {.inline.} =
-  ## Adds `item` to the beginning of the queue.
-  queue.items.addFirst (item, m)
-
-func append(queue: var WorkQueue, m: FileIndex,
-            item: sink WorkItem) {.inline.} =
-  ## Adds `item` to the end of the queue.
-  queue.items.addLast (item, m)
 
 func moduleId*(o: PIdObj): int32 {.inline.} =
   ## Returns the ID of the module `o` is *attached* to. Do note that in the
   ## case of generic instantiations, this is not the necessarily the same
   ## module as the one indicated via the owner.
   o.itemId.module
+
+func determineSection(n: PNode): EmitSection =
+  ## Determines the section a top-level emit/asm statement belongs to.
+  if n.kind == nkPragma:
+    let it = n[0][1]
+    if it.len >= 1 and it[0].kind in nkStrKinds:
+      if it[0].strVal.startsWith("/*TYPESECTION*/"):
+        secTypes
+      elif it[0].strVal.startsWith("/*VARSECTION*/"):
+        secVars
+      elif it[0].strVal.startsWith("/*INCLUDESECTION*/"):
+        secIncludes
+      else:
+        secProcedures
+    else:
+      secProcedures
+  else:
+    secProcedures
 
 # ---- main procedure generation -----
 
@@ -279,6 +295,59 @@ proc generateMainProcedure*(graph: ModuleGraph, idgen: IdGenerator,
   result.ast.sons.setLen(resultPos + 1)
   result.ast[resultPos] = newSymNode(resSym)
 
+proc generateNimMain*(graph: ModuleGraph, idgen: IdGenerator,
+                      modules: ModuleList): PSym =
+  ## Generates the 'NimMain' procedure, which runs the whole program
+  ## (`modules`).
+  let owner = mainModule(modules).sym
+
+  # setup the symbol:
+  result = newSym(skProc, getIdent(graph.cache, "NimMain"), nextSymId idgen,
+                  owner, unknownLineInfo, {})
+  result.flags.incl sfNeverRaises
+  result.flags.incl sfExportc
+  result.extname = "NimMain"
+  result.typ = newProcType(unknownLineInfo, nextTypeId idgen, owner)
+  result.typ.callConv = ccCDecl
+
+  var body = newNode(nkStmtList)
+  generateMain(graph, modules, body)
+  generateTeardown(graph, modules, body)
+
+  result.ast = newProcNode(nkProcDef, owner.info, body,
+    params        = newTree(nkFormalParams, [graph.emptyNode]),
+    name          = newSymNode(result),
+    pattern       = graph.emptyNode,
+    genericParams = graph.emptyNode,
+    pragmas       = graph.emptyNode,
+    exceptions    = graph.emptyNode)
+
+proc generateThreadTeardownProc*(graph: ModuleGraph, idgen: IdGenerator,
+                                 modules: ModuleList): PSym =
+  ## Generates the 'nimTeardownThreadVars' procedure, which runs the
+  ## destructors for all live threadvars part of the program.
+  let owner = mainModule(modules).sym
+
+  # setup the symbol:
+  result = newSym(skProc, getIdent(graph.cache, "nimTeardownThreadVars"),
+                  nextSymId idgen, owner, unknownLineInfo, {})
+  result.flags.incl sfExportc
+  result.flags.incl sfNeverRaises
+  result.extname = "nimTeardownThreadVars"
+  result.typ = newProcType(unknownLineInfo, nextTypeId idgen, owner)
+  result.typ.callConv = ccNoConvention
+
+  var body = newNode(nkStmtList)
+  generateThreadTeardown(graph, modules, body)
+
+  result.ast = newProcNode(nkProcDef, owner.info, body,
+    params        = newTree(nkFormalParams, [graph.emptyNode]),
+    name          = newSymNode(result),
+    pattern       = graph.emptyNode,
+    genericParams = graph.emptyNode,
+    pragmas       = graph.emptyNode,
+    exceptions    = graph.emptyNode)
+
 # ----- general queries about MIR fragments and trees -----
 
 func isEmpty*(tree: MirTree): bool =
@@ -316,15 +385,13 @@ iterator deps*(tree: MirTree): lent MirNode =
 # ----- procedure lowering and transformation -----
 
 proc preprocess*(queue: var WorkQueue, graph: ModuleGraph, idgen: IdGenerator,
-                 env: MirEnv, id: ProcedureId, module: FileIndex) =
+                 env: MirEnv, id: ProcedureId) =
   ## Runs the ``transf`` pass on the body of `prc` and queues the steps
-  ## needed for fully processing the procedure. `module` is the module the
-  ## step was queued from: it's used as the module the next processing is
-  ## queued from.
+  ## needed for fully processing the procedure.
   let prc = env[id]
   if exfDynamicLib in prc.extFlags:
     # a procedure imported at runtime, it has no body
-    queue.prepend(module, WorkItem(kind: wikImported, imported: id))
+    queue.items.addFirst (WorkItem(kind: wikImported, imported: id))
     return
 
   var body = transformBodyWithCache(graph, idgen, prc)
@@ -336,14 +403,14 @@ proc preprocess*(queue: var WorkQueue, graph: ModuleGraph, idgen: IdGenerator,
   extractGlobals(body, globals,
                  isNimVm = goIsNimvm in queue.config.tconfig.options)
 
-  queue.prepend(module, WorkItem(kind: wikProcess, prc: id, body: body))
+  queue.items.addFirst WorkItem(kind: wikProcess, prc: id, body: body)
 
   if globals.len > 0:
     # processing the lifted globals has to happen *before* processing the
-    # procedure's body. In addition, the step is queued from the module
-    # the procedure is *attached* to, not the one it's queued from
-    queue.prepend(moduleId(prc).FileIndex):
-      WorkItem(kind: wikProcessGlobals, globals: move globals)
+    # procedure's body
+    queue.items.addFirst:
+      WorkItem(kind: wikProcessGlobals, globals: move globals,
+               module: moduleId(prc).FileIndex)
 
 proc process(body: var MirBody, prc: PSym, graph: ModuleGraph,
              idgen: IdGenerator, env: var MirEnv) =
@@ -430,6 +497,7 @@ proc produceFragmentsForGlobals(
     var map = move body.source
     if bu.front.len > 0:
       bu.setSource(map.add(n))
+      bu.subTree mnkReturn: discard
       bu.subTree mnkEndScope: discard
 
     body = createBody(bu, map)
@@ -620,7 +688,7 @@ func discoverFrom*(env: var MirEnv, decl: PNode) =
     else:
       unreachable(n.kind)
 
-func queue(queue: var WorkQueue, id: ProcedureId, prc: PSym, m: FileIndex) =
+func queue(queue: var WorkQueue, id: ProcedureId, prc: PSym) =
   ## If eligible for processing and code generation, adds `prc` to
   ## `queue`'s queue.
   assert prc.kind in routineKinds
@@ -629,7 +697,7 @@ func queue(queue: var WorkQueue, id: ProcedureId, prc: PSym, m: FileIndex) =
      (sfImportc notin prc.flags or
       exfDynamicLib in prc.extFlags or (queue.config.noImported and
                                         prc.ast[bodyPos].kind != nkEmpty)):
-    queue.append(m, WorkItem(kind: wikPreprocess, raw: id))
+    queue.items.addLast WorkItem(kind: wikPreprocess, raw: id)
 
 iterator flush(queue: var WorkQueue, env: var MirEnv,
                data: var DiscoveryData, origin: FileIndex): BackendEvent =
@@ -647,13 +715,13 @@ iterator flush(queue: var WorkQueue, env: var MirEnv,
   for id, it in since(env.procedures, data.progress.procs):
     # report the procedure before queuing it
     yield event(MirNode(kind: mnkProc, prc: id))
-    queue(queue, id, it, origin)
+    queue(queue, id, it)
 
   for id, _ in since(env.constants, data.progress.consts):
     yield event(MirNode(kind: mnkConst, cnst: id))
     # constants are translated and reported *before* the finished procedure
     # they were reported as part of is
-    queue.prepend(origin, WorkItem(kind: wikProcessConst, cnst: id))
+    queue.items.addFirst WorkItem(kind: wikProcessConst, cnst: id)
 
   for id, _ in since(env.globals, data.progress.globals):
     yield event(MirNode(kind: mnkGlobal, global: id))
@@ -674,32 +742,27 @@ proc translateConst(env: var MirEnv, id: ConstId, c: PSym) =
   env.setData(id, env.data.getOrPut(tree))
 
 proc pushProgress(queue: var WorkQueue, env: var MirEnv, graph: ModuleGraph,
-                  idgen: IdGenerator, prc: PSym, frag: sink MirBody,
-                  m: FileIndex) =
+                  idgen: IdGenerator, prc: PSym, frag: sink MirBody) =
   ## Runs `frag` through MIR processing and, if `frag` is not empty, queues
   ## the step for reporting the progress.
   if not isEmpty(frag):
     let id = env.procedures.add(prc)
     process(frag, prc, graph, idgen, env)
-    # get the fragment out as soon as possible (hence ``prepend``):
-    queue.prepend(m, WorkItem(kind: wikReport, evt: bekPartial,
-                              fragId: id, frag: frag))
+    # get the fragment out as soon as possible (hence ``addFirst``):
+    queue.items.addFirst WorkItem(kind: wikReport, evt: bekPartial,
+                                  fragId: id, frag: frag)
 
     # mark the procedure as non-empty:
     if prc.ast[bodyPos].kind == nkEmpty:
       prc.ast[bodyPos] = newNode(nkStmtList)
 
 func postActions(queue: var WorkQueue, discovery: var DiscoveryData,
-                 env: var MirEnv, m: FileIndex) =
+                 env: var MirEnv) =
   ## Queues the procedures registered with `env` by the event handler. These
   ## are generaly referred to as "late dependencies".
   for id, it in since(env.procedures, discovery.progress.procs):
-    let m = discovery.overrides.getOrDefault(id, m)
-    queue(queue, id, env.procedures[id], m)
+    queue(queue, id, env.procedures[id])
 
-  # no need to keep the overrides around, all procedures they applied to are
-  # now queued
-  discovery.overrides.clear()
   discovery.progress = checkpoint(env)
 
 iterator process*(graph: ModuleGraph, modules: var ModuleList,
@@ -771,17 +834,22 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
     for evt in flush(queue, env, discovery, id):
       yield evt
     yield BackendEvent(module: id, kind: bekModule)
-    postActions(queue, discovery, env, id)
+    # translate and report the emit sections:
+    for it in m.emit:
+      yield BackendEvent(kind: bekEmit, module: id,
+                         stmt: topLevelEmitToMir(graph, env, it),
+                         section: determineSection(it))
+    postActions(queue, discovery, env)
 
   template reportBody(prc: ProcedureId, m: FileIndex, evt: BackendEventKind,
                       frag: MirBody) =
     ## Reports a procedure-related event (by yielding it).
     yield BackendEvent(module: m, kind: evt, id: prc, sym: env[prc],
                        body: frag)
-    postActions(queue, discovery, env, m)
+    postActions(queue, discovery, env)
 
   template pushProgress(prc: PSym, frag: MirBody, m: FileIndex) =
-    pushProgress(queue, env, graph, modules[m].idgen, prc, frag, m)
+    pushProgress(queue, env, graph, modules[m].idgen, prc, frag)
 
   # generate the importing logic for all known dynlib globals:
   for _, it in since(env.globals, start):
@@ -801,64 +869,61 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
   # drain the queue until there's nothing left to do. This makes up the main
   # processing
   while queue.items.len > 0:
-    var (item, module) = queue.items.popFirst()
+    var item = queue.items.popFirst()
+    var module: FileIndex
 
     case item.kind
     of wikPreprocess:
       let id = item.raw
       preprocess(queue, graph, modules[moduleId(env[id]).FileIndex].idgen,
-                 env, id, module)
+                 env, id)
       continue # the environment was not modified, skip the scan
     of wikProcess:
+      module = moduleId(env[item.prc]).FileIndex # the attached-to module
       let
-        origin = moduleId(env[item.prc]).FileIndex # the attched-to module
         frag = translate(item.prc, item.body, graph, conf,
-                         modules[origin].idgen, env)
-
-      if env[item.prc].typ.callConv != ccInline:
-        # non-inline procedure are registered as coming from the module
-        # they're attached to
-        module = origin
+                         modules[module].idgen, env)
 
       # save resources: if there are no new entities to report, report the body
       # directly
       if discovery.progress == checkpoint(env):
         reportBody(item.prc, module, bekProcedure, frag)
       else:
-        queue.prepend(module, WorkItem(kind: wikReport, evt: bekProcedure,
-                                       fragId: item.prc, frag: frag))
+        queue.items.addFirst WorkItem(kind: wikReport, evt: bekProcedure,
+                                      fragId: item.prc, frag: frag)
     of wikProcessConst:
-      module = moduleId(env[item.cnst]).FileIndex
       translateConst(env, item.cnst, env[item.cnst])
       # we cannot report (i.e., yield) right away, the discovered dependencies
       # have to be reported first
-      queue.prepend(module, WorkItem(kind: wikReportConst, cnst: item.cnst))
+      queue.items.addFirst WorkItem(kind: wikReportConst, cnst: item.cnst)
     of wikProcessGlobals:
       # produce the init/de-init code for the lifted globals:
       let (init, deinit, threadDeinit) =
         produceFragmentsForGlobals(env, item.globals, graph, conf.tconfig)
+      module = item.module
 
       pushProgress(modules[module].preInit, init, module)
       pushProgress(modules[module].postDestructor, deinit, module)
       pushProgress(modules[module].threadPostDestructor, threadDeinit, module)
     of wikImported:
       let id = item.imported
-      # the procedure is always reported from the module its attached to
       module = moduleId(env[id]).FileIndex
       # first report that an imported procedure became available...
       yield BackendEvent(module: module, kind: bekImported, id: id,
                          sym: env[id])
-      postActions(queue, discovery, env, module)
+      postActions(queue, discovery, env)
 
       # ... then produce the loader code
       let frag = produceLoader(graph, modules[module], discovery, env, conf,
                                modules[module].dynlibInit, env[id])
       pushProgress(modules[module].dynlibInit, frag, module)
     of wikReport:
+      module = moduleId(env[item.fragId]).FileIndex
       reportBody(item.fragId, module, item.evt, item.frag)
     of wikReportConst:
+      module = moduleId(env[item.cnst]).FileIndex
       yield BackendEvent(module: module, kind: bekConstant, cnst: item.cnst)
-      postActions(queue, discovery, env, module)
+      postActions(queue, discovery, env)
 
     # report and queue all discovered dependencies:
     for evt in flush(queue, env, discovery, module):
@@ -870,16 +935,6 @@ iterator process*(graph: ModuleGraph, modules: var ModuleList,
                m.dynlibInit]:
       if not isTrivialProc(graph, it):
         it.flags.excl sfForward
-
-# ----- API for interacting with ``DiscoveryData`` -----
-
-func setModuleOverride*(discovery: var DiscoveryData, id: ProcedureId,
-                        module: FileIndex) =
-  ## Overrides which module the procedure identified by `id` will be reported
-  ## as having been first seen with. This only works with procedures that
-  ## haven't been queued for code generation yet. It's also fundamentally a
-  ## workaround, try to use it as little as possible.
-  discovery.overrides[id] = module
 
 # ----- routines for manual implementation of the backend processing -----
 

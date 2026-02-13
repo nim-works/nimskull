@@ -718,6 +718,8 @@ type
     skStub                ## symbol is a stub and not yet loaded from the ROD
                           ## file (it is loaded on demand, which may
                           ## mean: never)
+    skGenerated           ## symbol is generated and requires specialization in
+                          ## a definition context
     skPackage             ## symbol is a package (used for canonicalization)
 
   TSymKinds* = set[TSymKind]
@@ -730,7 +732,6 @@ const
 
   tfUnion* = tfNoSideEffect
   tfGcSafe* = tfThread
-  tfObjHasKids* = tfEnumHasHoles
   tfReturnsNew* = tfInheritable
   skError* = skUnknown
 
@@ -853,9 +854,6 @@ type
     mStoreParams
       ## storeParams(p, tup): savely stores the tuple in the storage pointed
       ## to by `p`
-    mEnsureNoCleanup
-      ## destructor calls following an ensureNoCleanup call result in a
-      ## compiler error
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -1248,6 +1246,7 @@ type
     adSemCannotMixTypesAndValuesInTuple
     adSemNoReturnTypeDeclared
     adSemReturnNotAllowed
+    adSemGeneratedSymUsed
     # semmagics
     adSemExprHasNoAddress
     adSemExpectedOrdinal
@@ -1399,7 +1398,8 @@ type
         adSemContinueCannotHaveLabel,
         adSemUnavailableLocation,
         adSemForExpectedIterator,
-        adSemExternalLocalNotAllowed:
+        adSemExternalLocalNotAllowed,
+        adSemGeneratedSymUsed:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode

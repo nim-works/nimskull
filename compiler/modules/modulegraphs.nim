@@ -652,6 +652,7 @@ proc getBody*(g: ModuleGraph; s: PSym): PNode {.inline.} =
     assert result != nil and result.kind == nkError,
       "assume we've populated the nkError here"
   else:
+    internalAssert(g.config, s.ast.kind != nkError, s.info)
     result = s.ast[bodyPos]
     if result == nil and g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
       result = loadProcBody(g.config, g.cache, g.packed, s)

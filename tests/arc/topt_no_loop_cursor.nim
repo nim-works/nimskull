@@ -32,8 +32,9 @@ scope:
   goto [L6]
   finally (L5):
     destroy x
-    continue [Resume]
+    continue [Unwind]
   L6:
+return
 
 -- end
 '''

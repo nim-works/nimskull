@@ -41,11 +41,10 @@ from compiler/ast/reports_sem import SemReport
 export InstantiationInfo
 export TErrorHandling
 
-proc handleReport*(
+proc handleReport(
     conf: ConfigRef,
     r: Report,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing) {.noinline.}
+    reportFrom: InstantiationInfo) {.noinline.}
 
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
@@ -274,7 +273,7 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       when defined(windows):
         flushFile(stderr)
 
-proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
+proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe, noreturn.} =
   if conf.isDefined("nimDebug"):
     quitOrRaise(conf)
   elif defined(debug) or withTrace or conf.hasHint(rintStackTrace):
@@ -308,8 +307,6 @@ proc errorActions(
         result = (doAbort, false)
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       result = (doAbort, false)
-    elif eh == doRaise:
-      result = (doRaise, false)
 
 proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
   ## Get list of context context entries from the current message context
@@ -580,6 +577,7 @@ func astDiagToLegacyReportKind*(
   of adSemCannotMixTypesAndValuesInTuple: rsemCannotMixTypesAndValuesInTuple
   of adSemNoReturnTypeDeclared: rsemNoReturnTypeDeclared
   of adSemReturnNotAllowed: rsemReturnNotAllowed
+  of adSemGeneratedSymUsed: rsemUndeclaredSymUsed
   of adSemFieldAssignmentInvalid: rsemFieldAssignmentInvalid
   of adSemFieldNotAccessible: rsemFieldNotAccessible
   of adSemObjectRequiresFieldInit: rsemObjectRequiresFieldInit
@@ -611,25 +609,19 @@ func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   else:
     astDiagToLegacyReportKind(diag.kind)
 
-proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
-  ## Write out report from the nkError node
-  # xxx: legacy report temporarily here until we can rip it out
-  assert node.kind == nkError
-  return conf.report(conf.astDiagToLegacyReport(conf, node.diag))
-
 proc fillReportAndHandleVmTrace(c: ConfigRef, r: var Report,
                                 reportFrom: InstantiationInfo) =
-  if r.category in { repSem, repVM } and r.location.isSome():
+  if r.category in { repSem, repVM } and r.location.isSome() and
+     r.context.len == 0:
     r.context = c.getContext(r.location.get())
 
   if r.category == repVM and r.vmReport.trace != nil:
     handleReport(c, wrap(r.vmReport.trace[]), reportFrom)
 
-proc handleReport*(
+proc handleReport(
     conf: ConfigRef,
     r: Report,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing) {.noinline.} =
+    reportFrom: InstantiationInfo) {.noinline.} =
   ## Takes the report `r` and handles it. If the report is "enabled" according
   ## to the active configuration, it is passed to the active report hook and,
   ## if the report corresponds to an error, error handling is performed.
@@ -643,28 +635,11 @@ proc handleReport*(
     # error handling
     return
 
-  var userAction = doNothing
-  case writabilityKind(conf, rep)
-  of writeDisabled:
-    discard "don't invoke the hook"
-  of writeEnabled:
-    # go through the report hook
-    fillReportAndHandleVmTrace(conf, rep, reportFrom)
-    userAction = conf.report(rep)
-  of writeForceEnabled:
-    # also go through the report hook, but temporarily override ``writeln``
-    # with something that always echoes something
-    fillReportAndHandleVmTrace(conf, rep, reportFrom)
-    let oldHook = conf.writelnHook
-    conf.writelnHook = proc (conf: ConfigRef, msg: string, flags: MsgFlags) =
-      echo msg
-
-    userAction = conf.report(rep)
-    conf.writelnHook = oldHook
-
+  fillReportAndHandleVmTrace(conf, rep, reportFrom)
+  let userAction = conf.report(rep)
   # ``errorActions`` also increments the error counter, so make sure to always
   # call it
-  var (action, trace) = errorActions(conf, rep, eh)
+  var (action, trace) = errorActions(conf, rep, doNothing)
 
   # decide what to do, based on the hook-provided action and the computed
   # action. The more severe handling out of the two wins
@@ -672,74 +647,66 @@ proc handleReport*(
   of doAbort:
     # a hook-requested abort always overrides the computed handling
     (action, trace) = (doAbort, false)
-  of doRaise:
-    case action
-    of doRaise, doAbort:
-      discard "a hook-requested raise doesn't override an abort"
-    of doNothing, doDefault:
-      (action, trace) = (doRaise, false)
   of doNothing, doDefault:
     discard "use the computed strategy"
 
   # now perform the selected action:
   case action
   of doAbort:   quit(conf, trace)
-  of doRaise:   raiseRecoverableError("report")
   of doNothing: discard
   of doDefault: unreachable(
     "Default error handing action must be turned into ignore/raise/abort")
 
-template globalAssert*(
-    conf: ConfigRef;
-    cond: untyped, info: TLineInfo = unknownLineInfo, arg = "") =
-  ## avoids boilerplate
-  if not cond:
-    var arg2 = "'$1' failed" % [astToStr(cond)]
-    if arg.len > 0: arg2.add "; " & astToStr(arg) & ": " & arg
-    handleReport(conf, info, errGenerated, arg2, doRaise, instLoc())
+proc emit*(config: ConfigRef, report: sink Report, at: InstantiationInfo) {.inline.} =
+  ## Emits the diagnostic represented by `report`, with `at` being the compiler
+  ## source location to which the report should point to. This is a fire-and-
+  ## forget operation; the callsite has to assume `emit` returns normally.
+  assert config.diagHandler != nil
+  report.reportFrom = toReportLineInfo(at)
+  config.diagHandler(config, report)
 
-template fatalReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
+proc report(config: ConfigRef, report: sink Report,
+            at: InstantiationInfo) {.inline.} =
+  ## Sends `report` to the report hook and discards the result.
+  report.reportFrom = toReportLineInfo(at)
+  discard config.report(report)
+
+template fatalReport*(conf: ConfigRef, info: TLineInfo, rep: ReportTypes) =
   # this works around legacy reports stupidity
-  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doAbort)
+  conf.report(wrap(rep, instLoc(), info), instLoc())
+  quit(conf, true)
 
 template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  ## `local` means compilation keeps going until errorMax is reached (via
-  ## `doNothing`), `global` means it stops.
-  handleReport(
-    conf, wrap(report, instLoc(), info), instLoc(), doRaise)
+  ## Emits the report and yields control to the closest fatal error handler.
+  ## Control is never passed back to the current continuation.
+  conf.emit(wrap(report, instLoc(), info), instLoc())
+  raise ERecoverableError.newException("")
 
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc()), instLoc(), doRaise)
+  ## Emits the report and yields control to the closest fatal error handler.
+  ## Control is never passed back to the current continuation.
+  conf.emit(wrap(report, instLoc()), instLoc())
+  raise ERecoverableError.newException("")
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
-    handleReport(
-      conf, wrap(report, instLoc(), info), instLoc(), doNothing)
+    conf.emit(wrap(report, instLoc(), info), instLoc())
 
 template localReport*(conf: ConfigRef; node: PNode, report: SemReport) =
   var tmp = report
   if isNil(tmp.ast):
     tmp.ast = node
-  handleReport(
-    conf, wrap(tmp, instLoc(), node.info), instLoc(), doNothing)
+  conf.emit(wrap(tmp, instLoc(), node.info), instLoc())
 
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc()), instLoc(), doNothing)
+  conf.emit(wrap(report, instLoc()), instLoc())
 
 template localReport*(conf: ConfigRef, report: Report) =
-  handleReport(conf, report, instLoc(), doNothing)
-
-# xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
-#      and the whole concept of "reports" indicating error handling action at a
-#      callsite, is *terrible*. While it will result in the compiler exiting,
-#      it is currently implemented very indirectly, through
-#      ``isCompilerFatal``.
+  conf.emit(report, instLoc())
 
 proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
                             instLoc: InstantiationInfo) {.noreturn, inline.} =
@@ -753,8 +720,8 @@ proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
       else:
         wrap(intRep, instLoc, info)
 
-  conf.handleReport(rep, instLoc, doAbort)
-  unreachable("not aborted")
+  conf.report(rep, instLoc)
+  quit(conf, true)
 
 template internalError*(
     conf: ConfigRef,
@@ -782,8 +749,8 @@ proc doInternalAssert*(conf: ConfigRef,
       else:
         wrap(intRep, instLoc, info)
 
-  conf.handleReport(rep, instLoc, doAbort)
-  unreachable("not aborted")
+  conf.report(rep, instLoc)
+  quit(conf, true)
 
 template internalAssert*(
     conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
@@ -848,11 +815,16 @@ proc handleLexerDiag*(
     conf: ConfigRef,
     diag: LexerDiag,
     reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
+    isFatal = false
   ) {.inline.} =
   # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = diag.lexerDiagToLegacyReport()
-  handleReport(conf, rep, reportFrom, eh)
+  var rep = diag.lexerDiagToLegacyReport()
+  if isFatal:
+    # report and abort
+    conf.report(rep, reportFrom)
+    quit(conf, false)
+  else:
+    conf.emit(rep, reportFrom)
 
 # xxx: All the ParserReport stuff needs to go, it should just be the parser
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
@@ -933,22 +905,10 @@ proc parseDiagToLegacyReport(d: ParseDiag): Report =
 proc handleParserDiag*(
     conf: ConfigRef,
     diag: ParseDiag,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
+    reportFrom: InstantiationInfo
   ) {.inline.} =
   # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = parseDiagToLegacyReport(diag)
-  handleReport(conf, rep, reportFrom, eh)
-
-proc handleReport*(
-    conf: ConfigRef,
-    diag: PAstDiag,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
-  ) {.inline.} =
-  # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = conf.astDiagToLegacyReport(conf, diag)
-  handleReport(conf, rep, reportFrom, eh)
+  conf.emit(parseDiagToLegacyReport(diag), reportFrom)
 
 proc semReportCountMismatch*(
     kind: ReportKind,
@@ -993,21 +953,19 @@ proc illformedAstReport(node: PNode, explain: string): SemReport {.inline.} =
 
 template semReportIllformedAst*(
     conf: ConfigRef, node: PNode, explain: string): untyped =
-  handleReport(
-    conf,
+  conf.emit(
     wrap(
       illformedAstReport(node, explain),
       instLoc(),
       node.info),
-    instLoc(),
-    doNothing)
+    instLoc())
 
 template semReportIllformedAst*(
   conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =
   semReportIllformedAst(conf, node, createSemIllformedAstMsg(node, expected))
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)
+  conf.emit(wrap(report, instLoc(), info), instLoc())
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
@@ -1063,3 +1021,11 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
       # We mangle upper letters and digits too so that there cannot
       # be clashes with our special meanings of 'Z' and 'O'
       result.addInt ord(c)
+
+proc defaultDiagHandler*(conf: ConfigRef, rep: sink Report) =
+  ## Handles the report/diagnostic by sending it to the display/render hook,
+  ## but only if the report is "enabled" according to the current configuration.
+  ## Depending on the configuration, the program may be terminated.
+  let reportFrom = (rep.reportFrom.file, rep.reportFrom.line.int,
+                    rep.reportFrom.col.int)
+  handleReport(conf, rep, reportFrom)

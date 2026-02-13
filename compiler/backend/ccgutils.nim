@@ -14,7 +14,8 @@ import
     hashes, strutils
   ],
   compiler/ast/[
-    ast
+    ast,
+    wordrecg
   ],
   compiler/front/[
     options
@@ -102,3 +103,10 @@ proc mangle*(name: string): string =
       requiresUnderscore = true
   if requiresUnderscore:
     result.add "_"
+
+proc isKeyword*(w: PIdent): bool =
+  # NimSkull and C share some keywords. It's more efficient to test the whole
+  # NimSkull keyword range
+  w.id in ccgKeywordsLow..ccgKeywordsHigh or
+  w.id in nimKeywordsLow..nimKeywordsHigh or
+  w.id == ord(wInline)

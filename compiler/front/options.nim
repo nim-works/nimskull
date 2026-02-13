@@ -41,7 +41,6 @@ from compiler/ast/reports import
   ReportTypes
 
 const
-  hasTinyCBackend* = defined(tinyc)
   useEffectSystem* = true
   useWriteTracking* = false
   copyrightYear* = "2022"
@@ -80,11 +79,6 @@ type
                             ## some close token.
 
     errorOutputs*: TErrorOutputs ## Allowed output streams for messages.
-    # REFACTOR this field is mostly touched in sem for 'performance'
-    # reasons - don't write out error messages when compilation failed,
-    # don't generate list of call candidates when `compiles()` fails and so
-    # on. This should be replaced with `.inTryExpr` or something similar,
-    # and let the reporting hook deal with all the associated heuristics.
 
     msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
     ## information about instantiation stack - "template/generic
@@ -179,7 +173,6 @@ type
               ## reaction.
     doNothing ## Don't do anything
     doAbort   ## Immediately abort compilation
-    doRaise   ## Raise recoverable error
 
   ProjectInputMode* = enum
     pimStdin ## the contents of the main module are provided by stdin
@@ -197,6 +190,7 @@ type
     irVm     = "vm"
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  DiagHandler* = proc(conf: ConfigRef, report: sink Report) {.closure.}
 
   HackController* = object
     ## additional configuration switches to control the behavior of the
@@ -309,6 +303,9 @@ type
       ## callback that is invoked when an enabled report is passed to report
       ## handling. The callback is meant to handle rendering/displaying of
       ## the report
+    diagHandler*: DiagHandler
+      ## a callback that receives all emitted diagnostics and is responsible
+      ## for handling them
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to
@@ -327,9 +324,6 @@ type
     timeTracer*: Tracer
       ## global instance of the time tracer, for creating an execution time
       ## trace
-
-    when defined(nimDebugUnreportedErrors):
-      unreportedErrors*: OrderedTable[NodeId, PNode]
 
 const 
   IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
@@ -588,6 +582,10 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
   ## Get active report hook
   conf.structuredReportHook
 
+proc setDiagHandler*(conf: ConfigRef, handler: sink DiagHandler) {.inline.} =
+  ## Sets the active diagnostic handler.
+  conf.diagHandler = handler
+
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
@@ -729,29 +727,6 @@ func isEnabled*(conf: ConfigRef, report: Report): bool =
   report.kind == rsemExpandMacro and
     conf.macrosToExpand.hasKey(report.semReport.sym.name.s) or
     conf.isEnabled(report.kind)
-
-type
-  ReportWritabilityKind* = enum
-    writeEnabled
-    writeDisabled
-    writeForceEnabled
-
-func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
-  let compTimeCtx = conf.m.errorOutputs == {}
-    ## indicates whether we're in a `compiles` or `constant expression
-    ## evaluation` context. `sem` and `semexprs` in particular will clear
-    ## `conf.m.errorOutputs` as a signal for this. For more details see the
-    ## comment for `MsgConfig.errorOutputs`.
-  if r.category == repDebug and compTimeCtx:
-    # Force write of the report messages using regular stdout if compTimeCtx
-    # is enabled
-    writeForceEnabled
-  elif compTimeCtx:
-    # Or we are in the special hack mode for `compiles()` processing
-    # Return without writing
-    writeDisabled
-  else:
-    writeEnabled
 
 const
   oldExperimentalFeatures* = {dotOperators, callOperator}

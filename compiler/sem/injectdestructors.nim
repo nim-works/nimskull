@@ -126,16 +126,15 @@ type
     ## depends on the entity kind.
     a: array[2, int]
 
-  EntityInfo = object
-    ## Information about a lifetime of an entity. The lifetime of an entity is
-    ## the time during which it can be *live* (i.e., store a value).
+  Lifetime = object
+    ## Describes a single lifetime of a location.
     def: NodePosition ## the position of the 'def' for the entity
     scope: Subgraph   ## the data-flow subgraph during which the entity exists
 
-  EntityDict = Table[EntityName, seq[EntityInfo]]
+  EntityDict = Table[EntityName, seq[Lifetime]]
     ## Entity dictionary. Stores all entities relevant to destructor
     ## injection and the move analyser. A location may have more than one
-    ## lifetimes.
+    ## lifetime.
 
   Moves = PackedSet[OpValue]
     ## A set storing the operands of all sinks that were collapsed into
@@ -165,22 +164,19 @@ func toName(n: MirNode): EntityName =
     else:
       unreachable(n.kind)
 
-func findScope(entities: EntityDict, name: EntityName, at: InstrPos,
-               exists: var bool): EntityInfo =
-  ## Returns the ``EntityInfo`` for `name` that encloses the data-flow
-  ## instruction at `at`. If `name` is present in `entities` but `at` is not
-  ## directly part of any lifetime, the ``EntityInfo`` for the lifetime
-  ## preceding `at` is returned.
-  ##
-  ## `exists` is updated to indicate whether a scope was found.
+func findLifetime(entities: EntityDict, name: EntityName, at: InstrPos,
+                  exists: var bool): Lifetime =
+  ## Returns the lifetime for `name` the data-flow instruction at `at` is part
+  ## of. `exists` is set to whether a lifetime was found.
   if name in entities:
     let lifetimes {.cursor.} = entities[name]
-    # search for the upper bound:
-    var i = 0
-    while i < lifetimes.len and at >= lifetimes[i].scope.a:
-      inc i
-
-    if i - 1 >= 0:
+    if lifetimes[0].scope.a <= at:
+      var i = 0
+      while i < lifetimes.len and at >= lifetimes[i].scope.a:
+        inc i
+      while i > 1 and lifetimes[i - 1].scope.b < at:
+        dec i
+      # i now points to one past the best matching lifetime
       result = lifetimes[i - 1]
       exists = true
     else:
@@ -206,7 +202,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
   # the logic relies on the assumption that there exists a scope around
   # every 'def'
 
-  proc findScopeEnd(tree: MirTree, start: NodePosition): NodePosition =
+  proc End(tree: MirTree, start: NodePosition): NodePosition =
     ## Searches for the position of the ``mnkScopeEnd`` node for the current
     ## scope.
     var
@@ -227,7 +223,7 @@ iterator nodesWithScope(tree: MirTree): (NodePosition, lent MirNode, Slice[NodeP
     of mnkScope:
       # start a new scope. The start and end node/token are not included in
       # the span
-      let fin = findScopeEnd(tree, i + 1)
+      let fin = End(tree, i + 1)
       scopeStack.add tree.sibling(i)..(fin-1)
     of mnkEndScope:
       # leave the current scope:
@@ -257,8 +253,16 @@ func initEntityDict(tree: MirTree, dfg: DataFlowGraph, env: MirEnv): EntityDict 
       if hasDestructor(env[entity.typ]):
         result.mgetOrPut(toName(entity), @[]).add:
           # don't include the data-flow operations preceding the def
-          EntityInfo(def: i, scope: subgraphFor(dfg, i .. scope.b))
-
+          Lifetime(def: i, scope: subgraphFor(dfg, i .. scope.b))
+    of mnkLocal:
+      # there's no def for the result variable
+      if n.local == resultId and hasDestructor(env[n.typ]):
+        let name = toName(n)
+        if name notin result:
+          # the result variable's location exists for the full duration
+          # of the procedure
+          let scope = subgraphFor(dfg, NodePosition(0)..NodePosition(tree.high))
+          result[name] = @[Lifetime(scope: scope)]
     else:
       discard
 
@@ -272,14 +276,8 @@ func computeOwnership(tree: MirTree, cfg: DataFlowGraph, entities: EntityDict,
     # `entities`. Those that don't also can't be consumed (because we either
     # can't reason about them or they're non-owning locations), so values
     # derived from them are treated as non-owning
-    # TODO: this currently also includes the ``result`` variable. It's possible
-    #       to analyse it too -- we just need to make sure to treat an
-    #       otherwise last-read as not a last-read if it is connected to a
-    #       procedure exit. A slightly different approach would be to add a
-    #       pseudo-use at the end of the body and make all procedure exits
-    #       visit it first
     var exists = false
-    let info = entities.findScope(toName(tree[lval.root]), start, exists)
+    let info = entities.findLifetime(toName(tree[lval.root]), start, exists)
     exists and isLastRead(tree, cfg, info.scope, lval, start)
   else:
     unreachable()
@@ -324,16 +322,11 @@ func isAlive(tree: MirTree, cfg: DataFlowGraph,
 
   case tree[root].kind
   of mnkLocal, mnkParam, mnkGlobal, mnkTemp:
-    let scope =
-      # XXX: the way the ``result`` variable is detected here is a hack. It
-      #      should be treated as any other local in the context of the MIR
-      if tree[root].kind == mnkLocal and tree[root].local == resultId:
-        cfg.subgraphFor(NodePosition(0) .. NodePosition(tree.high))
-      else:
-        var exists: bool
-        let info = entities.findScope(toName(tree[root]), at, exists)
-        if exists: info.scope
-        else:      return true # not something we can analyse -> assume alive
+    let scope = block:
+      var exists: bool
+      let info = entities.findLifetime(toName(tree[root]), at, exists)
+      if exists: info.scope
+      else:      return true # not something we can analyse -> assume alive
 
     # if the location is not assigned an initial value on definition, `start`
     # may come before the alive subgraph
@@ -360,18 +353,8 @@ func needsReset(tree: MirTree, cfg: DataFlowGraph, ar: AnalysisResults,
   ## If it can't be proven that the unowned value is observed (which could
   ## cause problems like, for example, double-frees), the location is
   ## explicitly reset (i.e. the value removed from it).
-  let root = src.root
-  # XXX: the way the ``result`` variable is detected here is a hack. It
-  #      should be treated as any other local in the context of MIR. The
-  #      fact that the result variable is potentially used outside the
-  #      procedure's body should be encoded by inserting a special 'use'
-  #      operation that has a control-flow dependency on *all* other
-  #      operations
-  if tree[root].kind == mnkLocal and tree[root].local == resultId:
-    return true
-
   var exists: bool
-  let info = findScope(ar.entities[], toName(tree[root]), at, exists)
+  let info = findLifetime(ar.entities[], toName(tree[src.root]), at, exists)
 
   if not exists:
     # the location is not local to the current context -> assume that it needs

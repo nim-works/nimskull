@@ -930,6 +930,15 @@ func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   c.module = module
   c.idgen = idgen
 
+proc `=copy`(x: var VmAllocator, y: VmAllocator) {.error.}
+
+proc `=destroy`(x: var VmAllocator) =
+  for it in x.cells.items:
+    if it.p != nil:
+      dealloc(it.p)
+  `=destroy`(x.cells)
+  `=destroy`(x.byteType)
+
 const pseudoAtomKinds* = {akObject, akArray}
 const realAtomKinds* = {low(AtomKind)..high(AtomKind)} - pseudoAtomKinds
 

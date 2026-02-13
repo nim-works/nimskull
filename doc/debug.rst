@@ -38,7 +38,6 @@ how to use them.
 Define                        Enables
 ----------------------------- -------
 `nimDebugUtils`               Allows for semantic analysis execution tracing and more
-`nimDebugUnreportedErrors`    Enable unreported error debugging
 `nimVMDebugExecute`           Print out every instruction executed by the VM
 `nimCompilerStacktraceHints`  Add extra information (node location + kind) to some
 ============================= =======
@@ -236,7 +235,7 @@ routine. See the snippet below to show how tracing was added to
 .. code-block:: nim
 
     proc semOverloadedCall(c: PContext, n, nOrig: PNode,
-                           filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+                           filter: TSymKinds, flags: TExprFlags): PNode =
       addInNimDebugUtils(c.config, "semOverloadedCall")
       # Rest of the code as before ...
 
@@ -433,7 +432,8 @@ This is done by using one of the following options with the
   applied
 * `mir_out`:option: : shows the MIR after all passes were applied, right before
   translation to the CGIR
-* `cgir`:option: : shows the CGIR as produced by `cgirgen`
+* `cgir`:option: : shows the CGIR as produced by `mir2cg` (if the legacy CGIR
+  is used, shows that produced by `cgirgen`)
 
 If a procedure is used at both compile- and run-time, it will show up in the
 output twice, though potentially with different bodies, as different passes are

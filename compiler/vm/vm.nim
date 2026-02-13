@@ -809,9 +809,6 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
     {.line: L.}: raiseAccessViolation(r, L)
 
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
 proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
   ## In the case of an error, raises an exception of type `VmError`. If no
@@ -2706,16 +2703,13 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       for i in 0..<regs[rc].intVal.int:
         delSon(regs[ra].nimNode, bb)
     of opcGenSym:
-      decodeBC(rkNimNode)
-      let k = regs[rb].intVal
-      checkHandle(regs[rc])
-      assert regs[rc].handle.typ.kind == akString
+      decodeB(rkNimNode)
+      checkHandle(regs[rb])
+      assert regs[rb].handle.typ.kind == akString
       # XXX: costly stringify of strVal... `getIdent` doesn't use openArray :(
-      let name = if regs[rc].strVal.len == 0: ":tmp"
-                 else: $regs[rc].strVal
-      guestValidate(k in 0..ord(high(TSymKind)),
-        "request to create symbol of invalid kind")
-      var sym = newSym(k.TSymKind, getIdent(c.cache, name), nextSymId c.idgen, c.module.owner, c.debug[pc])
+      let name = if regs[rb].strVal.len == 0: ":tmp"
+                 else: $regs[rb].strVal
+      var sym = newSym(skGenerated, getIdent(c.cache, name), nextSymId c.idgen, nil, c.debug[pc])
       incl(sym.flags, sfGenSym)
       regs[ra].nimNode = newSymNode(sym)
     of opcNccValue:
