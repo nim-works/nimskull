@@ -1872,18 +1872,29 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     var
       temp  = c.newTemp(env, StringType, stmts, bu)
       len   = Expr(typ: VoidType)
+      clen  = 0 # constant length
 
     # compute the length expression:
     for (_, _, it) in tree.arguments(n):
-      let val =
-        if tree[it].typ == CharType:
-          bu.buildExpr env.types.sizeType:
-            ^c.genInt(env, 1, env.types.sizeType, bu)
-        else:
-          let L = c.newTemp(env, env.types.sizeType, stmts, bu)
-          c.emitLength(env, L, value(it), stmts, bu)
-          L
+      if tree[it].typ == CharType:
+        inc clen
+      elif tree[it].kind == mnkConst:
+        # can only be a constant string
+        inc clen, env[env[env.dataFor(tree[it].cnst)][0].strVal].len
+      else:
+        let L = c.newTemp(env, env.types.sizeType, stmts, bu)
+        c.emitLength(env, L, value(it), stmts, bu)
 
+        if len.typ == VoidType:
+          len = L
+        else:
+          len = bu.buildExpr env.types.sizeType:
+            Add(^env.types.sizeType, *use(len), *use(L))
+
+    # combine the 'len' expression with the constant part, if any:
+    if clen != 0:
+      let val = bu.buildExpr env.types.sizeType:
+        ^c.genInt(env, clen, env.types.sizeType, bu)
       if len.typ == VoidType:
         len = val
       else:
