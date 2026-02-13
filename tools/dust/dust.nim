@@ -25,7 +25,6 @@ import
   ],
   compiler/utils/[astrepr,],
   std/options as std_options, # due to legacy reports stupidity
-  std/[sets, algorithm,],
   spec,
   boring,
   mutate
