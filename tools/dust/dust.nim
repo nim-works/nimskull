@@ -33,7 +33,7 @@ from compiler/front/msgs import defaultDiagHandler
 
 
 template semcheck(body: untyped) {.dirty.} =
-  ## perform the complete setup and compilation process
+  ## Perform the complete setup and compilation process.
   cache = newIdentCache()
   config = newConfigRef(uhoh)
   config.diagHandler = msgs.defaultDiagHandler
