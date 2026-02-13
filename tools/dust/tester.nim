@@ -1,4 +1,4 @@
-## A simple driver for testing the dust tool.
+## A simple driver for testing the dust tool via CLI invocation.
 
 import
   experimental/cmdline,
