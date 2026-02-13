@@ -1,35 +1,35 @@
+## The main dust driver, orchestrating the AST reduction process.
+
 import std/os
 
 {.define(nimcore).}
 
 import
-  compiler / ast / [
+  compiler/ast/[
     ast,
     idents,
     lineinfos,
     parser,
     report_enums, # legacy reports stupidity
   ],
-  compiler / front / options,
-  compiler / modules / modulegraphs,
-  compiler / sem / [
+  compiler/front/options,
+  compiler/modules/modulegraphs,
+  compiler/sem/[
     passes,
     sem,
   ],
-  compiler / utils / [ astrepr, ]
+  compiler/utils/[astrepr,],
+  std/options as std_options, # due to legacy reports stupidity
+  std/[sets, algorithm,],
+  spec,
+  hashing,
+  boring,
+  mutate
 
 # legacy reports stupidity
-from compiler / ast / reports import Report, location, kind
-from compiler / front / cli_reporter import reportFull, legacyReportBridge
-from compiler / front / msgs import defaultDiagHandler
-
-import std/options as std_options # due to legacy reports stupidity
-import std/[sets, algorithm]
-
-import spec
-import hashing
-import boring
-import mutate
+from compiler/ast/reports import Report, location, kind
+from compiler/front/cli_reporter import reportFull, legacyReportBridge
+from compiler/front/msgs import defaultDiagHandler
 
 
 type

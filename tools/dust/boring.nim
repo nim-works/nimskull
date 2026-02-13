@@ -1,33 +1,26 @@
-##[
-
-the boring bits that really aren't very relevant to dust.
-
-]##
+## The boring (compiler integration) bits that really aren't very relevant to
+## dust.
 
 import std/times
 import std/os
 import std/parseopt
 
 import
-  compiler / ast / [
-    idents,
-  ],
-  compiler / front / [
+  compiler/ast/idents,
+  compiler/front/[
       cmdlinehelper,
-      # commands,
       condsyms,
       options,
       optionsprocessor,
   ],
-  compiler / modules / [
+  compiler/modules/[
     modules,
     modulegraphs,
   ],
-  compiler / utils / pathutils
+  compiler/utils/pathutils
 
-from compiler / front / commands import procSwitchResultToEvents,
-                                        cliEventLogger
-
+from compiler/front/commands import procSwitchResultToEvents,
+                                    cliEventLogger
 from compiler/front/main import customizeForBackend
 
 

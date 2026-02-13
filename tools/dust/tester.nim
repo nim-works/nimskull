@@ -1,8 +1,13 @@
-import experimental/cmdline
+## A simple driver for testing the dust tool.
+
+import
+  experimental/cmdline,
+  spec
+
 from std/os import walkDir, PathComponent
 from std/osproc import execCmdEx
 from std/strutils import endsWith
-import dust
+
 
 proc main(testsDir: string = "./tools/dust/tests") =
   var

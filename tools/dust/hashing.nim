@@ -1,3 +1,5 @@
+# TODO: move `hashNode` to `sighashes.hashTree` and drop this module
+
 include compiler/sem/sighashes # because too few things are exported
 
 const

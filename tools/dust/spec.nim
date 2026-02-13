@@ -1,8 +1,14 @@
-import std/sets
+## Key types relevant to dust's implementation, shared across various modules.
 
 import
-  compiler / modules / modulegraphs,
-  compiler / ast / [ lineinfos, renderer, ast_types, ast_query ]
+  std/sets,
+  compiler/modules/modulegraphs,
+  compiler/ast/[
+    lineinfos,
+    renderer,
+    ast_types,
+    ast_query,
+  ]
 
 
 type

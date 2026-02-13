@@ -1,5 +1,12 @@
+## AST reduction and mutation routines, used by dust (the driver) to actually
+## reduce a given module AST.
+
 import
-  compiler / ast / [ lineinfos, renderer, ast, ]
+  compiler/ast/[
+    lineinfos,
+    renderer,
+    ast,
+  ]
 
 
 const
