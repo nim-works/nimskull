@@ -1,6 +1,5 @@
 ## The main dust driver, orchestrating the AST reduction process.
 
-import std/os
 
 {.define(nimcore).}
 
