@@ -227,7 +227,7 @@ proc filter*[T](o: Arbitrary[T], predicate: proc(t: T): bool): Arbitrary[T] =
 
   return Arbitrary[T](mgenerate: mgenerate)
 
-proc flatMap[T, U](s: Arbitrary[T],
+proc flatMap*[T, U](s: Arbitrary[T],
                    fmapper: proc(t: T): Arbitrary[U]): Arbitrary[U] =
   ## creates a new Arbitrary for every value produced by `s`. For when you want
   ## to make the value of an Arbitrary depend upon the value of another.
@@ -263,25 +263,25 @@ proc sample*[T](a: Arbitrary[T], n: uint, mrng: var Random): seq[Shrinkable[T]] 
 proc newRandom*(seed: uint32 = 0): Random =
   Random(seed: seed, rng: newMersenneTwister(seed))
 
-proc nextUint32(r: var Random): uint32 =
+proc nextUint32*(r: var Random): uint32 =
   inc r.calls
   result = r.rng.getNum()
 
-proc nextInt(r: var Random): int =
+proc nextInt*(r: var Random): int =
   inc r.calls
   result = cast[int32](r.rng.getNum())
 
-proc nextUint32(r: var Random; min, max: uint32): uint32 =
+proc nextUint32*(r: var Random; min, max: uint32): uint32 =
   assert min < max, "max must be greater than min"
   let size = max - min
   result = min + (r.nextUint32() mod size)
 
-proc nextChar(r: var Random; min, max: char): char =
+proc nextChar*(r: var Random; min, max: char): char =
   assert min < max, "max must be greater than min"
   let size = uint8(max) - uint8(min)
   result = char(uint8(min) + uint8(r.nextUint32() mod size))
 
-proc nextInt(r: var Random; min, max: int): int =
+proc nextInt*(r: var Random; min, max: int): int =
   assert min < max, "max must be greater than min"
   let size = abs(max - min)
   result = min + abs(r.nextInt() mod size)
@@ -327,6 +327,8 @@ proc run*[T](p: Property[T], v: T): PTStatus =
 # MARK: Basic Arbitraries
 # these are so you can actually test a thing
 
+# xxx: can these tupleArbs be collapsed further?
+
 proc tupleArb*[A](a1: Arbitrary[A]): Arbitrary[(A,)] =
   ## Arbitrary of single-value tuple
   result = Arbitrary[(A,)](
@@ -343,6 +345,48 @@ proc tupleArb*[A,B](a1: Arbitrary[A], a2: Arbitrary[B]): Arbitrary[(A,B)] =
     mgenerate: proc(a: Arbitrary[(A,B)], rng: var Random): Shrinkable[(A,B)] =
                   shrinkableOf(
                     (o1.generate(rng).value, o2.generate(rng).value)
+                  )
+  )
+
+proc tupleArb*[A,B,C](a1: Arbitrary[A], a2: Arbitrary[B], a3: Arbitrary[C]): Arbitrary[(A,B,C)] =
+  ## Arbitrary of triple tuple
+  var
+    o1 = a1
+    o2 = a2
+    o3 = a3
+  result = Arbitrary[(A,B,C)](
+    mgenerate: proc(a: Arbitrary[(A,B,C)], rng: var Random): Shrinkable[(A,B,C)] =
+                  shrinkableOf(
+                    (o1.generate(rng).value, o2.generate(rng).value, o3.generate(rng).value)
+                  )
+  )
+
+proc tupleArb*[A,B,C,D](a1: Arbitrary[A], a2: Arbitrary[B], a3: Arbitrary[C], a4: Arbitrary[D]): Arbitrary[(A,B,C,D)] =
+  ## Arbitrary of quadruple tuple
+  var
+    o1 = a1
+    o2 = a2
+    o3 = a3
+    o4 = a4
+  result = Arbitrary[(A,B,C,D)](
+    mgenerate: proc(a: Arbitrary[(A,B,C,D)], rng: var Random): Shrinkable[(A,B,C,D)] =
+                  shrinkableOf(
+                    (o1.generate(rng).value, o2.generate(rng).value, o3.generate(rng).value, o4.generate(rng).value)
+                  )
+  )
+
+proc tupleArb*[A,B,C,D,E](a1: Arbitrary[A], a2: Arbitrary[B], a3: Arbitrary[C], a4: Arbitrary[D], a5: Arbitrary[E]): Arbitrary[(A,B,C,D,E)] =
+  ## Arbitrary of quintuple tuple
+  var
+    o1 = a1
+    o2 = a2
+    o3 = a3
+    o4 = a4
+    o5 = a5
+  result = Arbitrary[(A,B,C,D,E)](
+    mgenerate: proc(a: Arbitrary[(A,B,C,D,E)], rng: var Random): Shrinkable[(A,B,C,D,E)] =
+                  shrinkableOf(
+                    (o1.generate(rng).value, o2.generate(rng).value, o3.generate(rng).value, o4.generate(rng).value, o5.generate(rng).value)
                   )
   )
 
@@ -415,9 +459,13 @@ proc charAsciiArb*(): Arbitrary[char] {.inline.} =
   charArb(char.low, chr(127))
 
 proc seqArbOf*[T](a: Arbitrary[T], min: uint32 = 0, max: uint32 = 100): Arbitrary[seq[T]] =
-  ## create a sequence of varying size of some type
+  ## create a sequence of varying size, between `min` and `max`, of some type
   assert min <= max
-  result = uint32Arb(min, max).map((i) => a.take(i))
+  result = Arbitrary[seq[T]](
+    mgenerate: proc(foo: Arbitrary[seq[T]], mrng: var Random): Shrinkable[seq[T]] =
+                  let size = mrng.nextUint32(min, max)
+                  a.take(size, mrng)
+  )
 
 proc stringArb*(min: uint32 = 0, max: uint32 = 1000, charArb = charArb()): Arbitrary[string] =
   ## create strings using the full character range with len of `min` to `max`
