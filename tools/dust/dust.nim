@@ -189,6 +189,8 @@ when isMainModule:
     echo "error: module passes the semcheck"
   of ErrorCode.fileNotProvided:
     echo "supply a source file to inspect"
+  of ErrorCode.compilerError:
+    unreachable "This should only be detectable when the CLI abnormally exits"
   of ErrorCode.success:
     echo "success"
   quit ord(code)
