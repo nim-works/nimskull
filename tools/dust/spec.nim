@@ -17,6 +17,7 @@ type
     fileNotProvided = 1
     setupError = 2
     noError = 3
+    compilerError = 4
 
   DustContext* = ref object of PPassContext
     mainIndex*: FileIndex

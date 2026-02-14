@@ -21,7 +21,11 @@ proc main(testsDir: string = "./tools/dust/tests") =
       let
         cmd = "./bin/dust " & file
         (output, exitCode) = execCmdEx(cmd)
-        code = ErrorCode(exitCode)
+      let code =
+        try:
+          ErrorCode(exitCode)
+        except ValueError:
+          ErrorCode.compilerError
       echo "command (cmd): ", cmd
       case code
       of ErrorCode.success:
@@ -33,6 +37,10 @@ proc main(testsDir: string = "./tools/dust/tests") =
       of ErrorCode.noError:
         echo "failed: " & file & " with code " & $code
         inc failed
+      of ErrorCode.compilerError:
+        echo "compiler error: " & file & " with compiler exit code: " &
+              $exitCode & " output: " & output & "\n"
+        inc error
 
   let total = success + error + failed
 
