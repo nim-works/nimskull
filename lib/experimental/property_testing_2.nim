@@ -512,3 +512,56 @@ proc runProperty*[T](p: Property[T], trials: int = 100, seed: uint32 = 0): TestR
       return # Return immediately on failure+shrink
 
   # If loop finishes without returning, it's a pass
+
+
+# MARK: Tuple Generators
+
+proc genTuple*[T](g: Gen[T]): Gen[(T,)] =
+  ## Generates a tuple of a single element.
+  return proc(s: Source): (T,) =
+    (g(s),)
+
+proc genTuple*[T1, T2](g1: Gen[T1], g2: Gen[T2]): Gen[(T1, T2)] =
+  ## Generates a tuple of two elements.
+  return proc(s: Source): (T1, T2) =
+    (g1(s), g2(s))
+
+proc genTuple*[T1, T2, T3](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3]): Gen[(T1, T2, T3)] =
+  ## Generates a tuple of three elements.
+  return proc(s: Source): (T1, T2, T3) =
+    (g1(s), g2(s), g3(s))
+
+proc genTuple*[T1, T2, T3, T4](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4]): Gen[(T1, T2, T3, T4)] =
+  ## Generates a tuple of four elements.
+  return proc(s: Source): (T1, T2, T3, T4) =
+    (g1(s), g2(s), g3(s), g4(s))
+
+proc genTuple*[T1, T2, T3, T4, T5](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5]): Gen[(T1, T2, T3, T4, T5)] =
+  ## Generates a tuple of five elements.
+  return proc(s: Source): (T1, T2, T3, T4, T5) =
+    (g1(s), g2(s), g3(s), g4(s), g5(s))
+
+proc genTuple*[T1, T2, T3, T4, T5, T6](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6]): Gen[(T1, T2, T3, T4, T5, T6)] =
+  ## Generates a tuple of six elements.
+  return proc(s: Source): (T1, T2, T3, T4, T5, T6) =
+    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s))
+
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7]): Gen[(T1, T2, T3, T4, T5, T6, T7)] =
+  ## Generates a tuple of seven elements.
+  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7) =
+    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s))
+
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8)] =
+  ## Generates a tuple of eight elements.
+  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8) =
+    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s))
+
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] =
+  ## Generates a tuple of nine elements.
+  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9) =
+    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s))
+
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], g10: Gen[T10]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] =
+  ## Generates a tuple of ten elements.
+  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) =
+    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s), g10(s))

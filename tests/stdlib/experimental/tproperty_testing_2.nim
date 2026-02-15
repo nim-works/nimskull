@@ -260,3 +260,108 @@ suite "Property Testing 2 (Integrated Shrinking)":
       if res.status == psFail:
           check res.shrunkValue.get().len == 3
           # It should shrink L to 3, then the seq content to zeros.
+
+  test "genTuple (1 element)":
+    let prop = Property[(int,)](
+      gen: genTuple(genIntRange(0, 10)),
+      check: proc(t: (int,)): PropertyStatus =
+        if t[0] < 5: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=20)
+    if res.status == psFail:
+        check res.shrunkValue.get()[0] == 5
+
+  test "genTuple (2 elements) Shrinking":
+    let prop = Property[(int, int)](
+      gen: genTuple(genIntRange(0, 100), genIntRange(0, 100)),
+      check: proc(t: (int, int)): PropertyStatus =
+        if t[0] < 10 and t[1] < 10: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=200)
+    if res.status == psFail:
+      let val = res.shrunkValue.get()
+      check val[0] == 10 or val[1] == 10
+      check val[0] <= 10
+      check val[1] <= 10
+    
+  test "genTuple (3 elements) Shrinking":
+    let prop = Property[(int, int, int)](
+      gen: genTuple(genIntRange(0, 10), genIntRange(0, 10), genIntRange(0, 10)),
+      check: proc(t: (int, int, int)): PropertyStatus =
+        if t[0] + t[1] + t[2] < 15: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=100)
+    if res.status == psFail:
+      let val = res.shrunkValue.get()
+      # Minimal sum >= 15 likely involves 10, 5, 0 or similar but distributed
+      # Shrinking should minimize lexicographically (based on byte order).
+      # First elements come first in byte stream.
+      # Expect roughly minimal components.
+      check val[0] + val[1] + val[2] >= 15
+
+  test "genTuple (4 elements)":
+    let prop = Property[(int, int, int, int)](
+      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4)),
+      check: proc(t: (int, int, int, int)): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=1)
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4)
+
+  test "genTuple (5 elements)":
+    let prop = Property[(int,int,int,int,int)](
+      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5)),
+      check: proc(t: (int,int,int,int,int)): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=1)
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4, 5)
+
+  test "genTuple (6 elements)":
+    let prop = Property[(int,int,int,int,int,int)](
+      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6)),
+      check: proc(t: (int,int,int,int,int,int)): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=1)
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4, 5, 6)
+
+  test "genTuple (7 elements)":
+    let prop = Property[(int,int,int,int,int,int,int)](
+      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7)),
+      check: proc(t: (int,int,int,int,int,int,int)): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=1)
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4, 5, 6, 7)
+
+  test "genTuple (8 elements)":
+    let prop = Property[(int,int,int,int,int,int,int,int)](
+      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7), genConst(8)),
+      check: proc(t: (int,int,int,int,int,int,int,int)): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=1)
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4, 5, 6, 7, 8)
+
+  test "genTuple (9 elements)":
+    let prop = Property[(int,int,int,int,int,int,int,int,int)](
+      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7), genConst(8), genConst(9)),
+      check: proc(t: (int,int,int,int,int,int,int,int,int)): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=1)
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+
+  test "genTuple (10 elements)":
+    # Just verify compilation and basic running
+    let gen10 = genTuple(
+        genConst(1), genConst(2), genConst(3), genConst(4), genConst(5),
+        genConst(6), genConst(7), genConst(8), genConst(9), genConst(10)
+    )
+    let prop = Property[(int,int,int,int,int,int,int,int,int,int)](
+        gen: gen10,
+        check: proc(t: (int,int,int,int,int,int,int,int,int,int)): PropertyStatus = psPass
+    )
+    let res = runProperty(prop, trials=5)
+    check res.status == psPass
