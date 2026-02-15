@@ -14,6 +14,7 @@ import std/[
   ]
 
 from std/algorithm import sort
+from std/hashes import hash
 from std/sequtils import delete, toSeq
 from std/sugar import `=>`
 from std/times import getTime, toUnix
@@ -565,3 +566,242 @@ proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: Gen[T1], g2: Gen[T2]
   ## Generates a tuple of ten elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) =
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s), g10(s))
+
+
+# MARK: Function Generators
+
+# Function generation is tricky. A generated function needs to be deterministic
+# based on its inputs and the source. Since we can't easily "embed" the source
+# into the function pointer in a way that preserves purity or state correctly
+# without closures, we use closures.
+#
+# Strategy for functions:
+# The generated function, when called, uses its arguments to perturb
+# a seed, and then generates a return value from that perturbed seed.
+# This ensures that f(x) always returns the same y for the same x.
+#
+# Strategy for procedures:
+# The generated procedure, when called, uses its arguments to perturb
+# a seed, and then generates return values from a new source with the
+# perturbed seed. Ensuring the values are not deterministic.
+#
+# TODO: redo the above, we need idempotent and non-idempotent routine
+#       support
+
+proc hashCombine(seed: var uint32, val: uint32) =
+  # Simple hash combination from boost
+  seed = seed xor (val + 0x9e3779b9'u32 + (seed shl 6) + (seed shr 2))
+
+proc hashArg[T](x: T): uint32 =
+  # We need a way to hash arbitrary arguments to seed the RNG.
+  # For now, let's hope standard `hash` and cast to uint32 works.
+  cast[uint32](hash(x))
+
+proc genProc*[R](retGen: Gen[R]): Gen[proc(): R] =
+  return proc(s: Source): proc(): R =
+    let funcSeed = s.nextUint32()
+    return proc(): R =
+      var callSeed = funcSeed
+      # No args to hash
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
+  return proc(s: Source): proc(a: T1): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
+  return proc(s: Source): proc(a: T1, b: T2): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a))
+      hashCombine(callSeed, hashArg(b))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a))
+      hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a))
+      hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c))
+      hashCombine(callSeed, hashArg(d))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a))
+      hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c))
+      hashCombine(callSeed, hashArg(d))
+      hashCombine(callSeed, hashArg(e))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
+      hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
+      hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
+      hashCombine(callSeed, hashArg(g))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
+      hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
+      hashCombine(callSeed, hashArg(g)); hashCombine(callSeed, hashArg(h))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
+      hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
+      hashCombine(callSeed, hashArg(g)); hashCombine(callSeed, hashArg(h))
+      hashCombine(callSeed, hashArg(i))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
+    let funcSeed = s.nextUint32()
+    return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
+      var callSeed = funcSeed
+      hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
+      hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
+      hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
+      hashCombine(callSeed, hashArg(g)); hashCombine(callSeed, hashArg(h))
+      hashCombine(callSeed, hashArg(i)); hashCombine(callSeed, hashArg(j))
+      var src = newSource(callSeed)
+      return retGen(src)
+
+# Void return variants
+
+proc genProcVoid*(): Gen[proc()] =
+  return proc(s: Source): proc() =
+    # Function with no return value and no args doesn't need to do anything 
+    # other than exist. 
+    return proc() = discard
+
+# For void procs with args, they just consume args but return nothing.
+# They don't need to be deterministic for return value since there is none.
+# They are essentially sinks.
+proc genProcVoid1*[T1](): Gen[proc(a: T1)] =
+  return proc(s: Source): proc(a: T1) = (proc(a: T1) = discard)
+
+proc genProcVoid2*[T1, T2](): Gen[proc(a: T1, b: T2)] =
+  return proc(s: Source): proc(a: T1, b: T2) = (proc(a: T1, b: T2) = discard)
+
+proc genProcVoid3*[T1, T2, T3](): Gen[proc(a: T1, b: T2, c: T3)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3) = 
+    (proc(a: T1, b: T2, c: T3) = discard)
+
+proc genProcVoid4*[T1, T2, T3, T4](): Gen[proc(a: T1, b: T2, c: T3, d: T4)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4) = 
+    (proc(a: T1, b: T2, c: T3, d: T4) = discard)
+
+proc genProcVoid5*[T1, T2, T3, T4, T5](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5) = 
+    (proc(a: T1, b: T2, c: T3, d: T4, e: T5) = discard)
+
+proc genProcVoid6*[T1, T2, T3, T4, T5, T6](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6) = 
+    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6) = discard)
+
+proc genProcVoid7*[T1, T2, T3, T4, T5, T6, T7](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7) = 
+    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7) = discard)
+
+proc genProcVoid8*[T1, T2, T3, T4, T5, T6, T7, T8](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8) = 
+    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8) = discard)
+
+proc genProcVoid9*[T1, T2, T3, T4, T5, T6, T7, T8, T9](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9) = 
+    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9) = discard)
+
+proc genProcVoid10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10)] =
+  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10) = 
+    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10) = discard)
+
+
+# MARK: Property Helpers
+
+# TODO move into the CLI interface once created
+
+proc forAll*[T](gen: Gen[T], check: proc(x: T): PropertyStatus): Property[T] = 
+  return Property[T](gen: gen, check: check)
+
+proc forAll*[T1, T2](g1: Gen[T1], g2: Gen[T2], check: proc(x: T1, y: T2): PropertyStatus): Property[(T1, T2)] = 
+  return Property[(T1, T2)](gen: genTuple(g1, g2), check: check)
+
+proc forAll*[T1, T2, T3](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], check: proc(x: T1, y: T2, z: T3): PropertyStatus): Property[(T1, T2, T3)] = 
+  return Property[(T1, T2, T3)](gen: genTuple(g1, g2, g3), check: check)
+
+proc forAll*[T1, T2, T3, T4](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], check: proc(x: T1, y: T2, z: T3, w: T4): PropertyStatus): Property[(T1, T2, T3, T4)] = 
+  return Property[(T1, T2, T3, T4)](gen: genTuple(g1, g2, g3, g4), check: check)
+
+proc forAll*[T1, T2, T3, T4, T5](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5): PropertyStatus): Property[(T1, T2, T3, T4, T5)] = 
+  return Property[(T1, T2, T3, T4, T5)](gen: genTuple(g1, g2, g3, g4, g5), check: check)
+
+proc forAll*[T1, T2, T3, T4, T5, T6](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6)] = 
+  return Property[(T1, T2, T3, T4, T5, T6)](gen: genTuple(g1, g2, g3, g4, g5, g6), check: check)
+
+proc forAll*[T1, T2, T3, T4, T5, T6, T7](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7)] = 
+  return Property[(T1, T2, T3, T4, T5, T6, T7)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7), check: check)
+
+proc forAll*[T1, T2, T3, T4, T5, T6, T7, T8](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7, s: T8): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7, T8)] = 
+  return Property[(T1, T2, T3, T4, T5, T6, T7, T8)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7, g8), check: check)
+
+proc forAll*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7, s: T8, r: T9): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] = 
+  return Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7, g8, g9), check: check)
+
+proc forAll*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], g10: Gen[T10], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7, s: T8, r: T9, q: T10): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] = 
+  return Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7, g8, g9, g10), check: check)

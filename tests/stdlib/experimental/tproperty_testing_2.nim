@@ -365,3 +365,38 @@ suite "Property Testing 2 (Integrated Shrinking)":
     )
     let res = runProperty(prop, trials=5)
     check res.status == psPass
+
+  test "genProc (0 args)":
+    let prop = Property[proc(): int](
+      gen: genProc(genConst(42)),
+      check: proc(f: proc(): int): PropertyStatus =
+        if f() == 42: psPass else: psFail
+    )
+    check runProperty(prop).status == psPass
+
+  test "genProc (1 arg) - Determinism":
+    let prop = Property[proc(x: int): int](
+      gen: genProc1[int, int](genIntRange(0, 100)),
+      check: proc(f: proc(x: int): int): PropertyStatus =
+        let v1 = f(10)
+        let v2 = f(10)
+        if v1 == v2: psPass else: psFail
+    )
+    check runProperty(prop).status == psPass
+
+  test "genProc (2 args)":
+      let prop = Property[proc(x: int, y: int): int](
+        gen: genProc2[int, int, int](genConst(5)),
+        check: proc(f: proc(x: int, y: int): int): PropertyStatus =
+           if f(1, 2) == 5: psPass else: psFail
+      )
+      check runProperty(prop).status == psPass
+
+  test "genProcVoid (0 args)":
+    let prop = Property[proc()](
+      gen: genProcVoid(),
+      check: proc(f: proc()): PropertyStatus =
+        f() # Should just work
+        psPass
+    )
+    check runProperty(prop).status == psPass
