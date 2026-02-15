@@ -184,7 +184,7 @@ proc buildTool(toolname, args: string) =
 
 proc buildTools(args: string = "") =
   nimCompileFold("Compile dust", "tools/dust/dust.nim",
-                 options = "-d:release $# $#" % [defineSourceMetadata(), args])
+                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
