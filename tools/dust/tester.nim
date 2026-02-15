@@ -22,9 +22,9 @@ proc main(testsDir: string = "./tools/dust/tests") =
         cmd = "./bin/dust " & file
         (output, exitCode) = execCmdEx(cmd)
       let code =
-        try:
+        if exitCode >= ord(ErrorCode.low) and exitCode <= ord(ErrorCode.high):
           ErrorCode(exitCode)
-        except ValueError:
+        else:
           ErrorCode.compilerError
       echo "command (cmd): ", cmd
       case code
