@@ -28,7 +28,10 @@ type
     buffer*: seq[byte]
     pos: int
     recording: bool
-    limit*: int # Max bytes to generate before stopping/erroring
+    limit*: int       ## Max bytes to generate before stopping/erroring
+    idempotent*: bool ## whether the generator consuming this source should
+                      ## be able to produce the same value given the same
+                      ## source state, i.e.: disabling exhausitiveness
 
   Gen*[T] = proc(s: Source): T
 
@@ -56,13 +59,15 @@ type
 
 const DefaultSourceLimit = 10_000 # Reasonable default limit
 
-proc newSource*(seed: uint32, limit: int = DefaultSourceLimit): Source =
+proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
+                idempotent: bool = false): Source =
   new(result)
   result.rng = newMersenneTwister(seed)
   result.buffer = @[]
   result.pos = 0
   result.recording = true
   result.limit = limit
+  result.idempotent = idempotent
 
 proc newSource*(buffer: seq[byte]): Source =
   ## Create a source for replaying/shrinking with a fixed buffer
@@ -72,6 +77,7 @@ proc newSource*(buffer: seq[byte]): Source =
   result.pos = 0
   result.recording = false
   result.limit = buffer.len
+  result.idempotent = false
 
 proc nextByte*(s: Source): byte =
   if s.recording:
@@ -132,6 +138,7 @@ proc filter*[T](g: Gen[T], pred: proc(x: T): bool, maxRetries: int = 100): Gen[T
     # Checks using this generator should likely discard the run.
     raise newException(FilterExhaustedError, "Filter retries exhausted")
 
+
 proc flatMap*[T, U](g: Gen[T], f: proc(x: T): Gen[U]): Gen[U] =
   return proc(s: Source): U =
     let t = g(s)
@@ -173,7 +180,7 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
       let idx = int(randVal mod uint32(state.vals.len))
       return state.vals[idx]
 
-    if state.pos < state.indices.len:
+    if state.pos < state.indices.len and not s.idempotent:
       # Exhaustive phase
       # We pick an index `j` such that `state.pos <= j < state.indices.len`
       # We use the source RNG to pick `j`.
@@ -445,9 +452,10 @@ proc runProperty*[T](p: Property[T], trials: int = 100, seed: uint32 = 0): TestR
     let runSeed = rng.getNum()
     result.seed = runSeed
     
-    var s = newSource(runSeed)
-    var val: T
-    var status: PropertyStatus
+    var
+      s = newSource(runSeed)
+      val: T
+      status: PropertyStatus
     
     try:
       val = p.gen(s)
@@ -603,7 +611,7 @@ proc genProc*[R](retGen: Gen[R]): Gen[proc(): R] =
     return proc(): R =
       var callSeed = funcSeed
       # No args to hash
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
@@ -612,7 +620,7 @@ proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
     return proc(a: T1): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
@@ -622,7 +630,7 @@ proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
       hashCombine(callSeed, hashArg(b))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true )
       return retGen(src)
 
 proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R] =
@@ -633,7 +641,7 @@ proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R]
       hashCombine(callSeed, hashArg(a))
       hashCombine(callSeed, hashArg(b))
       hashCombine(callSeed, hashArg(c))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4): R] =
@@ -645,7 +653,7 @@ proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3,
       hashCombine(callSeed, hashArg(b))
       hashCombine(callSeed, hashArg(c))
       hashCombine(callSeed, hashArg(d))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5): R] =
@@ -658,7 +666,7 @@ proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c:
       hashCombine(callSeed, hashArg(c))
       hashCombine(callSeed, hashArg(d))
       hashCombine(callSeed, hashArg(e))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R] =
@@ -669,7 +677,7 @@ proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2
       hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
       hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
       hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R] =
@@ -681,7 +689,7 @@ proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b
       hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
       hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
       hashCombine(callSeed, hashArg(g))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R] =
@@ -693,7 +701,7 @@ proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T
       hashCombine(callSeed, hashArg(c)); hashCombine(callSeed, hashArg(d))
       hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
       hashCombine(callSeed, hashArg(g)); hashCombine(callSeed, hashArg(h))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R] =
@@ -706,7 +714,7 @@ proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(
       hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
       hashCombine(callSeed, hashArg(g)); hashCombine(callSeed, hashArg(h))
       hashCombine(callSeed, hashArg(i))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R] =
@@ -719,7 +727,7 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen
       hashCombine(callSeed, hashArg(e)); hashCombine(callSeed, hashArg(f))
       hashCombine(callSeed, hashArg(g)); hashCombine(callSeed, hashArg(h))
       hashCombine(callSeed, hashArg(i)); hashCombine(callSeed, hashArg(j))
-      var src = newSource(callSeed)
+      var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
 # Void return variants
