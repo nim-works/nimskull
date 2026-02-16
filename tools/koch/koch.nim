@@ -183,8 +183,12 @@ proc buildTool(toolname, args: string) =
   copyFile(dest="bin" / splitFile(toolname).name.exe, source=toolname.exe)
 
 proc buildTools(args: string = "") =
+  let dustArgs = if "-d:leakTest" in args: ""
+                 else: args
+                 ## dust doesn't support leak testing until `TAstDiag` is no
+                 ## longer marked `.acyclic` or ideally removed
   nimCompileFold("Compile dust", "tools/dust/dust.nim",
-                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
+                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), dustArgs])
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
