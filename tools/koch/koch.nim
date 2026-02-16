@@ -183,6 +183,8 @@ proc buildTool(toolname, args: string) =
   copyFile(dest="bin" / splitFile(toolname).name.exe, source=toolname.exe)
 
 proc buildTools(args: string = "") =
+  nimCompileFold("Compile dust", "tools/dust/dust.nim",
+                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
@@ -455,6 +457,7 @@ proc hostInfo(): string =
     [hostOS, hostCPU, $int.sizeof, $float.sizeof, $cpuEndian, getCurrentDir()]
 
 proc testTools(cmd: string) =
+  nimexecFold("Run dust tests", "r tools/dust/tester")
   # xxx: temporarily placing nimscript testing to ensure it's at least running
   nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   nimexecFold("Run nimdoc tests", "r nimdoc/tester")
