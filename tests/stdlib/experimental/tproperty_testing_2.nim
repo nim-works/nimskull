@@ -2,12 +2,14 @@ discard """
   targets: "c js"
 """
 
+
 import std/[options, unittest, strutils]
 import experimental/property_testing_2
 
 from std/algorithm import sorted
 from std/sequtils import toSeq
 from std/typetraits import enumLen
+
 
 type 
   Colors = enum Red, Green, Blue
@@ -21,8 +23,9 @@ const defaultSeed: uint32 = 1
 
 # Helper to check for generator properties
 proc getSamples[T](gen: Gen[T], count: int = 256,
-                   seed: uint32 = defaultSeed): seq[T] =
-  let source = newSource(seed)
+                   seed: uint32 = defaultSeed,
+                   debug: bool = false): seq[T] =
+  let source = newSource(seed, debug = debug)
   result = gen.sample(source, count)
 
 
@@ -182,10 +185,12 @@ suite "Property Testing with Integrated Shrinking":
     for i, v in vals.sorted().pairs:
       check v == expected[i]
 
-    let vals2 = getSamples(genEnum[E](), seed = defaultSeed + 1, count = enumLen(E))
+    let vals2 = getSamples(genEnum[E](), seed = defaultSeed + 1,
+                           count = enumLen(E))
     checkpoint "vals2: " & $vals2
     check vals != vals2
     check vals2.sorted() == expected
+
 
   # TODO: test genEnum with holey enums
   # TODO: test genEnum for larger than 8 bit enums

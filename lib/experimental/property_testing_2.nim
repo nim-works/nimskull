@@ -32,6 +32,7 @@ type
     idempotent*: bool ## whether the generator consuming this source should
                       ## be able to produce the same value given the same
                       ## source state, i.e.: disabling exhausitiveness
+    debug*: bool      ## used for debugging
 
   Gen*[T] = proc(s: Source): T
 
@@ -61,7 +62,7 @@ const DefaultSourceLimit = 100_000 # Reasonable default limit
 
 
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
-                idempotent: bool = false): Source =
+                idempotent: bool = false, debug: bool = false): Source =
   new(result)
   result.rng = newMersenneTwister(seed)
   result.buffer = @[]
@@ -69,6 +70,7 @@ proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
   result.recording = true
   result.limit = limit
   result.idempotent = idempotent
+  result.debug = debug
 
 
 proc newSource*(buffer: seq[byte]): Source =
@@ -202,9 +204,9 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
   ## This effectively shuffles the "remaining" items and picks one.
   ## Once `pos` reaches end, it switches to pure random
 
-  var indices = newSeq[int](vals.len)
-  for i in 0 ..< vals.len: indices[i] = i
-  let state = ExhaustiveState[T](vals: vals, indices: indices, pos: 0)
+  let 
+    indices = toSeq(0 ..< vals.len)
+    state = ExhaustiveState[T](vals: vals, indices: indices, pos: 0)
 
   return proc(s: Source): T =
     if not s.recording:
@@ -331,9 +333,7 @@ proc genEnum*[T: enum](min, max: T): Gen[T] =
 
 
 proc genEnum*[T: enum](): Gen[T] =
-  var vals = newSeq[T](enumLen(T))
-  for e in T.items:
-    vals.add(e)
+  let vals = toSeq(T.items)
   if enumLen(T) < int(high(uint8)):
     return genExhaustive(vals)
   else:
