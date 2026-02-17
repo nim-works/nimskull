@@ -21,6 +21,7 @@ suite "Property Testing with Integrated Shrinking":
     check res.failingValue.get() == 42
     check res.shrunkValue.get() == 42
 
+
   test "Byte generator, exhaustively produces all values in range in random order":
     let prop = Property[byte](
       gen: genByte(),
@@ -29,14 +30,6 @@ suite "Property Testing with Integrated Shrinking":
     )
     check runProperty(prop).status == psPass
 
-  test "Char range generator, exhaustively produces all values in range in random order":
-    # TODO: verify order is random
-    let prop = Property[char](
-      gen: genChar('a', 'z'),
-      check: proc(c: char): PropertyStatus =
-        if c >= 'a' and c <= 'z': psPass else: psFail
-    )
-    check runProperty(prop).status == psPass
 
   test "Bool generator, exhaustively produces both true and false":
     # Just verify it produces both true and false over enough runs
@@ -51,24 +44,68 @@ suite "Property Testing with Integrated Shrinking":
     if not (seenTrue and seenFalse):
         checkpoint "Warning: genBool didn't produce both values in 50 runs (unlikely but possible)"
 
-  test "Array generator produces arrays of a given length with given generator for elements":
-    # Array of 3 bytes.
-    # Want x[0] == 0.
-    # Fail if x[0] != 0.
-    # Shrink x[0] to 1 (0 passes, 1 fails).
-    # Minimal failure.
-    let prop = Property[array[3, byte]](
-      gen: genArray(genByte(), 3),
-      check: proc(a: array[3, byte]): PropertyStatus =
-        if a[0] == 0: psPass else: psFail
+
+  test "ASCII char generator, exhaustively produces all values in range in random order":
+    # TODO: verify order is random
+    let prop = Property[char](
+      gen: genAsciiChar(),
+      check: proc(c: char): PropertyStatus =
+        if c >= char(0) and c <= char(127): psPass else: psFail
     )
-    let res = runProperty(prop)
+    check runProperty(prop).status == psPass
+
+
+  test "Char range generator, exhaustively produces all values in range in random order":
+    # TODO: verify order is random
+    let prop = Property[char](
+      gen: genChar('a', 'z'),
+      check: proc(c: char): PropertyStatus =
+        if c >= 'a' and c <= 'z': psPass else: psFail
+    )
+    check runProperty(prop).status == psPass
+
+  test "UInt32 range generator, shrinking a simple integer predicate, exhaustive for small ranges":
+    # Predicate: x < 10.
+    # Failure: x >= 10.
+    # Expectation: Shrink to 10.
+    
+    let prop = Property[uint32](
+      gen: genUInt32Range(0, 100),
+      check: proc(x: uint32): PropertyStatus =
+        if x < 10: psPass else: psFail
+    )
+
+    let res = runProperty(prop, trials = 101, seed = 1)
+    
     check res.status == psFail
-    let shrunk = res.shrunkValue.get()
-    check shrunk[0] == 1
-    # Check other elements are zeroed (simplest)
-    check shrunk[1] == 0
-    check shrunk[2] == 0
+    check res.shrunk
+    if res.shrunkValue.isSome:
+      let val = res.shrunkValue.get
+      checkpoint "Shrunk value: " & $val
+      check val == 10
+      # this should work because small int ranges are exhaustive
+
+  test "Integer range generator, shrinking a simple integer predicate, exhaustive for small ranges":
+    # Predicate: x < 10.
+    # Failure: x >= 10.
+    # Expectation: Shrink to 10.
+    
+    let prop = Property[int](
+      gen: genIntRange(-100, 100),
+      check: proc(x: int): PropertyStatus =
+        if x < 10: psPass else: psFail
+    )
+
+    let res = runProperty(prop, seed = 1)
+    
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.isSome
+    let val = res.shrunkValue.get
+    checkpoint "Shrunk value: " & $val
+    check val == 10
+    # this should work because small int ranges are exhaustive
+
 
   test "Enum generator, exhaustively produces all values in enum in random order (for small enums)":
     # Want x < Green (Red).
@@ -83,6 +120,7 @@ suite "Property Testing with Integrated Shrinking":
     let res = runProperty(prop, trials=100)
     if res.status == psFail:
       check res.shrunkValue.get() == Green
+
 
   test "Set generator, exhaustively produces all possible sets of given elements (for small Enums)":
     # Set must be empty.
@@ -100,38 +138,6 @@ suite "Property Testing with Integrated Shrinking":
     # Expect {A}
     check res.shrunkValue.get() == {A}
 
-  test "Integer range generator, shrinking a simple integer predicate, exhaustive for small ranges":
-    # Predicate: x < 10.
-    # Failure: x >= 10.
-    # Expectation: Shrink to 10.
-    
-    let prop = Property[int](
-      gen: genIntRange(0, 100),
-      check: proc(x: int): PropertyStatus =
-        if x < 10: psPass else: psFail
-    )
-
-    let res = runProperty(prop, trials = 101, seed = 1)
-    
-    check res.status == psFail
-    check res.shrunk
-    if res.shrunkValue.isSome:
-      let val = res.shrunkValue.get
-      checkpoint "Shrunk value: " & $val
-      check val == 10
-      # this should work because small int ranges are exhaustive
-
-  # This test covers non-shrinking pass behavior
-  test "Passing Property":
-    let prop = Property[int](
-      gen: genIntRange(0, 100),
-      check: proc(x: int): PropertyStatus =
-        if x >= 0: psPass else: psFail
-    )
-    let res = runProperty(prop, trials=10)
-    check res.status == psPass
-    check res.failingValue.isNone
-    check res.shrunk == false
 
   test "Shrinking a sequence length":
     # Predicate: len(s) < 5
@@ -151,6 +157,7 @@ suite "Property Testing with Integrated Shrinking":
       let val = res.shrunkValue.get
       checkpoint "Shrunk seq: " & $val & " len: " & $val.len
       check val.len >= 5
+
 
   test "Shrinking a string content (manual seeded)":
     # Predicate: not s.contains('A')
@@ -175,6 +182,40 @@ suite "Property Testing with Integrated Shrinking":
         # Minimal string containing A is just "A". 
         # Or something small.
         check s.len < 5
+
+
+  test "Array generator produces arrays of a given length with given generator for elements":
+    # Array of 3 bytes.
+    # Want x[0] == 0.
+    # Fail if x[0] != 0.
+    # Shrink x[0] to 1 (0 passes, 1 fails).
+    # Minimal failure.
+    let prop = Property[array[3, byte]](
+      gen: genArray(genByte(), 3),
+      check: proc(a: array[3, byte]): PropertyStatus =
+        if a[0] == 0: psPass else: psFail
+    )
+    let res = runProperty(prop)
+    check res.status == psFail
+    let shrunk = res.shrunkValue.get()
+    check shrunk[0] == 1
+    # Check other elements are zeroed (simplest)
+    check shrunk[1] == 0
+    check shrunk[2] == 0
+
+
+  # This test covers non-shrinking pass behavior
+  test "Passing Property":
+    let prop = Property[int](
+      gen: genIntRange(0, 100),
+      check: proc(x: int): PropertyStatus =
+        if x >= 0: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=10)
+    check res.status == psPass
+    check res.failingValue.isNone
+    check res.shrunk == false
+
 
   test "Filter creates a new generator and shrinks correctly":
     # Even numbers. Want < 10.

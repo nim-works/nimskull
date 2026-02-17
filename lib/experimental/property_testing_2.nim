@@ -212,6 +212,27 @@ proc genByte*(): Gen[byte] =
   return genExhaustive(vals)
 
 
+proc genBool*(): Gen[bool] =
+  ## create a boolean generator.
+  return genExhaustive(@[false, true])
+
+
+proc genChar*(min, max: char): Gen[char] =
+  ## create a char arbitrary for the range [min, max].
+  let vals = toSeq(min..max)
+  return genExhaustive(vals)
+
+
+proc genAsciiChar*(): Gen[char] =
+  ## create a char arbitrary for the ASCII range.
+  genChar(char(0), char(127))
+
+
+proc genChar*(): Gen[char] =
+  ## create a char arbitrary for the full character range, see: `genAsciiChar`
+  genChar(char.low, char.high)
+
+
 proc genUint32*(): Gen[uint32] =
   ## create a uint32 generator.
   return proc(s: Source): uint32 = s.nextUint32()
@@ -235,27 +256,6 @@ proc genIntRange*(min, max: int): Gen[int] =
       if rangeSize == 0: return min
       let val = abs(cast[int](s.nextUint64()))
       return min + (val mod rangeSize)
-
-
-proc genChar*(min, max: char): Gen[char] =
-  ## create a char arbitrary for the range [min, max].
-  let vals = toSeq(min..max)
-  return genExhaustive(vals)
-
-
-proc genAsciiChar*(): Gen[char] =
-  ## create a char arbitrary for the ASCII range.
-  genChar(char(0), char(127))
-
-
-proc genChar*(): Gen[char] =
-  ## create a char arbitrary for the full character range, see: `genAsciiChar`
-  genChar(char.low, char.high)
-
-
-proc genBool*(): Gen[bool] =
-  ## create a boolean generator.
-  return genExhaustive(@[false, true])
 
 
 proc genEnum*[T: enum](): Gen[T] =
