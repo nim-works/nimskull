@@ -57,7 +57,8 @@ type
 
 # MARK: Source Implementation
 
-const DefaultSourceLimit = 10_000 # Reasonable default limit
+const DefaultSourceLimit = 100_000 # Reasonable default limit
+
 
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
                 idempotent: bool = false): Source =
@@ -69,6 +70,7 @@ proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
   result.limit = limit
   result.idempotent = idempotent
 
+
 proc newSource*(buffer: seq[byte]): Source =
   ## Create a source for replaying/shrinking with a fixed buffer
   new(result)
@@ -78,6 +80,7 @@ proc newSource*(buffer: seq[byte]): Source =
   result.recording = false
   result.limit = buffer.len
   result.idempotent = false
+
 
 proc nextByte*(s: Source): byte =
   if s.recording:
@@ -96,20 +99,42 @@ proc nextByte*(s: Source): byte =
       # This is crucial for shrinking where we might cut the buffer short.
       result = 0
 
+
 proc nextBytes*(s: Source, count: int): seq[byte] =
   result = newSeq[byte](count)
   for i in 0 ..< count:
     result[i] = s.nextByte()
+
 
 proc nextUint32*(s: Source): uint32 =
   # We consume 4 bytes
   let b = s.nextBytes(4)
   result = b[0].uint32 or (b[1].uint32 shl 8) or (b[2].uint32 shl 16) or (b[3].uint32 shl 24)
 
+
+proc nextUint16*(s: Source): uint16 =
+  let b = s.nextBytes(2)
+  result = b[0].uint16 or (b[1].uint16 shl 8)
+
+
 proc nextUint64*(s: Source): uint64 =
   let b = s.nextBytes(8)
   result = b[0].uint64 or (b[1].uint64 shl 8) or (b[2].uint64 shl 16) or (b[3].uint64 shl 24) or
            (b[4].uint64 shl 32) or (b[5].uint64 shl 40) or (b[6].uint64 shl 48) or (b[7].uint64 shl 56)
+
+
+proc nextInt*(s: Source): int =
+  when sizeof(int) == sizeof(uint64):
+    return cast[int](s.nextUint64())
+  elif sizeof(int) == sizeof(uint32):
+    return cast[int](s.nextUint32())
+  elif sizeof(int) == sizeof(uint16):
+    return cast[int](s.nextUint16())
+  elif sizeof(int) == sizeof(uint8):
+    return cast[int](s.nextUint8())
+  else:
+    raise newException(ValueError, "Unsupported int size")
+
 
 proc nextFloat64*(s: Source): float64 =
   cast[float64](s.nextUint64()) # Simple cast, might produce NaN etc.
@@ -148,6 +173,12 @@ proc flatMap*[T, U](g: Gen[T], f: proc(x: T): Gen[U]): Gen[U] =
   return proc(s: Source): U =
     let t = g(s)
     f(t)(s)
+
+
+proc sample*[T](g: Gen[T], source: Source, count: int): seq[T] =
+  result = newSeq[T](count)
+  for i in 0 ..< count:
+    result[i] = g(source)
 
 
 # MARK: Generators
@@ -206,6 +237,11 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
       result = state.vals[idx]
 
 
+proc genConst*[T](v: T): Gen[T] =
+  ## create a generator that always returns `v`.
+  return proc(s: Source): T = v
+
+
 proc genByte*(): Gen[byte] =
   ## create a byte generator.
   let vals = toSeq(byte.low .. byte.high)
@@ -223,27 +259,18 @@ proc genChar*(min, max: char): Gen[char] =
   return genExhaustive(vals)
 
 
+proc genChar*(): Gen[char] =
+  ## create a char arbitrary for the full character range,
+  ## see: `genAsciiChar` for the ASCII range.
+  genChar(char.low, char.high)
+
+
 proc genAsciiChar*(): Gen[char] =
   ## create a char arbitrary for the ASCII range.
   genChar(char(0), char(127))
 
 
-proc genChar*(): Gen[char] =
-  ## create a char arbitrary for the full character range, see: `genAsciiChar`
-  genChar(char.low, char.high)
-
-
-proc genUint32*(): Gen[uint32] =
-  ## create a uint32 generator.
-  return proc(s: Source): uint32 = s.nextUint32()
-
-
-proc genInt*(): Gen[int] =
-  # Assuming 64-bit int for now or system int
-  return proc(s: Source): int = cast[int](s.nextUint64()) 
-
-
-proc genIntRange*(min, max: int): Gen[int] =
+proc genInt*(min, max: int): Gen[int] =
   ## create an integer generator for the range [min, max].
   assert max >= min
   let rangeSize = (max - min)
@@ -254,12 +281,57 @@ proc genIntRange*(min, max: int): Gen[int] =
     return proc(s: Source): int =
       let rangeSize = (max - min)
       if rangeSize == 0: return min
-      let val = abs(cast[int](s.nextUint64()))
-      return min + (val mod rangeSize)
+      let val = abs(s.nextInt())
+      return min + (val mod (rangeSize + 1))
+
+
+proc genInt*(): Gen[int] =
+  # Assuming 64-bit int for now or system int
+  return proc(s: Source): int = s.nextInt()
+
+
+proc genUint32*(min, max: uint32): Gen[uint32] =
+  ## create a uint32 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= uint32(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): uint32 =
+      let rangeSize = (max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUint32()
+      return min + (val mod (rangeSize + 1))
+
+
+proc genUint32*(): Gen[uint32] =
+  ## create a uint32 generator.
+  return proc(s: Source): uint32 = s.nextUint32()
+
+
+proc genEnum*[T: enum](min, max: T): Gen[T] =
+  ## create an enum generator for the range [min, max].
+  assert max >= min
+  let
+    rangeSize = ord(max) - ord(min)
+    vals = toSeq(min..max)
+  if rangeSize <= int(uint8.high):
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): T =
+      # TODO: because of holey enums we need to do this inefficiently to avoid
+      # generating invalid enum values regardless of the specific enum, but
+      # we should do some compile time logic to only do this for the holey
+      # variety via: `typetraits.isHoleyEnum`
+      let rangeSize = ord(max) - ord(min)
+      if rangeSize == 0: return min
+      let idx = int(s.nextUint32() mod uint32(rangeSize + 1))
+      return vals[idx]
 
 
 proc genEnum*[T: enum](): Gen[T] =
-  var vals = newSeq[T]()
+  var vals = newSeq[T](enumLen(T))
   for e in T.items:
     vals.add(e)
   if enumLen(T) < int(high(uint8)):
@@ -270,31 +342,29 @@ proc genEnum*[T: enum](): Gen[T] =
       # generating invalid enum values regardless of the specific enum, but
       # we should do some compile time logic to only do this for the holey
       # variety via: `typetraits.isHoleyEnum`
-      let idx = s.nextUint32() mod uint32(vals.len)
+      let idx = int(s.nextUint32() mod uint32(vals.len))
       result = vals[idx]
 
 
 proc genSet*[T: enum](minLen = 0, maxLen = enumLen(T), exclude: set[T] = {}): Gen[set[T]] =
   ## create a set generator for the enum type `T` excluding the values in
   ## `exclude`.
+  assert maxLen >= minLen
+  assert enumLen(T) - exclude.len >= minLen
   let g =
     if exclude.len == 0: genEnum[T]()
     else: genEnum[T]().filter((e) => e notin exclude)
 
   return proc(s: Source): set[T] =
     let len = s.nextUint32() mod uint32(maxLen - minLen + 1) + uint32(minLen)
-    for i in 0 ..< len:
+    while result.len < int(len):
       result.incl g(s)
-
-
-proc genConst*[T](v: T): Gen[T] =
-  ## create a generator that always returns `v`.
-  return proc(s: Source): T = v
 
 
 proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]] =
   ## create a sequence generator with element type `T` and length in the range
   ## [minLen, maxLen].
+  assert maxLen >= minLen
   return proc(s: Source): seq[T] =
     let len: uint32 =
       if maxLen == minLen: minLen
@@ -308,12 +378,14 @@ proc genString*(minLen: uint32 = 0, maxLen: uint32 = 100,
                 charGen: Gen[char] = genChar()): Gen[string] =
   ## create a string generator for the range [minLen, maxLen] using the given
   ## char generator.
+  assert maxLen >= minLen
   let g = genSeq(charGen, minLen, maxLen)
   return proc(s: Source): string =
     let sSeq = g(s)
     result = newString(sSeq.len)
     for i, c in sSeq:
       result[i] = c
+
 
 proc genAsciiString*(minLen: uint32 = 0, maxLen: uint32 = 100): Gen[string] =
   ## create an ASCII string generator.

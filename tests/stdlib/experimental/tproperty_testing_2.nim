@@ -5,11 +5,286 @@ discard """
 import std/[options, unittest, strutils]
 import experimental/property_testing_2
 
+from std/algorithm import sorted
+from std/sequtils import toSeq
+from std/typetraits import enumLen
+
 type 
   Colors = enum Red, Green, Blue
+
+
   E = enum A, B, C
 
+
+const defaultSeed: uint32 = 1
+
+
+# Helper to check for generator properties
+proc getSamples[T](gen: Gen[T], count: int = 256,
+                   seed: uint32 = defaultSeed): seq[T] =
+  let source = newSource(seed)
+  result = gen.sample(source, count)
+
+
 suite "Property Testing with Integrated Shrinking":
+
+  test "Constant generator - produces the same value over and over again":
+    let vals = getSamples(genConst(42))
+    for val in vals:
+      check val == 42
+
+
+  test "Byte generator - is exhaustive and in random order":
+    let
+      vals = getSamples(genByte())
+      expected = toSeq(byte.low .. byte.high)
+    
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+    
+    let vals2 = getSamples(genByte(), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Bool generator - is exhaustive and in random order":
+    let
+      vals = getSamples(genBool(), count = 2)
+      expected = @[false, true]
+    
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+    
+    let vals2 = getSamples(genBool(), seed = defaultSeed + 1, count = 2)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Char range generator - is exhaustive and in random order":
+    let
+      vals = getSamples(genChar('a', 'z'), count = 26)
+      expected = toSeq('a' .. 'z')
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genChar('a', 'z'), seed = defaultSeed + 1, count = 26)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Char generator - is exhaustive and in random order":
+    let
+      vals = getSamples(genChar())
+      expected = toSeq(char.low .. char.high)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genChar(), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "ASCII Char generator - is exhaustive and in random order":
+    let
+      vals = getSamples(genAsciiChar(), count = 128)
+      expected = toSeq(char(0) .. char(127))
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genAsciiChar(), seed = defaultSeed + 1, count = 128)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Int generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genInt(-128, 127))
+      expected = toSeq(-128 .. 127)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genInt(-128, 127), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Int generator":
+    let vals = getSamples(genInt())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= int.low and v <= int.high
+
+
+  test "Uint32 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genUint32(0, 255))
+      expected = toSeq(0'u32 .. 255)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genUint32(0, 255), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Uint32 generator":
+    let vals = getSamples(genUint32())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= uint32.low and v <= uint32.high
+
+
+  test "Enum generator - is exhaustive for small ranges and in random order":
+    let
+      vals = getSamples(genEnum[E](), count = enumLen(E))
+      expected = toSeq(E.items)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genEnum[E](), seed = defaultSeed + 1, count = enumLen(E))
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+  # TODO: test genEnum with holey enums
+  # TODO: test genEnum for larger than 8 bit enums
+
+
+  test "Set generator":
+    let samples = getSamples(genSet[E]())
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        for e in s:
+          check e in {E.low .. E.high}
+
+
+  test "Set generator - samples of a certain length":
+    let samples = getSamples(genSet[E](minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        check s.len >= 2
+        for e in s:
+          check e in {E.low .. E.high}
+
+
+  test "Set generator - excluding some elements":
+    let samples = getSamples(genSet[E](exclude={A}))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        for e in s:
+          check e in {E.low .. E.high}
+          check e != A
+
+
+  test "Seq generator":
+    let samples = getSamples(genSeq(genEnum[E]()))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        for e in s:
+          check e in {E.low .. E.high}
+
+
+  test "Seq generator - samples of a certain length":
+    let samples = getSamples(genSeq(genEnum[E](), minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        check s.len >= 2
+        for e in s:
+          check e in {E.low .. E.high}
+
+
+  test "String generator":
+    let samples = getSamples(genString())
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        for e in s:
+          check e in {char.low .. char.high}
+
+
+  test "String generator - samples of a certain length":
+    let samples = getSamples(genString(minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        check s.len >= 2
+        for e in s:
+          check e in {char.low .. char.high}
+
+
+  test "ASCII string generator":
+    let samples = getSamples(genAsciiString())
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        for e in s:
+          check e in {char(0) .. char(127)}
+
+
+  test "ASCII string generator - samples of a certain length":
+    let samples = getSamples(genAsciiString(minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        check s.len >= 2
+        for e in s:
+          check e in {char(0) .. char(127)}
+
+
+  test "Array generator":
+    let samples = getSamples(genArray(genEnum[E](), 5))
+    for s in samples:
+      checkpoint "s: " & $s
+      for s in samples:
+        for e in s:
+          check e in {E.low .. E.high}
+
 
   test "Constant generator, produces the same value always":
     let prop = Property[int](
@@ -70,7 +345,7 @@ suite "Property Testing with Integrated Shrinking":
     # Expectation: Shrink to 10.
     
     let prop = Property[uint32](
-      gen: genUInt32Range(0, 100),
+      gen: genUInt32(0, 100),
       check: proc(x: uint32): PropertyStatus =
         if x < 10: psPass else: psFail
     )
@@ -91,7 +366,7 @@ suite "Property Testing with Integrated Shrinking":
     # Expectation: Shrink to 10.
     
     let prop = Property[int](
-      gen: genIntRange(-100, 100),
+      gen: genInt(-100, 100),
       check: proc(x: int): PropertyStatus =
         if x < 10: psPass else: psFail
     )
@@ -122,7 +397,7 @@ suite "Property Testing with Integrated Shrinking":
       check res.shrunkValue.get() == Green
 
 
-  test "Set generator, exhaustively produces all possible sets of given elements (for small Enums)":
+  test "Set generator property check":
     # Set must be empty.
     # Fail if not empty.
     # Shrink to {A} (Smallest non-empty set).
@@ -207,7 +482,7 @@ suite "Property Testing with Integrated Shrinking":
   # This test covers non-shrinking pass behavior
   test "Passing Property":
     let prop = Property[int](
-      gen: genIntRange(0, 100),
+      gen: genInt(0, 100),
       check: proc(x: int): PropertyStatus =
         if x >= 0: psPass else: psFail
     )
@@ -222,7 +497,7 @@ suite "Property Testing with Integrated Shrinking":
     # Fail 10, 12, ...
     # Expect shrink to 10.
     let prop = Property[int](
-      gen: genIntRange(0, 20).filter(proc(x: int): bool = x mod 2 == 0),
+      gen: genInt(0, 20).filter(proc(x: int): bool = x mod 2 == 0),
       check: proc(x: int): PropertyStatus =
         if x < 10: psPass else: psFail
     )
@@ -238,7 +513,7 @@ suite "Property Testing with Integrated Shrinking":
     # Underlying gen produces 5 (fails), 6 (fails)...
     # Shrink underlying to 5. Map(5) = 50.
     let prop = Property[int](
-      gen: genIntRange(0, 10).map(proc(x: int): int = x * 10),
+      gen: genInt(0, 10).map(proc(x: int): int = x * 10),
       check: proc(x: int): PropertyStatus =
         if x < 50: psPass else: psFail
     )
@@ -275,7 +550,7 @@ suite "Property Testing with Integrated Shrinking":
 
   test "FlatMap produces a generator that generates values based on the values generated by another generator":
     # Generate a length L, then a sequence of length L.
-    let gen = genIntRange(0, 5).flatMap(proc(len: int): Gen[seq[byte]] =
+    let gen = genInt(0, 5).flatMap(proc(len: int): Gen[seq[byte]] =
         genSeq(genByte(), minLen = uint32(len), maxLen = uint32(len))
     )
     
@@ -295,7 +570,7 @@ suite "Property Testing with Integrated Shrinking":
       # Expect shrink to L=3. Seq of length 3.
       # Note: FlatMap shrinking is complex because the structure depends on the first value.
       # Integrated shrinking handles this naturally!
-      let gen = genIntRange(0, 10).flatMap(proc(len: int): Gen[seq[byte]] =
+      let gen = genInt(0, 10).flatMap(proc(len: int): Gen[seq[byte]] =
         genSeq(genByte(), minLen = uint32(len), maxLen = uint32(len))
       )
 
@@ -312,7 +587,7 @@ suite "Property Testing with Integrated Shrinking":
 
   test "1 Element Tuple Generation and Shrinking":
     let prop = Property[(int,)](
-      gen: genTuple(genIntRange(0, 10)),
+      gen: genTuple(genInt(0, 10)),
       check: proc(t: (int,)): PropertyStatus =
         if t[0] < 5: psPass else: psFail
     )
@@ -322,7 +597,7 @@ suite "Property Testing with Integrated Shrinking":
 
   test "2 Element Tuple Generation and Shrinking":
     let prop = Property[(int, int)](
-      gen: genTuple(genIntRange(0, 100), genIntRange(0, 100)),
+      gen: genTuple(genInt(0, 100), genInt(0, 100)),
       check: proc(t: (int, int)): PropertyStatus =
         if t[0] < 10 and t[1] < 10: psPass else: psFail
     )
@@ -335,7 +610,7 @@ suite "Property Testing with Integrated Shrinking":
     
   test "3 Element Tuple Generation and Shrinking":
     let prop = Property[(int, int, int)](
-      gen: genTuple(genIntRange(0, 10), genIntRange(0, 10), genIntRange(0, 10)),
+      gen: genTuple(genInt(0, 10), genInt(0, 10), genInt(0, 10)),
       check: proc(t: (int, int, int)): PropertyStatus =
         if t[0] + t[1] + t[2] < 15: psPass else: psFail
     )
@@ -425,7 +700,7 @@ suite "Property Testing with Integrated Shrinking":
 
   test "1-arity proc generation":
     let prop = Property[proc(x: int): int](
-      gen: genProc1[int, int](genIntRange(0, 100)),
+      gen: genProc1[int, int](genInt(0, 100)),
       check: proc(f: proc(x: int): int): PropertyStatus =
         let v1 = f(10)
         let v2 = f(10)
