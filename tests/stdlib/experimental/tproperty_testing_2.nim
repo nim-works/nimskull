@@ -9,7 +9,7 @@ type
   Colors = enum Red, Green, Blue
   E = enum A, B, C
 
-suite "Property Testing 2 (Integrated Shrinking)":
+suite "Property Testing with Integrated Shrinking":
 
   test "Constant generator, produces the same value always":
     let prop = Property[int](
@@ -20,6 +20,14 @@ suite "Property Testing 2 (Integrated Shrinking)":
     check res.status == psFail
     check res.failingValue.get() == 42
     check res.shrunkValue.get() == 42
+
+  test "Byte generator, exhaustively produces all values in range in random order":
+    let prop = Property[byte](
+      gen: genByte(),
+      check: proc(b: byte): PropertyStatus =
+        if b >= 0 and b <= 255: psPass else: psFail
+    )
+    check runProperty(prop).status == psPass
 
   test "Char range generator, exhaustively produces all values in range in random order":
     # TODO: verify order is random
@@ -103,7 +111,7 @@ suite "Property Testing 2 (Integrated Shrinking)":
         if x < 10: psPass else: psFail
     )
 
-    let res = runProperty(prop, trials = 100, seed = 1)
+    let res = runProperty(prop, trials = 101, seed = 1)
     
     check res.status == psFail
     check res.shrunk
