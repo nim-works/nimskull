@@ -346,19 +346,24 @@ proc genEnum*[T: enum](): Gen[T] =
       result = vals[idx]
 
 
-proc genSet*[T: enum](minLen = 0, maxLen = enumLen(T), exclude: set[T] = {}): Gen[set[T]] =
+proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
   ## create a set generator for the enum type `T` excluding the values in
   ## `exclude`.
-  assert maxLen >= minLen
-  assert enumLen(T) - exclude.len >= minLen
+  let maxLen = enumLen(T) - exclude.len
+  assert minLen <= maxLen, "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
+
   let g =
     if exclude.len == 0: genEnum[T]()
     else: genEnum[T]().filter((e) => e notin exclude)
 
   return proc(s: Source): set[T] =
-    let len = s.nextUint32() mod uint32(maxLen - minLen + 1) + uint32(minLen)
-    while result.len < int(len):
+    let
+      len = s.nextUint32() mod uint32(maxLen - minLen + 1) + uint32(minLen)
+      upperLimit = maxLen * 2
+    var i = 0
+    while result.len < int(len) and i < upperLimit:
       result.incl g(s)
+      inc i
 
 
 proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]] =
