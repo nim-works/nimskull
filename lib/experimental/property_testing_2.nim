@@ -442,7 +442,7 @@ type
     shrunkValue*: Option[T]
     shrunkBuffer*: seq[byte]
 
-proc runProperty*[T](p: Property[T], trials: int = 100, seed: uint32 = 0): TestResult[T] =
+proc runProperty*[T](p: Property[T], trials: int = 256, seed: uint32 = 0): TestResult[T] =
   # Uses time as seed base if not provided 
   var masterSeed = seed
   if masterSeed == 0:
