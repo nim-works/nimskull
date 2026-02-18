@@ -148,6 +148,180 @@ suite "Property Testing with Integrated Shrinking":
       check v >= int.low and v <= int.high
 
 
+  test "Int8 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genInt8(-128, 127))
+      expected = toSeq(-128'i8 .. 127)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genInt8(-128, 127), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Int8 generator":
+    let vals = getSamples(genInt8())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= int8.low and v <= int8.high
+
+
+  test "Int16 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genInt16(-128, 127))
+      expected = toSeq(-128'i16 .. 127)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genInt16(-128, 127), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Int16 generator":
+    let vals = getSamples(genInt16())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= int16.low and v <= int16.high
+
+
+  test "Int32 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genInt32(-128, 127))
+      expected = toSeq(-128'i32 .. 127)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genInt32(-128, 127), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Int32 generator":
+    let vals = getSamples(genInt32())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= int32.low and v <= int32.high
+
+
+  test "Int64 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genInt64(-128, 127))
+      expected = toSeq(-128'i64 .. 127)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genInt64(-128, 127), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Int64 generator":
+    let vals = getSamples(genInt64())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= int64.low and v <= int64.high
+
+
+  test "Uint8 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genUint8(0, 255))
+      expected = toSeq(0'u8 .. 255)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genUint8(0, 255), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Uint8 generator":
+    let vals = getSamples(genUint8())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= uint8.low and v <= uint8.high
+
+
+  test "Uint16 generator - over small ranges is exhaustive and in random order":
+    let
+      vals = getSamples(genUint16(0, 255))
+      expected = toSeq(0'u16 .. 255)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genUint16(0, 255), seed = defaultSeed + 1)
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
+  test "Uint16 generator":
+    let vals = getSamples(genUint16())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= uint16.low and v <= uint16.high
+
+
+  test "Enum generator - is exhaustive for small ranges and in random order":
+    let
+      vals = getSamples(genEnum[E](), count = enumLen(E))
+      expected = toSeq(E.items)
+
+    checkpoint "vals: " & $vals
+    checkpoint "expected: " & $expected
+
+    for i, v in vals.sorted().pairs:
+      check v == expected[i]
+
+    let vals2 = getSamples(genEnum[E](), seed = defaultSeed + 1,
+                           count = enumLen(E))
+    checkpoint "vals2: " & $vals2
+    check vals != vals2
+    check vals2.sorted() == expected
+
+
   test "Uint32 generator - over small ranges is exhaustive and in random order":
     let
       vals = getSamples(genUint32(0, 255))
@@ -174,10 +348,10 @@ suite "Property Testing with Integrated Shrinking":
       check v >= uint32.low and v <= uint32.high
 
 
-  test "Enum generator - is exhaustive for small ranges and in random order":
+  test "Uint64 generator - over small ranges is exhaustive and in random order":
     let
-      vals = getSamples(genEnum[E](), count = enumLen(E))
-      expected = toSeq(E.items)
+      vals = getSamples(genUint64(0, 255))
+      expected = toSeq(0'u64 .. 255)
 
     checkpoint "vals: " & $vals
     checkpoint "expected: " & $expected
@@ -185,11 +359,19 @@ suite "Property Testing with Integrated Shrinking":
     for i, v in vals.sorted().pairs:
       check v == expected[i]
 
-    let vals2 = getSamples(genEnum[E](), seed = defaultSeed + 1,
-                           count = enumLen(E))
+    let vals2 = getSamples(genUint64(0, 255), seed = defaultSeed + 1)
     checkpoint "vals2: " & $vals2
     check vals != vals2
     check vals2.sorted() == expected
+
+
+  test "Uint64 generator":
+    let vals = getSamples(genUint64())
+
+    checkpoint "vals: " & $vals
+
+    for v in vals:
+      check v >= uint64.low and v <= uint64.high
 
 
   # TODO: test genEnum with holey enums
@@ -517,6 +699,7 @@ suite "Property Testing with Integrated Shrinking":
     # Shrink to 50.
     # Underlying gen produces 5 (fails), 6 (fails)...
     # Shrink underlying to 5. Map(5) = 50.
+    # TODO: this test occasionaly fails, reproduce and failure should emit counter example
     let prop = Property[int](
       gen: genInt(0, 10).map(proc(x: int): int = x * 10),
       check: proc(x: int): PropertyStatus =
@@ -591,6 +774,7 @@ suite "Property Testing with Integrated Shrinking":
           # It should shrink L to 3, then the seq content to zeros.
 
   test "1 Element Tuple Generation and Shrinking":
+    # TODO: this test occasionaly fails, reproduce and failure should emit counter example
     let prop = Property[(int,)](
       gen: genTuple(genInt(0, 10)),
       check: proc(t: (int,)): PropertyStatus =

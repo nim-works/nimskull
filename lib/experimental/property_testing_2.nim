@@ -108,10 +108,14 @@ proc nextBytes*(s: Source, count: int): seq[byte] =
     result[i] = s.nextByte()
 
 
-proc nextUint32*(s: Source): uint32 =
-  # We consume 4 bytes
-  let b = s.nextBytes(4)
-  result = b[0].uint32 or (b[1].uint32 shl 8) or (b[2].uint32 shl 16) or (b[3].uint32 shl 24)
+proc nextUint8*(s: Source): uint8 =
+  let b = s.nextBytes(1)
+  result = b[0].uint8
+
+
+proc nextInt8*(s: Source): int8 =
+  let b = s.nextBytes(1)
+  result = cast[int8](b[0])
 
 
 proc nextUint16*(s: Source): uint16 =
@@ -119,10 +123,32 @@ proc nextUint16*(s: Source): uint16 =
   result = b[0].uint16 or (b[1].uint16 shl 8)
 
 
+proc nextInt16*(s: Source): int16 =
+  let b = s.nextBytes(2)
+  result = cast[int16](b[0].uint16 or (b[1].uint16 shl 8))
+
+
+proc nextUint32*(s: Source): uint32 =
+  # We consume 4 bytes
+  let b = s.nextBytes(4)
+  result = b[0].uint32 or (b[1].uint32 shl 8) or (b[2].uint32 shl 16) or (b[3].uint32 shl 24)
+
+
+proc nextInt32*(s: Source): int32 =
+  let b = s.nextBytes(4)
+  result = cast[int32](b[0].uint32 or (b[1].uint32 shl 8) or (b[2].uint32 shl 16) or (b[3].uint32 shl 24))
+
+
 proc nextUint64*(s: Source): uint64 =
   let b = s.nextBytes(8)
   result = b[0].uint64 or (b[1].uint64 shl 8) or (b[2].uint64 shl 16) or (b[3].uint64 shl 24) or
            (b[4].uint64 shl 32) or (b[5].uint64 shl 40) or (b[6].uint64 shl 48) or (b[7].uint64 shl 56)
+
+
+proc nextInt64*(s: Source): int64 =
+  let b = s.nextBytes(8)
+  result = cast[int64](b[0].uint64 or (b[1].uint64 shl 8) or (b[2].uint64 shl 16) or (b[3].uint64 shl 24) or
+           (b[4].uint64 shl 32) or (b[5].uint64 shl 40) or (b[6].uint64 shl 48) or (b[7].uint64 shl 56))
 
 
 proc nextInt*(s: Source): int =
@@ -136,6 +162,10 @@ proc nextInt*(s: Source): int =
     return cast[int](s.nextUint8())
   else:
     raise newException(ValueError, "Unsupported int size")
+
+
+proc nextUInt*(s: Source): uint =
+  return cast[uint](s.nextInt())
 
 
 proc nextFloat64*(s: Source): float64 =
@@ -281,15 +311,135 @@ proc genInt*(min, max: int): Gen[int] =
     return genExhaustive(vals)
   else:
     return proc(s: Source): int =
-      let rangeSize = (max - min)
+      let rangeSize = cast[uint](max - min)
       if rangeSize == 0: return min
-      let val = abs(s.nextInt())
-      return min + (val mod (rangeSize + 1))
+      let val = s.nextUInt()
+      return cast[int](cast[uint](min) + (val mod (rangeSize + 1)))
 
 
 proc genInt*(): Gen[int] =
   # Assuming 64-bit int for now or system int
   return proc(s: Source): int = s.nextInt()
+
+
+proc genInt8*(min, max: int8): Gen[int8] =
+  ## create an int8 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = cast[uint8](max) - cast[uint8](min)
+  if rangeSize <= uint8.high:
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): int8 =
+      let rangeSize = cast[uint8](max) - cast[uint8](min)
+      if rangeSize == 0: return min
+      let val = s.nextUInt8()
+      return cast[int8](cast[uint8](min) + (val mod (rangeSize + 1)))
+
+
+proc genInt8*(): Gen[int8] =
+  ## create an int8 generator.
+  return proc(s: Source): int8 = s.nextInt8()
+
+
+proc genInt16*(min, max: int16): Gen[int16] =
+  ## create an int16 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= int16(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): int16 =
+      let rangeSize = cast[uint16](max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUInt16()
+      return cast[int16](cast[uint16](min) + (val mod (rangeSize + 1)))
+
+
+proc genInt16*(): Gen[int16] =
+  ## create an int16 generator.
+  return proc(s: Source): int16 = s.nextInt16()
+
+
+proc genInt32*(min, max: int32): Gen[int32] =
+  ## create an int32 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= int32(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): int32 =
+      let rangeSize = cast[uint32](max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUInt32()
+      return cast[int32](cast[uint32](min) + (val mod (rangeSize + 1)))
+
+
+proc genInt32*(): Gen[int32] =
+  ## create an int32 generator.
+  return proc(s: Source): int32 = s.nextInt32()
+
+
+proc genInt64*(min, max: int64): Gen[int64] =
+  ## create an int64 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= int64(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): int64 =
+      let rangeSize = cast[uint64](max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUInt64()
+      return cast[int64](cast[uint64](min) + (val mod (rangeSize + 1)))
+
+
+proc genInt64*(): Gen[int64] =
+  ## create an int64 generator.
+  return proc(s: Source): int64 = s.nextInt64()
+
+
+proc genUint8*(min, max: uint8): Gen[uint8] =
+  ## create a uint8 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= uint8(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): uint8 =
+      let rangeSize = (max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUint8()
+      return min + (val mod (rangeSize + 1))
+
+
+proc genUint8*(): Gen[uint8] =
+  ## create a uint8 generator.
+  return proc(s: Source): uint8 = s.nextUint8()
+
+
+proc genUint16*(min, max: uint16): Gen[uint16] =
+  ## create a uint16 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= uint16(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): uint16 =
+      let rangeSize = (max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUint16()
+      return min + (val mod (rangeSize + 1))
+
+
+proc genUint16*(): Gen[uint16] =
+  ## create a uint16 generator.
+  return proc(s: Source): uint16 = s.nextUint16()
 
 
 proc genUint32*(min, max: uint32): Gen[uint32] =
@@ -310,6 +460,26 @@ proc genUint32*(min, max: uint32): Gen[uint32] =
 proc genUint32*(): Gen[uint32] =
   ## create a uint32 generator.
   return proc(s: Source): uint32 = s.nextUint32()
+
+
+proc genUint64*(min, max: uint64): Gen[uint64] =
+  ## create a uint64 generator for the range [min, max].
+  assert max >= min
+  let rangeSize = (max - min)
+  if rangeSize <= uint64(uint8.high):
+    let vals = toSeq(min..max)
+    return genExhaustive(vals)
+  else:
+    return proc(s: Source): uint64 =
+      let rangeSize = (max - min)
+      if rangeSize == 0: return min
+      let val = s.nextUint64()
+      return min + (val mod (rangeSize + 1))
+
+
+proc genUint64*(): Gen[uint64] =
+  ## create a uint64 generator.
+  return proc(s: Source): uint64 = s.nextUint64()
 
 
 proc genEnum*[T: enum](min, max: T): Gen[T] =
@@ -333,6 +503,7 @@ proc genEnum*[T: enum](min, max: T): Gen[T] =
 
 
 proc genEnum*[T: enum](): Gen[T] =
+  assert enumLen(T) < int(uint16.high), "oversized enum"
   let vals = toSeq(T.items)
   if enumLen(T) < int(high(uint8)):
     return genExhaustive(vals)
@@ -342,7 +513,7 @@ proc genEnum*[T: enum](): Gen[T] =
       # generating invalid enum values regardless of the specific enum, but
       # we should do some compile time logic to only do this for the holey
       # variety via: `typetraits.isHoleyEnum`
-      let idx = int(s.nextUint32() mod uint32(vals.len))
+      let idx = int(s.nextUint16() mod uint16(vals.len))
       result = vals[idx]
 
 
