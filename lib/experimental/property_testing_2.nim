@@ -352,6 +352,10 @@ proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
   let maxLen = enumLen(T) - exclude.len
   assert minLen <= maxLen, "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
 
+  # TODO: rework this so we generate enum values the same way we generate
+  #       exhaustive enums, that way we don't use up too much recorded entropy
+  #       when generating shrunken sets.
+
   let g =
     if exclude.len == 0: genEnum[T]()
     else: genEnum[T]().filter((e) => e notin exclude)
