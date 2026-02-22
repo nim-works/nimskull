@@ -242,31 +242,51 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
     if not s.recording:
       # Replay/Shrink mode:
       # We ignore the state.indices (which might be shuffled) and sample directly
-      # from state.vals using the input source. This is equivalent to resetting
-      # the indices to their original sorted state [0, 1, 2...] and sampling.
-      let randVal = s.nextUint32()
-      let idx = int(randVal mod uint32(state.vals.len))
+      # from state.vals using the input source.
+      #
+      # Because during recording we wrote the exact chosen index (modulo handled
+      # during generation), we just read the value and modulo it safely.
+      # When the shrinker lowers the bytes, the modulo still smoothly lowers
+      # for values less than vals.len.
+      let
+        randVal = if state.vals.len <= 256: uint32(s.nextUint8())
+                  elif state.vals.len <= 65536: uint32(s.nextUint16())
+                  else: s.nextUint32()
+        idx = int(randVal) mod state.vals.len
       return state.vals[idx]
+
+    let randValOrig = s.rng.getNum()
+    var chosenIdx: int
 
     if state.pos < state.indices.len and not s.idempotent:
       # Exhaustive phase
-      # We pick an index `j` such that `state.pos <= j < state.indices.len`
-      # We use the source RNG to pick `j`.
-      
       let
         remaining = state.indices.len - state.pos
-        randVal = s.nextUint32()
-        offset = int(randVal mod uint32(remaining))
+        offset = int(randValOrig mod uint32(remaining))
         swapPos = state.pos + offset
 
-      let chosenIdx = state.indices.swapAccess(state.pos, swapPos)
-      result = state.vals[chosenIdx]
+      chosenIdx = state.indices.swapAccess(state.pos, swapPos)
       state.pos.inc
     else:
       # Random phase after exhaustion
-      let randVal = s.nextUint32()
-      let idx = int(randVal mod uint32(state.vals.len))
-      result = state.vals[idx]
+      chosenIdx = int(randValOrig mod uint32(state.vals.len))
+      
+    let bytesToAdd = if state.vals.len <= 256: 1
+                     elif state.vals.len <= 65536: 2
+                     else: 4
+    
+    if s.buffer.len + bytesToAdd > s.limit:
+      raise newException(SourceLimitExceededError, "Source limit exceeded")
+      
+    let val = uint32(chosenIdx)
+    if bytesToAdd >= 1: s.buffer.add(byte(val and 0xFF))
+    if bytesToAdd >= 2: s.buffer.add(byte((val shr 8) and 0xFF))
+    if bytesToAdd >= 4:
+      s.buffer.add(byte((val shr 16) and 0xFF))
+      s.buffer.add(byte((val shr 24) and 0xFF))
+    s.pos += bytesToAdd
+
+    result = state.vals[chosenIdx]
 
 
 proc genConst*[T](v: T): Gen[T] =
@@ -534,7 +554,20 @@ proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
   return proc(s: Source): set[T] =
     let
       len = s.nextUint32() mod uint32(maxLen - minLen + 1) + uint32(minLen)
-      upperLimit = maxLen * 2
+      upperLimit = maxLen * 15
+      # The reason we multiply by 15 is that we want to generate a set of
+      # size `len` with a probability of 1/15 for each element.
+      # This ensures that we generate a set of size `len` with a probability
+      # of 1/15 for each element. For example, if we have an enum with 3 values
+      # and we want to generate a set of size 2, then we want to generate a
+      # set of size 2 with a probability of 1/15 for each element. Given we
+      # used one attempt, for the second element to always be a collision with
+      # the first element the probability would be (1/3)^(3 * 15 -1), or
+      # (1/3)^44, which is 1 in 3^44, or 1 in 9.8x10^20, or effectively never.
+      #
+      # The above is a variation on the coupon collector's problem.
+      #
+      # See: https://en.wikipedia.org/wiki/Coupon_collector%27s_problem
     var i = 0
     while result.len < int(len) and i < upperLimit:
       result.incl g(s)
