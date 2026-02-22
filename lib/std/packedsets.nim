@@ -136,8 +136,11 @@ proc containsOrIncl*[A](s: var PackedSet[A], key: A): bool {.inline.} =
     s.bitmap[high] = {low}
     result = false
   else:
-    result = s.bitmap[high].contains(low)
-    s.bitmap[high].incl(low)
+    try:
+      result = s.bitmap[high].contains(low)
+      s.bitmap[high].incl(low)
+    except KeyError:
+      unreachable()
 
 proc incl*[A](s: var PackedSet[A], key: A) {.inline.} =
   ## Includes an element `key` in `s`.
@@ -212,10 +215,13 @@ proc missingOrExcl*[A](s: var PackedSet[A], key: A): bool {.inline.} =
   if high notin s.bitmap:
     result = true
   else:
-    result = not s.bitmap[high].contains(low)
-    s.bitmap[high].excl(low)
-    if s.bitmap[high].len == 0:
-      s.bitmap.del(high)
+    try:
+      result = not s.bitmap[high].contains(low)
+      s.bitmap[high].excl(low)
+      if s.bitmap[high].len == 0:
+        s.bitmap.del(high)
+    except KeyError:
+      unreachable()
 
 proc excl*[A](s: var PackedSet[A], key: A) {.inline.} =
   ## Excludes `key` from the set `s`.
