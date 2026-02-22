@@ -313,6 +313,8 @@ proc difference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
       let difference = word - s2.bitmap[high]
       if difference.len > 0:
         result.bitmap[high] = difference
+    else:
+      result.bitmap[high] = word
 
 proc symmetricDifference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   ## Returns the symmetric difference of the sets `s1` and `s2`.
