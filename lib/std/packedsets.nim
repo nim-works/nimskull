@@ -379,7 +379,7 @@ proc `<=`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
 
   result = true
   for high, word in s1.bitmap.pairs:
-    if high notin s2.bitmap or word > s2.bitmap[high]:
+    if high notin s2.bitmap or not (word <= s2.bitmap[high]):
       return false
 
 proc `<`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
@@ -397,6 +397,20 @@ proc `<`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
     assert not (c < b)
 
   s1.len < s2.len and s1 <= s2
+
+proc `==`*[A](s1, s2: PackedSet[A]): bool =
+  ## Returns true if both `s1` and `s2` have the same elements and set size.
+  runnableExamples:
+    assert [1, 2].toPackedSet == [2, 1].toPackedSet
+    assert [1, 2].toPackedSet == [2, 1, 2].toPackedSet
+
+  if s1.bitmap.len != s2.bitmap.len:
+    return false
+
+  result = true
+  for high, word in s1.bitmap.pairs:
+    if high notin s2.bitmap or word != s2.bitmap[high]:
+      return false
 
 iterator items*[A](s: PackedSet[A]): A {.inline.} =
   ## Iterates over included elements of `s`.
