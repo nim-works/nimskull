@@ -1,12 +1,101 @@
 ## Property Testing library, which allows for the specification and testing
 ## of properties of code.
+##
+## Property-based testing is a methodology where you define general characteristics 
+## (properties) that your code should satisfy across a wide range of inputs, rather 
+## than asserting specific outputs for hardcoded inputs. This library automatically 
+## generates random inputs to test these properties, and if a failure occurs, it 
+## aggressively "shrinks" the input to find the minimal, simplest example that 
+## reproduces the bug.
+##
+## ### Motivating Example
+##
+## Imagine an e-commerce function that applies a coupon discount to a shopping cart 
+## total. A naive unit test might check `applyDiscount(100, 20) == 80`. 
+## A property test instead asserts universal truths about the function:
+##
+runnableExamples:
+  # import experimental/property_testing_2 # required in other files
 
-# This is inspired by hypothesis (https://hypothesis.works/), where shrinking
-# is an integral part of the testing process. See the following post on the
-# hows and whys of integrated shrinking:
-# https://hypothesis.works/articles/integrated-shrinking/ and the follow-on
-# about compositional shrinking:
-# https://hypothesis.works/articles/compositional-shrinking/
+  proc applyDiscount(total, discount: int): int = 
+    max(0, total - discount)
+  let propValidDiscount = forAll(
+    genInt(0, 1000), # Cart total
+    genInt(0, 100),  # Discount amount
+    proc(total, discount: int): PropertyStatus =
+      let discounted = applyDiscount(total, discount)
+      # Property 1: The discounted total is never greater than the original total
+      if discounted > total: return psFail
+      # Property 2: The discounted total is never negative
+      if discounted < 0: return psFail
+      return psPass
+  )
+
+  let result = runProperty(propValidDiscount)
+  assert result.status == psPass
+##
+## ### Core Concepts
+##
+## The library revolves around a few key types and concepts:
+## - **Properties (`forAll`)**: The idiomatic way to define a test is using the `forAll` 
+##   procedures, which pair generators with a predicate function that returns a `PropertyStatus` 
+##   (`psPass`, `psFail`, or `psDiscard`).
+## - **Generators (`Gen[T]`)**: Procedures that consume a `Source` of randomness to 
+##   produce values of type `T`.
+## - **Shrinking**: An automatic process that simplifies failing test cases.
+##
+## ### Writing Property Tests
+##
+## Tests are typically constructed using `forAll` and executed with `runProperty`.
+## `runProperty` runs the scenario numerous times (default 256) with different seeds. 
+## If a failure (`psFail`) is encountered, the library automatically begins shrinking 
+## the generated inputs to find the most minimal reproducing case, which is then 
+## available in the `TestResult`.
+## 
+## Tests can return `psDiscard` if the generated inputs do not meet certain 
+## preconditions, effectively skipping that run without failing the test. For example, 
+## validating that a division function works correctly when the denominator is not zero.
+##
+## ### Generators and Sources
+##
+## To generate data, you build or compose `Gen[T]` procedures. The standard library provides 
+## many built-in generators:
+## - **Primitives**: `genInt`, `genBool`, `genByte`, `genChar`, `genString`.
+## - **Collections**: `genSeq`, `genSet`, `genArray`.
+## - **Ranges**: `genInt(min, max)`, `genEnum`.
+##
+## You can compose and modify generators using combinators:
+## - `map`: Transforms the output of a generator (e.g., generating even numbers by mapping `x => x * 2`).
+## - `filter`: Discards values that don't meet a predicate. (Use sparingly, as too many retries raise `FilterExhaustedError`).
+## - `flatMap`: Chains generators dependently.
+## 
+## Underlying all generation is the `Source` object. It provides the entropy for generators 
+## and records the sequence of choices made. This recording is what enables the library's 
+## powerful, integrated shrinking capabilities.
+##
+## ### Integrated Shrinking
+## 
+## This library uses **integrated shrinking** (inspired by Hypothesis). 
+## Unlike traditional type-directed shrinking, this library shrinks the *underlying byte stream* 
+## (the `Source` buffer) that produced the values, rather than shrinking the typed values themselves. 
+## 
+## This approach has several massive advantages:
+## - You do not need to write custom `shrink` functions for your custom types.
+## - Filtering and `flatMap` work perfectly and maintain invariants during shrinking, 
+##   because the shrinking happens on the raw entropy before the combinators run.
+## - It aggressively finds minimal examples using structural heuristics like sequence deletion, 
+##   binary search on numeric ranges, and unbounded scalar lowering.
+##
+## See the following posts on the hows and whys of integrated shrinking:
+## - https://hypothesis.works/articles/integrated-shrinking/
+## - https://hypothesis.works/articles/compositional-shrinking/
+
+
+# MARK: TODOs
+# - use `std/random` instead of `std/mersenne`
+# - update library for js support (itemize and add todos here)
+# - increase default number of scenario runs to 1000
+
 
 import std/[
     macros,   # sigh
