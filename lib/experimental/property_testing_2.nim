@@ -24,19 +24,19 @@ from std/typetraits import enumLen
 
 type
   StorageKind* = enum
-    skByte
-    sk2Bytes
-    sk4Bytes
-    sk8Bytes
-    skNBytes
-    skRange
-    skBoolString8
-    skBoolString16
-    skBoolString32
-    skArray8
-    skArray16
-    skArray32
-    skGroup
+    skByte         ## 1 byte
+    sk2Bytes       ## 2 bytes
+    sk4Bytes       ## 4 bytes
+    sk8Bytes       ## 8 bytes
+    skNBytes       ## N bytes
+    skRange        ## Range of values
+    skBoolString8  ## Boolean string, with size stored in the next byte
+    skBoolString16 ## Boolean string, with size stored in the next 2 bytes
+    skBoolString32 ## Boolean string, with size stored in the next 4 bytes
+    skArray8       ## Array of bytes, with size stored in the next byte
+    skArray16      ## Array of 2 bytes, with size stored in the next 2 bytes
+    skArray32      ## Array of 4 bytes, with size stored in the next 4 bytes
+    skGroup        ## Group of values, with size stored in the next byte
 
   Source* = ref object
     rng: MersenneTwister
