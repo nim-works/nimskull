@@ -92,15 +92,15 @@ runnableExamples:
 
 
 # MARK: TODOs
-# - use `std/random` instead of `std/mersenne`
 # - update library for js support (itemize and add todos here)
 # - increase default number of scenario runs to 1000
+# - allow pluggable random number generators
 
 
 import std/[
     macros,   # sigh
-    mersenne,
     options,
+    random,
   ]
 
 from std/algorithm import sort
@@ -129,7 +129,7 @@ type
     skGroup        ## Group of values, with size stored in the next byte
 
   Source* = ref object
-    rng: MersenneTwister
+    rng: Rand
     buffer*: seq[byte]
     pos: int
     recording: bool
@@ -169,7 +169,7 @@ const DefaultSourceLimit* = 100_000 # Reasonable default limit
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
                 idempotent: bool = false, debug: bool = false): Source =
   new(result)
-  result.rng = newMersenneTwister(seed)
+  result.rng = initRand(int64(seed))
   result.buffer = @[]
   result.pos = 0
   result.recording = true
@@ -181,7 +181,7 @@ proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
 proc newSource*(buffer: seq[byte]): Source =
   ## Create a source for replaying/shrinking with a fixed buffer
   new(result)
-  result.rng = newMersenneTwister(0)
+  result.rng = initRand(0)
   result.buffer = buffer # Not used when not recording
   result.pos = 0
   result.recording = false
@@ -242,15 +242,15 @@ proc getScalarBytes*(kind: StorageKind): int =
 
 
 proc rngNextBytes*(s: Source, bytes: int): uint64 =
-  var val: uint64 = 0
-  if bytes <= 4:
-    val = uint64(s.rng.getNum())
-  else:
-    val = uint64(s.rng.getNum()) or (uint64(s.rng.getNum()) shl 32)
+  var val: uint64 = s.rng.next()
   if bytes < 8:
     let mask = (1'u64 shl (bytes * 8)) - 1
     val = val and mask
   return val
+
+
+proc rngNextUInt32(s: Source): uint32 = 
+  uint32(s.rng.next() and 0xFFFFFFFF'u64)
 
 
 proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
@@ -454,15 +454,14 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
     if not s.recording:
       chosenIdx = int(s.chooseRange(0, cast[uint64](state.vals.len - 1), tgtK))
     else:
+      let randValOrig = s.rngNextUInt32()
       if state.pos < state.indices.len and not s.idempotent:
         let
-          randValOrig = s.rng.getNum()
           remaining = state.indices.len - state.pos
           offset = int(randValOrig mod uint32(remaining))
         chosenIdx = state.indices.swapAccess(state.pos, state.pos + offset)
         state.pos.inc
       else:
-        let randValOrig = s.rng.getNum()
         chosenIdx = int(randValOrig mod uint32(state.vals.len))
         
       # Record it formally as a range so shrinking works predictably!
@@ -487,15 +486,14 @@ proc genExhaustiveRange*[T](min: T, rangeSize: uint64): Gen[T] =
     if not s.recording:
       chosenIdx = int(s.chooseRange(0, rangeSize, tgtK))
     else:
+      let randValOrig = s.rngNextUInt32()
       if state.pos < state.indices.len and not s.idempotent:
         let
-          randValOrig = s.rng.getNum()
           remaining = state.indices.len - state.pos
           offset = int(randValOrig mod uint32(remaining))
         chosenIdx = state.indices.swapAccess(state.pos, state.pos + offset)
         state.pos.inc
       else:
-        let randValOrig = s.rng.getNum()
         chosenIdx = int(randValOrig mod uint32(len))
       
       # Record it formally as a range so shrinking works predictably!
@@ -1002,14 +1000,14 @@ proc runProperty*[T](p: Property[T], trials: int = 256, seed: uint32 = 0): TestR
   if masterSeed == 0:
       masterSeed = uint32(getTime().toUnix() and 0xFFFFFFFF)
       
-  var rng = newMersenneTwister(masterSeed)
+  var rng = initRand(int64(masterSeed))
   
   result.status = psPass
   result.runCount = 0
 
   for i in 1..trials:
     result.runCount = i
-    let runSeed = rng.getNum()
+    let runSeed = uint32(rng.next() and 0xFFFFFFFF'u64)
     result.seed = runSeed
     
     var
