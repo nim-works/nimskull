@@ -1,5 +1,9 @@
 discard """
-  targets: "c js"
+  targets: "c"
+  knownIssue.js vm: '''
+    - js doesn't support uint64
+    - the vm doesn't support random number generation
+  '''
 """
 
 
