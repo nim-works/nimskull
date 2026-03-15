@@ -216,7 +216,7 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
       result = min
 
 
-proc beginArray*(s: Source, len: uint64) =
+proc beginArray*(s: Source, len: uint32) =
   ## Marks the beginning of an array of `len` homogeneous elements in the stream
   if s.recording:
     let bytes = bytesForRange(len)
@@ -230,22 +230,22 @@ proc beginArray*(s: Source, len: uint64) =
     s.writeRawBytes(len, bytes)
 
 
-proc readArrayLength*(s: Source): uint64 =
+proc readArrayLength*(s: Source): uint32 =
   ## Parses an array marker and returns its exact length
   if s.recording: return 0 # Handled by the generator
   let k = s.readStorageKind()
   if k == skArray8:
-    result = s.readRawBytes(1)
+    result = uint32(s.readRawBytes(1))
   elif k == skArray16:
-    result = s.readRawBytes(2)
+    result = uint32(s.readRawBytes(2))
   elif k == skArray32:
-    result = s.readRawBytes(4)
+    result = uint32(s.readRawBytes(4))
   else:
     # Buffer is corrupted or shrinking exhausted/deleted the node.
     result = 0
 
 
-proc beginGroup*(s: Source, numElements: uint64) =
+proc beginGroup*(s: Source, numElements: uint32) =
   ## Marks the beginning of a heterogeneous group (tuple, object) with `numElements`
   if s.recording:
     s.writeStorageKind(skGroup)
@@ -253,7 +253,7 @@ proc beginGroup*(s: Source, numElements: uint64) =
     s.writeRawBytes(numElements, bytes)
 
 
-proc readGroupLength*(s: Source): uint64 =
+proc readGroupLength*(s: Source): uint32 =
   ## Parses a group marker and returns the number of fields
   if s.recording: return 0
   let k = s.readStorageKind()
@@ -262,7 +262,7 @@ proc readGroupLength*(s: Source): uint64 =
     # Design says "1 byte element count". Let's assume 1 byte for now based on `skGroup` comment.
     # If the format requires variable bytes, we'd need another marker or fixed size.
     # For now, let's read 1 byte.
-    result = s.readRawBytes(1)
+    result = uint32(s.readRawBytes(1))
   else:
     result = 0
 
@@ -600,11 +600,11 @@ proc genEnum*[T: enum](): Gen[T] =
       result = vals[idx]
 
 
-proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
+proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
   ## create a set generator for the enum type `T` excluding the values in
   ## `exclude`.
   let maxLen = enumLen(T) - exclude.len
-  assert minLen <= maxLen, "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
+  assert minLen <= uint16(maxLen), "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
 
   # TODO: rework this so we generate enum values the same way we generate
   #       exhaustive enums, that way we don't use up too much recorded entropy
@@ -615,10 +615,10 @@ proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
     else: genEnum[T]().filter((e) => e notin exclude)
 
   return proc(s: Source): set[T] =
-    let chooseLen = s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes)
+    let chooseLen = uint16(s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
     var len = chooseLen
     if s.recording: s.beginArray(chooseLen)
-    else: len = min(chooseLen, s.readArrayLength())
+    else: len = min(chooseLen, uint16(s.readArrayLength()))
       
     let upperLimit = maxLen * 15
     var i = 0
@@ -633,8 +633,8 @@ proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]
   assert maxLen >= minLen
   return proc(s: Source): seq[T] =
     var len =
-      if maxLen == minLen: cast[uint64](minLen)
-      else: cast[uint64](s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
+      if maxLen == minLen: minLen
+      else: cast[uint32](s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
       
     if s.recording:
       s.beginArray(len)
@@ -664,9 +664,9 @@ proc genAsciiString*(minLen: uint32 = 0, maxLen: uint32 = 100): Gen[string] =
   genString(minLen, maxLen, genAsciiChar())
 
 
-proc genArray*[T](g: Gen[T], size: static int): Gen[array[size, T]] = 
+proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] = 
   return proc(s: Source): array[size, T] = 
-    if s.recording: s.beginArray(cast[uint64](size))
+    if s.recording: s.beginArray(size)
     else: discard s.readArrayLength()
     var arr: array[size, T]
     for i in 0 ..< size:
