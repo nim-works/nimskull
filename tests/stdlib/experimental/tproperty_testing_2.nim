@@ -178,6 +178,107 @@ suite "Property Testing with Integrated Shrinking":
     check r == 20
 
 
+  test "Structural Generation API - beginArray and readArrayLength":
+    let s = newSource(seed = 1)
+    
+    # Recording
+    s.beginArray(5)
+    s.beginArray(256)
+    s.beginArray(65536)
+    
+    # Replay
+    let sReplay = newSource(s.buffer)
+    check sReplay.readArrayLength() == 5
+    check sReplay.readArrayLength() == 256
+    check sReplay.readArrayLength() == 65536
+    
+    # Overflow/exhaustion
+    check sReplay.readArrayLength() == 0
+
+
+  test "Structural Generation API - beginGroup and readGroupLength":
+    let s = newSource(seed = 1)
+    
+    # Recording
+    s.beginGroup(3)
+    s.beginGroup(10)
+    
+    # Replay
+    let sReplay = newSource(s.buffer)
+    check sReplay.readGroupLength() == 3
+    check sReplay.readGroupLength() == 10
+    
+    # Overflow/exhaustion
+    check sReplay.readGroupLength() == 0
+
+
+  test "Structural Buffer Parser - skipNode":
+    var s = newSource(seed = 1)
+    
+    # 1. Scalar testing
+    s.writeStorageKind(skByte)
+    s.writeRawByte(42)
+    s.writeStorageKind(sk4Bytes)
+    s.writeRawBytes(1234, 4)
+    
+    let endByte1 = skipNode(s.buffer, 0)
+    check endByte1 == 2 # skByte (1) + val (1)
+    
+    let endByte2 = skipNode(s.buffer, endByte1)
+    check endByte2 == 2 + 5 # sk4Bytes (1) + val (4)
+    check endByte2 == s.buffer.len
+    
+    # 2. Range testing
+    var sR = newSource(seed = 2)
+    let minV: uint64 = 100
+    let maxV: uint64 = 200 # size = 100 -> 1 byte
+    sR.recordRange(minV, maxV, 150, sk2Bytes)
+    let endRange = skipNode(sR.buffer, 0)
+    # skRange(1) + sk2Bytes(1) + min(2) + max(2) + valRange(1) = 7 bytes
+    check endRange == 7
+    check endRange == sR.buffer.len
+    
+    # 3. Array testing
+    var sA = newSource(seed = 3)
+    sA.beginArray(3) # skArray8 (1) + len (1) = 2 bytes
+    sA.writeStorageKind(skByte); sA.writeRawByte(1) # 2 bytes
+    sA.writeStorageKind(skByte); sA.writeRawByte(2) # 2 bytes
+    sA.writeStorageKind(skByte); sA.writeRawByte(3) # 2 bytes
+    
+    let endArray = skipNode(sA.buffer, 0)
+    check endArray == 2 + 2 + 2 + 2 # 8 bytes total
+    check endArray == sA.buffer.len
+
+
+  test "Structural Iterator Parsing - candidates":
+    # 1. Scalar Lowering Validation
+    var sS = newSource(seed = 1)
+    sS.writeStorageKind(sk2Bytes)
+    sS.writeRawBytes(10, 2)
+    var yieldsS = 0
+    for cand in candidates(sS.buffer):
+      # Should yield empty buffer, halved values (5, 2, 1, 0), decremented value (9), and decrement 2 (8)
+      yieldsS.inc
+    check yieldsS == 7
+
+    # 2. Array Deletion Validation
+    var sA = newSource(seed = 2)
+    sA.beginArray(4) # len=4
+    for i in 1..4:
+      sA.writeStorageKind(skByte)
+      sA.writeRawByte(byte(i))
+    
+    var yieldsA = 0
+    var seenLengths = newSeq[int]()
+    for cand in candidates(sA.buffer):
+      yieldsA.inc
+      if cand.len > 0 and cand[0] == byte(skArray8) and cand.len > 1:
+        seenLengths.add(int(cand[1]))
+    # Expected Array element lengths yielded should include structural truncations
+    check seenLengths.len > 0
+    check 0 in seenLengths or 2 in seenLengths or 3 in seenLengths
+
+
   test "Constant generator - produces the same value over and over again":
     let vals = getSamples(genConst(42))
     for val in vals:

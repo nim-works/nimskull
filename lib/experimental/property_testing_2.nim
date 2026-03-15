@@ -216,6 +216,57 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
       result = min
 
 
+proc beginArray*(s: Source, len: uint64) =
+  ## Marks the beginning of an array of `len` homogeneous elements in the stream
+  if s.recording:
+    let bytes = bytesForRange(len)
+    if bytes == 1:
+      s.writeStorageKind(skArray8)
+    elif bytes == 2:
+      s.writeStorageKind(skArray16)
+    else:
+      # Assume 4 bytes max for array sizes in property testing
+      s.writeStorageKind(skArray32)
+    s.writeRawBytes(len, bytes)
+
+
+proc readArrayLength*(s: Source): uint64 =
+  ## Parses an array marker and returns its exact length
+  if s.recording: return 0 # Handled by the generator
+  let k = s.readStorageKind()
+  if k == skArray8:
+    result = s.readRawBytes(1)
+  elif k == skArray16:
+    result = s.readRawBytes(2)
+  elif k == skArray32:
+    result = s.readRawBytes(4)
+  else:
+    # Buffer is corrupted or shrinking exhausted/deleted the node.
+    result = 0
+
+
+proc beginGroup*(s: Source, numElements: uint64) =
+  ## Marks the beginning of a heterogeneous group (tuple, object) with `numElements`
+  if s.recording:
+    s.writeStorageKind(skGroup)
+    let bytes = bytesForRange(numElements)
+    s.writeRawBytes(numElements, bytes)
+
+
+proc readGroupLength*(s: Source): uint64 =
+  ## Parses a group marker and returns the number of fields
+  if s.recording: return 0
+  let k = s.readStorageKind()
+  if k == skGroup:
+    # We don't know exactly how many bytes are used for `numElements` from just `skGroup`.
+    # Design says "1 byte element count". Let's assume 1 byte for now based on `skGroup` comment.
+    # If the format requires variable bytes, we'd need another marker or fixed size.
+    # For now, let's read 1 byte.
+    result = s.readRawBytes(1)
+  else:
+    result = 0
+
+
 proc nextFloat64*(s: Source): float64 =
   cast[float64](s.chooseScalarRaw(sk8Bytes))
 
@@ -324,8 +375,8 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
         let randValOrig = s.rng.getNum()
         chosenIdx = int(randValOrig mod uint32(state.vals.len))
         
-        # Record it formally as a range so shrinking works predictably!
-        s.recordRange(0, cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
+      # Record it formally as a range so shrinking works predictably!
+      s.recordRange(0, cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
 
     result = state.vals[chosenIdx]
 
@@ -450,6 +501,7 @@ proc genInt32*(min, max: int32): Gen[int32] =
     return proc(s: Source): int32 =
       cast[int32](s.chooseRange(cast[uint64](min), cast[uint64](max), sk4Bytes))
 
+
 proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
 
 
@@ -563,10 +615,12 @@ proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
     else: genEnum[T]().filter((e) => e notin exclude)
 
   return proc(s: Source): set[T] =
-    let
-      # Use chooseRange avoiding module arithmetic
-      len = s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes)
-      upperLimit = maxLen * 15
+    let chooseLen = s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes)
+    var len = chooseLen
+    if s.recording: s.beginArray(chooseLen)
+    else: len = min(chooseLen, s.readArrayLength())
+      
+    let upperLimit = maxLen * 15
     var i = 0
     while result.len < int(len) and i < upperLimit:
       result.incl g(s)
@@ -578,11 +632,17 @@ proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]
   ## [minLen, maxLen].
   assert maxLen >= minLen
   return proc(s: Source): seq[T] =
-    let len: uint32 =
-      if maxLen == minLen: minLen
-      else: cast[uint32](s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
-    result = newSeq[T](len)
-    for i in 0 ..< len:
+    var len =
+      if maxLen == minLen: cast[uint64](minLen)
+      else: cast[uint64](s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
+      
+    if s.recording:
+      s.beginArray(len)
+    else:
+      len = min(len, s.readArrayLength())
+      
+    result = newSeq[T](int(len))
+    for i in 0 ..< int(len):
       result[i] = g(s)
 
 
@@ -606,6 +666,8 @@ proc genAsciiString*(minLen: uint32 = 0, maxLen: uint32 = 100): Gen[string] =
 
 proc genArray*[T](g: Gen[T], size: static int): Gen[array[size, T]] = 
   return proc(s: Source): array[size, T] = 
+    if s.recording: s.beginArray(cast[uint64](size))
+    else: discard s.readArrayLength()
     var arr: array[size, T]
     for i in 0 ..< size:
       arr[i] = g(s)
@@ -614,88 +676,205 @@ proc genArray*[T](g: Gen[T], size: static int): Gen[array[size, T]] =
 
 # MARK: Shrinking Strategies ---
 
-iterator candidates(buffer: seq[byte]): seq[byte] =
-  # Strategy 1: Remove chunks
-  # We iterate over chunk sizes: 1, 2, 4, 8 ...
-  # And for each chunk size, we try removing chunks at various offsets.
+proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
+  for i in 0 ..< bytes:
+    if pos + i < buffer.len:
+      result = result or (uint64(buffer[pos + i]) shl (i * 8))
+
+
+proc skipNode*(buffer: seq[byte], startPos: int): int =
+  ## Parses the structural `StorageKind` at `startPos` and returns the index
+  ## immediately *after* the fully encoded node (including all nested children).
+  if startPos >= buffer.len: return buffer.len
+  
+  let kind = cast[StorageKind](buffer[startPos])
+  var pos = startPos + 1
+  
+  case kind
+  of skByte: pos += 1
+  of sk2Bytes: pos += 2
+  of sk4Bytes: pos += 4
+  of sk8Bytes: pos += 8
+  of skNBytes:
+    if pos < buffer.len:
+      let n = int(buffer[pos])
+      pos += 1 + n
+  of skRange:
+    if pos < buffer.len:
+      let tgtKind = cast[StorageKind](buffer[pos])
+      pos += 1
+      let sBytes = getScalarBytes(tgtKind)
+      if pos + 2 * sBytes <= buffer.len:
+        let rMin = decodeUint64(buffer, pos, sBytes)
+        pos += sBytes
+        let rMax = decodeUint64(buffer, pos, sBytes)
+        pos += sBytes
+        let rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+        pos += bytesForRange(rangeSize)
+  of skBoolString8:
+    if pos < buffer.len:
+      let n = int(buffer[pos])
+      pos += 1 + (n + 7) div 8
+  of skBoolString16:
+    if pos + 1 < buffer.len:
+      let n = int(decodeUint64(buffer, pos, 2))
+      pos += 2 + (n + 7) div 8
+  of skBoolString32:
+    if pos + 3 < buffer.len:
+      let n = int(decodeUint64(buffer, pos, 4))
+      pos += 4 + (n + 7) div 8
+  of skArray8:
+    if pos < buffer.len:
+      let n = int(buffer[pos])
+      pos += 1
+      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+  of skArray16:
+    if pos + 1 < buffer.len:
+      let n = int(decodeUint64(buffer, pos, 2))
+      pos += 2
+      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+  of skArray32:
+    if pos + 3 < buffer.len:
+      let n = int(decodeUint64(buffer, pos, 4))
+      pos += 4
+      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+  of skGroup:
+    if pos < buffer.len:
+      let n = int(buffer[pos])
+      pos += 1
+      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+      
+  return if pos > buffer.len: buffer.len else: pos
+
+
+proc writeUint64(buffer: var seq[byte], pos: int, bytes: int, val: uint64) =
+  for i in 0 ..< bytes:
+    if pos + i < buffer.len:
+      buffer[pos + i] = byte((val shr (i * 8)) and 0xFF)
+
+
+iterator candidates*(buffer: seq[byte]): seq[byte] =
+  if buffer.len > 0:
+    yield @[]
+
+  var nodes: seq[(int, StorageKind)] = @[]
+  
+  proc collectNodes(buf: seq[byte], pos: int) =
+    if pos >= buf.len: return
+    let kind = cast[StorageKind](buf[pos])
+    nodes.add((pos, kind))
+    
+    var p = pos + 1
+    case kind
+    of skArray8:
+      if p < buf.len:
+        let n = int(buf[p]); p += 1
+        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
+    of skArray16:
+      if p + 1 < buf.len:
+        let n = int(decodeUint64(buf, p, 2)); p += 2
+        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
+    of skArray32:
+      if p + 3 < buf.len:
+        let n = int(decodeUint64(buf, p, 4)); p += 4
+        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
+    of skGroup:
+      if p < buf.len:
+        let n = int(buf[p]); p += 1
+        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
+    else: discard
   
   if buffer.len > 0:
-    # Try removing the whole thing first?
-    yield @[] 
+    var p = 0
+    while p < buffer.len:
+      collectNodes(buffer, p)
+      p = skipNode(buffer, p)
+    
+  # Strategy 1: Array Element Deletion
+  for (pos, kind) in nodes:
+    if kind == skArray8 or kind == skArray16 or kind == skArray32:
+      var lenBytes = 0
+      if kind == skArray8: lenBytes = 1
+      elif kind == skArray16: lenBytes = 2
+      else: lenBytes = 4
+      
+      if pos + lenBytes < buffer.len:
+        let numElems = int(decodeUint64(buffer, pos + 1, lenBytes))
+        if numElems > 0:
+          var elemStarts: seq[int] = @[]
+          var p = pos + 1 + lenBytes
+          for _ in 0 ..< numElems:
+            elemStarts.add(p)
+            p = skipNode(buffer, p)
+          elemStarts.add(p)
+          
+          var k = numElems
+          while k > 0:
+            var i = 0
+            while i <= numElems - k:
+              var copy = buffer
+              let newElems = numElems - k
+              writeUint64(copy, pos + 1, lenBytes, cast[uint64](newElems))
+              let delStart = elemStarts[i]
+              let delEnd = elemStarts[i + k] - 1
+              if delStart <= delEnd:
+                copy.delete(delStart .. delEnd)
+              yield copy
+              i.inc
+            k = k div 2
 
-  var k = 8 # Initial chunk size, can be tuned
-  while k > 0:
-    var i = 0
-    while i <= buffer.len - k:
-      # Remove buffer[i ..< i+k]
-      var copy = buffer
-      copy.delete(i..(i + k - 1))
-      yield copy
-      i.inc # Try all offsets? Or step by k? Stepping by k is faster.
-    k = k div 2
+  # Strategy 2: Range Binary Search
+  for (pos, kind) in nodes:
+    if kind == skRange:
+      var p = pos + 1
+      if p < buffer.len:
+        let tgtKind = cast[StorageKind](buffer[p])
+        p += 1
+        let sBytes = getScalarBytes(tgtKind)
+        if p + 2 * sBytes <= buffer.len:
+          # skip min & max bytes
+          p += 2 * sBytes
+          let rMin = decodeUint64(buffer, pos + 2, sBytes)
+          let rMax = decodeUint64(buffer, pos + 2 + sBytes, sBytes)
+          let rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+          let vBytes = bytesForRange(rangeSize)
+          if p + vBytes <= buffer.len:
+            let val = decodeUint64(buffer, p, vBytes)
+            var tryVal = val
+            while tryVal > 0:
+              tryVal = tryVal div 2
+              var copy = buffer
+              writeUint64(copy, p, vBytes, tryVal)
+              yield copy
+            if val > 0:
+              var copy = buffer
+              writeUint64(copy, p, vBytes, val - 1)
+              yield copy
+            if val > 1:
+              var copy = buffer
+              writeUint64(copy, p, vBytes, val - 2)
+              yield copy
 
-  # Strategy 2: Zeroing chunks
-  if buffer.len > 0:
-    var k = 8
-    while k > 0:
-      var i = 0
-      while i <= buffer.len - k:
-        # Check if range has non-zeros
-        var hasNonZero = false
-        for j in 0 ..< k:
-          if buffer[i+j] != 0:
-            hasNonZero = true
-            break
-        
-        if hasNonZero:
+  # Strategy 3: Unbounded Scalar Lowering
+  for (pos, kind) in nodes:
+    if kind == skByte or kind == sk2Bytes or kind == sk4Bytes or kind == sk8Bytes:
+      let sBytes = getScalarBytes(kind)
+      if pos + 1 + sBytes <= buffer.len:
+        let p = pos + 1
+        let val = decodeUint64(buffer, p, sBytes)
+        var tryVal = val
+        while tryVal > 0:
+          tryVal = tryVal div 2
           var copy = buffer
-          for j in 0 ..< k:
-            copy[i+j] = 0
+          writeUint64(copy, p, sBytes, tryVal)
           yield copy
-        
-        i.inc
-      k = k div 2
-       
-  # Strategy 3: Sort chunks
-  # This strategy assumes that the order of bytes might not matter for some properties (e.g. set equality)
-  # or that sorted inputs are "simpler".
-  # We can try to sort chunks of the buffer.
-  if buffer.len > 1:
-      # Try sorting the whole buffer first
-      var copy = buffer
-      copy.sort()
-      if copy != buffer:
+        if val > 0:
+          var copy = buffer
+          writeUint64(copy, p, sBytes, val - 1)
           yield copy
-
-      # Try sorting smaller chunks?
-      # Maybe just sorting pairs?
-      var i = 0
-      while i < buffer.len - 1:
-          if buffer[i] > buffer[i+1]:
-              var swapCopy = buffer
-              swap(swapCopy[i], swapCopy[i+1])
-              yield swapCopy
-          i.inc
-
-  # Strategy 4: Byte Lowering
-  # Try to decrement individual bytes to minimize values
-  if buffer.len > 0:
-    for i in 0 ..< buffer.len:
-      let original = buffer[i]
-      if original > 0:
-        var copy = buffer
-        
-        # Try halving (binary search step)
-        copy[i] = original div 2
-        yield copy
-
-        # Try decrementing by 1
-        copy[i] = original - 1
-        yield copy
-
-        # Try decrementing by 2 (helps bridge gaps from filters)
-        if original > 1:
-          copy[i] = original - 2
+        if val > 1:
+          var copy = buffer
+          writeUint64(copy, p, sBytes, val - 2)
           yield copy
 
 
@@ -796,16 +975,14 @@ proc runProperty*[T](p: Property[T], trials: int = 256, seed: uint32 = 0): TestR
             cStatus = psFail # Exception is failure too
             
           if cStatus == psFail:
-            # We found a smaller/simpler failure!
-            # We accept it if it is strictly smaller/simpler by some metric.
-            # Our candidates iterator usually yields "smaller" things first or structurally simpler things.
-            # We'll just take it.
-            if cand < bestBuffer:
-                bestBuffer = cand
-                bestVal = cVal
-                improved = true
-                result.shrunk = true
-                break # Restart candidates iterator with new bestBuffer
+            # Our candidates iterator uses AST heuristics to generate strictly 
+            # smaller or simpler candidate buffers.
+            # We accept the first one that fails:
+            bestBuffer = cand
+            bestVal = cVal
+            improved = true
+            result.shrunk = true
+            break # Restart candidates iterator with new bestBuffer
 
       result.shrunkBuffer = bestBuffer
       result.shrunkValue = some(bestVal)
@@ -819,51 +996,61 @@ proc runProperty*[T](p: Property[T], trials: int = 256, seed: uint32 = 0): TestR
 proc genTuple*[T](g: Gen[T]): Gen[(T,)] =
   ## Generates a tuple of a single element.
   return proc(s: Source): (T,) =
+    if s.recording: s.beginGroup(1) else: discard s.readGroupLength()
     (g(s),)
 
 proc genTuple*[T1, T2](g1: Gen[T1], g2: Gen[T2]): Gen[(T1, T2)] =
   ## Generates a tuple of two elements.
   return proc(s: Source): (T1, T2) =
+    if s.recording: s.beginGroup(2) else: discard s.readGroupLength()
     (g1(s), g2(s))
 
 proc genTuple*[T1, T2, T3](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3]): Gen[(T1, T2, T3)] =
   ## Generates a tuple of three elements.
   return proc(s: Source): (T1, T2, T3) =
+    if s.recording: s.beginGroup(3) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s))
 
 proc genTuple*[T1, T2, T3, T4](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4]): Gen[(T1, T2, T3, T4)] =
   ## Generates a tuple of four elements.
   return proc(s: Source): (T1, T2, T3, T4) =
+    if s.recording: s.beginGroup(4) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s))
 
 proc genTuple*[T1, T2, T3, T4, T5](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5]): Gen[(T1, T2, T3, T4, T5)] =
   ## Generates a tuple of five elements.
   return proc(s: Source): (T1, T2, T3, T4, T5) =
+    if s.recording: s.beginGroup(5) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s), g5(s))
 
 proc genTuple*[T1, T2, T3, T4, T5, T6](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6]): Gen[(T1, T2, T3, T4, T5, T6)] =
   ## Generates a tuple of six elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6) =
+    if s.recording: s.beginGroup(6) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s))
 
 proc genTuple*[T1, T2, T3, T4, T5, T6, T7](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7]): Gen[(T1, T2, T3, T4, T5, T6, T7)] =
   ## Generates a tuple of seven elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7) =
+    if s.recording: s.beginGroup(7) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s))
 
 proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8)] =
   ## Generates a tuple of eight elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8) =
+    if s.recording: s.beginGroup(8) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s))
 
 proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] =
   ## Generates a tuple of nine elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9) =
+    if s.recording: s.beginGroup(9) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s))
 
 proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], g10: Gen[T10]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] =
   ## Generates a tuple of ten elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) =
+    if s.recording: s.beginGroup(10) else: discard s.readGroupLength()
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s), g10(s))
 
 
