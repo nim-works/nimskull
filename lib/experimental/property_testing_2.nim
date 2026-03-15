@@ -23,6 +23,21 @@ from std/typetraits import enumLen
 # MARK: Core Types
 
 type
+  StorageKind* = enum
+    skByte
+    sk2Bytes
+    sk4Bytes
+    sk8Bytes
+    skNBytes
+    skRange
+    skBoolString8
+    skBoolString16
+    skBoolString32
+    skArray8
+    skArray16
+    skArray32
+    skGroup
+
   Source* = ref object
     rng: MersenneTwister
     buffer*: seq[byte]
@@ -58,7 +73,7 @@ type
 
 # MARK: Source Implementation
 
-const DefaultSourceLimit = 100_000 # Reasonable default limit
+const DefaultSourceLimit* = 100_000 # Reasonable default limit
 
 
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
@@ -84,92 +99,125 @@ proc newSource*(buffer: seq[byte]): Source =
   result.idempotent = false
 
 
-proc nextByte*(s: Source): byte =
+proc writeRawByte*(s: Source, b: byte) =
   if s.recording:
     if s.buffer.len >= s.limit:
       raise newException(SourceLimitExceededError, "Source limit exceeded")
-      
-    result = byte(s.rng.getNum() and 0xFF)
-    s.buffer.add(result)
+    s.buffer.add(b)
     s.pos.inc
+
+
+proc readRawByte*(s: Source): byte =
+  if s.pos < s.buffer.len:
+    result = s.buffer[s.pos]
   else:
-    if s.pos < s.buffer.len:
-      result = s.buffer[s.pos]
-      s.pos.inc
+    # Start generating zeroes if we run out of buffer.
+    # This is crucial for shrinking where we might cut the buffer short.
+    result = 0
+  s.pos.inc
+
+
+proc writeStorageKind*(s: Source, kind: StorageKind) =
+  s.writeRawByte(byte(ord(kind)))
+
+
+proc readStorageKind*(s: Source): StorageKind =
+  cast[StorageKind](s.readRawByte())
+
+
+func bytesForRange*(rangeSize: uint64): int =
+  if rangeSize <= 0xFF'u64: 1
+  elif rangeSize <= 0xFFFF'u64: 2
+  elif rangeSize <= 0xFFFFFFFF'u64: 4
+  else: 8
+
+
+proc writeRawBytes*(s: Source, val: uint64, bytes: int) =
+  for i in 0 ..< bytes:
+    s.writeRawByte(byte((val shr (i * 8)) and 0xFF))
+
+
+proc readRawBytes*(s: Source, bytes: int): uint64 =
+  for i in 0 ..< bytes:
+    result = result or (uint64(s.readRawByte()) shl (i * 8))
+
+
+proc getScalarBytes*(kind: StorageKind): int =
+  case kind
+  of skByte: 1
+  of sk2Bytes: 2
+  of sk4Bytes: 4
+  of sk8Bytes: 8
+  else: 0
+
+
+proc rngNextBytes*(s: Source, bytes: int): uint64 =
+  var val: uint64 = 0
+  if bytes <= 4:
+    val = uint64(s.rng.getNum())
+  else:
+    val = uint64(s.rng.getNum()) or (uint64(s.rng.getNum()) shl 32)
+  if bytes < 8:
+    let mask = (1'u64 shl (bytes * 8)) - 1
+    val = val and mask
+  return val
+
+
+proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
+  let bytes = getScalarBytes(kind)
+  if s.recording:
+    result = s.rngNextBytes(bytes)
+    s.writeStorageKind(kind)
+    s.writeRawBytes(result, bytes)
+  else:
+    let readK = s.readStorageKind()
+    if readK == kind:
+      result = s.readRawBytes(bytes)
     else:
-      # Start generating zeroes if we run out of buffer.
-      # This is crucial for shrinking where we might cut the buffer short.
+      discard s.readRawBytes(bytes)
       result = 0
 
 
-proc nextBytes*(s: Source, count: int): seq[byte] =
-  result = newSeq[byte](count)
-  for i in 0 ..< count:
-    result[i] = s.nextByte()
+proc recordRange*(s: Source, min, max, val: uint64, scalarKind: StorageKind) =
+  s.writeStorageKind(skRange)
+  s.writeStorageKind(scalarKind)
+  let sBytes = getScalarBytes(scalarKind)
+  s.writeRawBytes(min, sBytes)
+  s.writeRawBytes(max, sBytes)
+  s.writeRawBytes(val - min, bytesForRange(max - min))
 
 
-proc nextUint8*(s: Source): uint8 =
-  let b = s.nextBytes(1)
-  result = b[0].uint8
-
-
-proc nextInt8*(s: Source): int8 =
-  let b = s.nextBytes(1)
-  result = cast[int8](b[0])
-
-
-proc nextUint16*(s: Source): uint16 =
-  let b = s.nextBytes(2)
-  result = b[0].uint16 or (b[1].uint16 shl 8)
-
-
-proc nextInt16*(s: Source): int16 =
-  let b = s.nextBytes(2)
-  result = cast[int16](b[0].uint16 or (b[1].uint16 shl 8))
-
-
-proc nextUint32*(s: Source): uint32 =
-  # We consume 4 bytes
-  let b = s.nextBytes(4)
-  result = b[0].uint32 or (b[1].uint32 shl 8) or (b[2].uint32 shl 16) or (b[3].uint32 shl 24)
-
-
-proc nextInt32*(s: Source): int32 =
-  let b = s.nextBytes(4)
-  result = cast[int32](b[0].uint32 or (b[1].uint32 shl 8) or (b[2].uint32 shl 16) or (b[3].uint32 shl 24))
-
-
-proc nextUint64*(s: Source): uint64 =
-  let b = s.nextBytes(8)
-  result = b[0].uint64 or (b[1].uint64 shl 8) or (b[2].uint64 shl 16) or (b[3].uint64 shl 24) or
-           (b[4].uint64 shl 32) or (b[5].uint64 shl 40) or (b[6].uint64 shl 48) or (b[7].uint64 shl 56)
-
-
-proc nextInt64*(s: Source): int64 =
-  let b = s.nextBytes(8)
-  result = cast[int64](b[0].uint64 or (b[1].uint64 shl 8) or (b[2].uint64 shl 16) or (b[3].uint64 shl 24) or
-           (b[4].uint64 shl 32) or (b[5].uint64 shl 40) or (b[6].uint64 shl 48) or (b[7].uint64 shl 56))
-
-
-proc nextInt*(s: Source): int =
-  when sizeof(int) == sizeof(uint64):
-    return cast[int](s.nextUint64())
-  elif sizeof(int) == sizeof(uint32):
-    return cast[int](s.nextUint32())
-  elif sizeof(int) == sizeof(uint16):
-    return cast[int](s.nextUint16())
-  elif sizeof(int) == sizeof(uint8):
-    return cast[int](s.nextUint8())
+proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 =
+  if s.recording:
+    let
+      rangeSize = max - min
+      valRange = 
+        if rangeSize == 0: 0'u64
+        elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
+        else: s.rngNextBytes(8) mod (rangeSize + 1)
+      
+    result = min + valRange
+    s.recordRange(min, max, result, scalarKind)
   else:
-    raise newException(ValueError, "Unsupported int size")
-
-
-proc nextUInt*(s: Source): uint =
-  return cast[uint](s.nextInt())
+    let readK = s.readStorageKind()
+    if readK == skRange:
+      let
+        tgtKind = s.readStorageKind()
+        sBytes = getScalarBytes(tgtKind)
+        rMin = s.readRawBytes(sBytes)
+        rMax = s.readRawBytes(sBytes)
+        rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+        rVal = s.readRawBytes(bytesForRange(rangeSize))
+        safeVal = if rVal > rangeSize: rangeSize else: rVal
+      result = rMin + safeVal
+      if result > max: result = max
+      if result < min: result = min
+    else:
+      result = min
 
 
 proc nextFloat64*(s: Source): float64 =
-  cast[float64](s.nextUint64()) # Simple cast, might produce NaN etc.
+  cast[float64](s.chooseScalarRaw(sk8Bytes))
 
 
 # MARK: Combinators ---
@@ -197,7 +245,7 @@ proc filter*[T](g: Gen[T], pred: proc(x: T): bool, maxRetries: int = 100): Gen[T
 
 
 proc flatMap*[T, U](g: Gen[T], f: proc(x: T): Gen[U]): Gen[U] =
-  ## takes the initial generator, and a factory function that creates a new generator
+  ## Takes the initial generator, and a factory function that creates a new generator
   ## based on the value generated by the initial generator.
   ##
   ## This is useful for creating a generator that generates values based on the
@@ -216,13 +264,30 @@ proc sample*[T](g: Gen[T], source: Source, count: int): seq[T] =
 # MARK: Generators
 
 proc swapAccess[T](s: var openArray[T], a, b: int): T =
-  ## swap the value at position `a` for position `b`, then return the new value
+  ## Swap the value at position `a` for position `b`, then return the new value
   ## at position `a`. Used for exhaustive arbitrary traversal.
   result = s[b]
 
   if a != b:      # only need to swap if they're different
     s[b] = s[a]
     s[a] = result
+
+
+type
+  ExhaustiveRangeState*[T] = ref object
+    min*: T
+    rangeSize*: uint64
+    indices*: seq[int]
+    pos*: int
+
+
+proc sequenceFromRange*[T](min, max: T): seq[T] =
+  result = newSeq[T]()
+  var curr = min
+  while true:
+    result.add(curr)
+    if curr == max: break
+    inc curr
 
 
 proc genExhaustive*[T](vals: seq[T]): Gen[T] =
@@ -239,301 +304,247 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
     state = ExhaustiveState[T](vals: vals, indices: indices, pos: 0)
 
   return proc(s: Source): T =
-    if not s.recording:
-      # Replay/Shrink mode:
-      # We ignore the state.indices (which might be shuffled) and sample directly
-      # from state.vals using the input source.
-      #
-      # Because during recording we wrote the exact chosen index (modulo handled
-      # during generation), we just read the value and modulo it safely.
-      # When the shrinker lowers the bytes, the modulo still smoothly lowers
-      # for values less than vals.len.
-      let
-        randVal = if state.vals.len <= 256: uint32(s.nextUint8())
-                  elif state.vals.len <= 65536: uint32(s.nextUint16())
-                  else: s.nextUint32()
-        idx = int(randVal) mod state.vals.len
-      return state.vals[idx]
+    let tgtK = if state.vals.len <= 256: skByte
+               elif state.vals.len <= 65536: sk2Bytes
+               else: sk4Bytes
 
-    let randValOrig = s.rng.getNum()
     var chosenIdx: int
 
-    if state.pos < state.indices.len and not s.idempotent:
-      # Exhaustive phase
-      let
-        remaining = state.indices.len - state.pos
-        offset = int(randValOrig mod uint32(remaining))
-        swapPos = state.pos + offset
-
-      chosenIdx = state.indices.swapAccess(state.pos, swapPos)
-      state.pos.inc
+    if not s.recording:
+      chosenIdx = int(s.chooseRange(0, cast[uint64](state.vals.len - 1), tgtK))
     else:
-      # Random phase after exhaustion
-      chosenIdx = int(randValOrig mod uint32(state.vals.len))
-      
-    let bytesToAdd = if state.vals.len <= 256: 1
-                     elif state.vals.len <= 65536: 2
-                     else: 4
-    
-    if s.buffer.len + bytesToAdd > s.limit:
-      raise newException(SourceLimitExceededError, "Source limit exceeded")
-      
-    let val = uint32(chosenIdx)
-    if bytesToAdd >= 1: s.buffer.add(byte(val and 0xFF))
-    if bytesToAdd >= 2: s.buffer.add(byte((val shr 8) and 0xFF))
-    if bytesToAdd >= 4:
-      s.buffer.add(byte((val shr 16) and 0xFF))
-      s.buffer.add(byte((val shr 24) and 0xFF))
-    s.pos += bytesToAdd
+      if state.pos < state.indices.len and not s.idempotent:
+        let
+          randValOrig = s.rng.getNum()
+          remaining = state.indices.len - state.pos
+          offset = int(randValOrig mod uint32(remaining))
+        chosenIdx = state.indices.swapAccess(state.pos, state.pos + offset)
+        state.pos.inc
+      else:
+        let randValOrig = s.rng.getNum()
+        chosenIdx = int(randValOrig mod uint32(state.vals.len))
+        
+        # Record it formally as a range so shrinking works predictably!
+        s.recordRange(0, cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
 
     result = state.vals[chosenIdx]
 
 
+proc genExhaustiveRange*[T](min: T, rangeSize: uint64): Gen[T] =
+  let 
+    len = int(rangeSize + 1)
+    indices = toSeq(0 ..< len)
+    state = ExhaustiveRangeState[T](min: min, rangeSize: rangeSize, indices: indices, pos: 0)
+
+  return proc(s: Source): T =
+    let tgtK = if len <= 256: skByte
+               elif len <= 65536: sk2Bytes
+               else: sk4Bytes
+
+    var chosenIdx: int
+
+    if not s.recording:
+      chosenIdx = int(s.chooseRange(0, rangeSize, tgtK))
+    else:
+      if state.pos < state.indices.len and not s.idempotent:
+        let
+          randValOrig = s.rng.getNum()
+          remaining = state.indices.len - state.pos
+          offset = int(randValOrig mod uint32(remaining))
+        chosenIdx = state.indices.swapAccess(state.pos, state.pos + offset)
+        state.pos.inc
+      else:
+        let randValOrig = s.rng.getNum()
+        chosenIdx = int(randValOrig mod uint32(len))
+      
+      # Record it formally as a range so shrinking works predictably!
+      s.recordRange(0, rangeSize, cast[uint64](chosenIdx), tgtK)
+
+    # Reconstruct the value by addition
+    when T is enum:
+      result = cast[T](cast[uint64](ord(state.min)) + cast[uint64](chosenIdx))
+    else:
+      result = cast[T](cast[uint64](state.min) + cast[uint64](chosenIdx))
+
+
 proc genConst*[T](v: T): Gen[T] =
-  ## create a generator that always returns `v`.
+  ## Create a generator that always returns `v`.
   return proc(s: Source): T = v
 
 
 proc genByte*(): Gen[byte] =
-  ## create a byte generator.
-  let vals = toSeq(byte.low .. byte.high)
-  return genExhaustive(vals)
+  ## Create a byte generator.
+  return genExhaustiveRange(byte.low, 255'u64)
 
 
 proc genBool*(): Gen[bool] =
-  ## create a boolean generator.
+  ## Create a boolean generator.
   return genExhaustive(@[false, true])
 
 
 proc genChar*(min, max: char): Gen[char] =
   ## create a char arbitrary for the range [min, max].
-  let vals = toSeq(min..max)
-  return genExhaustive(vals)
+  let rangeSize = cast[uint64](ord(max)) - cast[uint64](ord(min))
+  return genExhaustiveRange(min, rangeSize)
 
 
 proc genChar*(): Gen[char] =
-  ## create a char arbitrary for the full character range,
+  ## Create a char arbitrary for the full character range,
   ## see: `genAsciiChar` for the ASCII range.
   genChar(char.low, char.high)
 
 
 proc genAsciiChar*(): Gen[char] =
-  ## create a char arbitrary for the ASCII range.
+  ## Create a char arbitrary for the ASCII range.
   genChar(char(0), char(127))
 
 
 proc genInt*(min, max: int): Gen[int] =
-  ## create an integer generator for the range [min, max].
+  ## Create an integer arbitrary for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= int(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int =
-      let rangeSize = cast[uint](max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUInt()
-      return cast[int](cast[uint](min) + (val mod (rangeSize + 1)))
-
+      cast[int](s.chooseRange(cast[uint64](min), cast[uint64](max), sk8Bytes))
 
 proc genInt*(): Gen[int] =
-  # Assuming 64-bit int for now or system int
-  return proc(s: Source): int = s.nextInt()
+  ## Generate an int for the full range of int.
+  genInt(low(int), high(int))
 
 
 proc genInt8*(min, max: int8): Gen[int8] =
-  ## create an int8 generator for the range [min, max].
+  ## Create an int8 generator for the range [min, max].
   assert max >= min
-  let rangeSize = cast[uint8](max) - cast[uint8](min)
-  if rangeSize <= uint8.high:
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int8 =
-      let rangeSize = cast[uint8](max) - cast[uint8](min)
-      if rangeSize == 0: return min
-      let val = s.nextUInt8()
-      return cast[int8](cast[uint8](min) + (val mod (rangeSize + 1)))
+      cast[int8](s.chooseRange(cast[uint64](min), cast[uint64](max), skByte))
 
 
-proc genInt8*(): Gen[int8] =
-  ## create an int8 generator.
-  return proc(s: Source): int8 = s.nextInt8()
+proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
 
 
 proc genInt16*(min, max: int16): Gen[int16] =
-  ## create an int16 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= int16(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int16 =
-      let rangeSize = cast[uint16](max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUInt16()
-      return cast[int16](cast[uint16](min) + (val mod (rangeSize + 1)))
+      cast[int16](s.chooseRange(cast[uint64](min), cast[uint64](max), sk2Bytes))
 
 
-proc genInt16*(): Gen[int16] =
-  ## create an int16 generator.
-  return proc(s: Source): int16 = s.nextInt16()
+proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
 
 
 proc genInt32*(min, max: int32): Gen[int32] =
-  ## create an int32 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= int32(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int32 =
-      let rangeSize = cast[uint32](max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUInt32()
-      return cast[int32](cast[uint32](min) + (val mod (rangeSize + 1)))
+      cast[int32](s.chooseRange(cast[uint64](min), cast[uint64](max), sk4Bytes))
 
-
-proc genInt32*(): Gen[int32] =
-  ## create an int32 generator.
-  return proc(s: Source): int32 = s.nextInt32()
+proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
 
 
 proc genInt64*(min, max: int64): Gen[int64] =
-  ## create an int64 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= int64(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int64 =
-      let rangeSize = cast[uint64](max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUInt64()
-      return cast[int64](cast[uint64](min) + (val mod (rangeSize + 1)))
+      cast[int64](s.chooseRange(cast[uint64](min), cast[uint64](max), sk8Bytes))
 
 
-proc genInt64*(): Gen[int64] =
-  ## create an int64 generator.
-  return proc(s: Source): int64 = s.nextInt64()
+proc genInt64*(): Gen[int64] = genInt64(low(int64), high(int64))
 
 
 proc genUint8*(min, max: uint8): Gen[uint8] =
-  ## create a uint8 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= uint8(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): uint8 =
-      let rangeSize = (max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUint8()
-      return min + (val mod (rangeSize + 1))
+      cast[uint8](s.chooseRange(cast[uint64](min), cast[uint64](max), skByte))
 
 
-proc genUint8*(): Gen[uint8] =
-  ## create a uint8 generator.
-  return proc(s: Source): uint8 = s.nextUint8()
+proc genUint8*(): Gen[uint8] = genUint8(low(uint8), high(uint8))
 
 
 proc genUint16*(min, max: uint16): Gen[uint16] =
-  ## create a uint16 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= uint16(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): uint16 =
-      let rangeSize = (max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUint16()
-      return min + (val mod (rangeSize + 1))
+      cast[uint16](s.chooseRange(cast[uint64](min), cast[uint64](max), sk2Bytes))
 
 
-proc genUint16*(): Gen[uint16] =
-  ## create a uint16 generator.
-  return proc(s: Source): uint16 = s.nextUint16()
+proc genUint16*(): Gen[uint16] = genUint16(low(uint16), high(uint16))
 
 
 proc genUint32*(min, max: uint32): Gen[uint32] =
-  ## create a uint32 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= uint32(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): uint32 =
-      let rangeSize = (max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUint32()
-      return min + (val mod (rangeSize + 1))
+      cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), sk4Bytes))
 
 
-proc genUint32*(): Gen[uint32] =
-  ## create a uint32 generator.
-  return proc(s: Source): uint32 = s.nextUint32()
+proc genUint32*(): Gen[uint32] = genUint32(low(uint32), high(uint32))
 
 
 proc genUint64*(min, max: uint64): Gen[uint64] =
-  ## create a uint64 generator for the range [min, max].
   assert max >= min
-  let rangeSize = (max - min)
-  if rangeSize <= uint64(uint8.high):
-    let vals = toSeq(min..max)
-    return genExhaustive(vals)
+  let rangeSize = max - min
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): uint64 =
-      let rangeSize = (max - min)
-      if rangeSize == 0: return min
-      let val = s.nextUint64()
-      return min + (val mod (rangeSize + 1))
+      cast[uint64](s.chooseRange(min, max, sk8Bytes))
 
 
-proc genUint64*(): Gen[uint64] =
-  ## create a uint64 generator.
-  return proc(s: Source): uint64 = s.nextUint64()
+proc genUint64*(): Gen[uint64] = genUint64(low(uint64), high(uint64))
 
 
 proc genEnum*[T: enum](min, max: T): Gen[T] =
-  ## create an enum generator for the range [min, max].
   assert max >= min
-  let
-    rangeSize = ord(max) - ord(min)
-    vals = toSeq(min..max)
-  if rangeSize <= int(uint8.high):
-    return genExhaustive(vals)
+  let rangeSize = cast[uint64](ord(max)) - cast[uint64](ord(min))
+  if rangeSize <= 255'u64:
+    return genExhaustiveRange(min, rangeSize)
   else:
+    let rangeK = if enumLen(T) <= 256: skByte
+                 elif enumLen(T) <= 65536: sk2Bytes
+                 else: sk4Bytes
     return proc(s: Source): T =
-      # TODO: because of holey enums we need to do this inefficiently to avoid
-      # generating invalid enum values regardless of the specific enum, but
-      # we should do some compile time logic to only do this for the holey
-      # variety via: `typetraits.isHoleyEnum`
-      let rangeSize = ord(max) - ord(min)
-      if rangeSize == 0: return min
-      let idx = int(s.nextUint32() mod uint32(rangeSize + 1))
-      return vals[idx]
+      cast[T](s.chooseRange(cast[uint64](min), cast[uint64](max), rangeK))
 
 
 proc genEnum*[T: enum](): Gen[T] =
   assert enumLen(T) < int(uint16.high), "oversized enum"
   let vals = toSeq(T.items)
-  if enumLen(T) < int(high(uint8)):
+  if enumLen(T) <= 256:
     return genExhaustive(vals)
   else:
+    let rangeK = if enumLen(T) <= 256: skByte
+                 elif enumLen(T) <= 65536: sk2Bytes
+                 else: sk4Bytes
+    let
+      minIdx = 0
+      maxIdx = vals.len - 1
     return proc(s: Source): T =
-      # TODO: because of holey enums we need to do this inefficiently to avoid
-      # generating invalid enum values regardless of the specific enum, but
-      # we should do some compile time logic to only do this for the holey
-      # variety via: `typetraits.isHoleyEnum`
-      let idx = int(s.nextUint16() mod uint16(vals.len))
+      let idx = int(s.chooseRange(cast[uint64](minIdx), cast[uint64](maxIdx), rangeK))
       result = vals[idx]
 
 
@@ -553,21 +564,9 @@ proc genSet*[T: enum](minLen = 0, exclude: set[T] = {}): Gen[set[T]] =
 
   return proc(s: Source): set[T] =
     let
-      len = s.nextUint32() mod uint32(maxLen - minLen + 1) + uint32(minLen)
+      # Use chooseRange avoiding module arithmetic
+      len = s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes)
       upperLimit = maxLen * 15
-      # The reason we multiply by 15 is that we want to generate a set of
-      # size `len` with a probability of 1/15 for each element.
-      # This ensures that we generate a set of size `len` with a probability
-      # of 1/15 for each element. For example, if we have an enum with 3 values
-      # and we want to generate a set of size 2, then we want to generate a
-      # set of size 2 with a probability of 1/15 for each element. Given we
-      # used one attempt, for the second element to always be a collision with
-      # the first element the probability would be (1/3)^(3 * 15 -1), or
-      # (1/3)^44, which is 1 in 3^44, or 1 in 9.8x10^20, or effectively never.
-      #
-      # The above is a variation on the coupon collector's problem.
-      #
-      # See: https://en.wikipedia.org/wiki/Coupon_collector%27s_problem
     var i = 0
     while result.len < int(len) and i < upperLimit:
       result.incl g(s)
@@ -581,7 +580,7 @@ proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]
   return proc(s: Source): seq[T] =
     let len: uint32 =
       if maxLen == minLen: minLen
-      else:                s.nextUint32() mod uint32(maxLen - minLen + 1) + uint32(minLen)
+      else: cast[uint32](s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
     result = newSeq[T](len)
     for i in 0 ..< len:
       result[i] = g(s)
@@ -726,6 +725,7 @@ type
     shrunk*: bool
     shrunkValue*: Option[T]
     shrunkBuffer*: seq[byte]
+
 
 proc runProperty*[T](p: Property[T], trials: int = 256, seed: uint32 = 0): TestResult[T] =
   # Uses time as seed base if not provided 
@@ -891,14 +891,16 @@ proc hashCombine(seed: var uint32, val: uint32) =
   # Simple hash combination from boost
   seed = seed xor (val + 0x9e3779b9'u32 + (seed shl 6) + (seed shr 2))
 
+
 proc hashArg[T](x: T): uint32 =
   # We need a way to hash arbitrary arguments to seed the RNG.
   # For now, let's hope standard `hash` and cast to uint32 works.
   cast[uint32](hash(x))
 
+
 proc genProc*[R](retGen: Gen[R]): Gen[proc(): R] =
   return proc(s: Source): proc(): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(): R =
       var callSeed = funcSeed
       # No args to hash
@@ -907,7 +909,7 @@ proc genProc*[R](retGen: Gen[R]): Gen[proc(): R] =
 
 proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
   return proc(s: Source): proc(a: T1): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
@@ -916,7 +918,7 @@ proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
 
 proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
   return proc(s: Source): proc(a: T1, b: T2): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
@@ -926,7 +928,7 @@ proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
 
 proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
@@ -937,7 +939,7 @@ proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R]
 
 proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
@@ -949,7 +951,7 @@ proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3,
 
 proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a))
@@ -962,7 +964,7 @@ proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c:
 
 proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
@@ -973,7 +975,7 @@ proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2
 
 proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
@@ -985,7 +987,7 @@ proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b
 
 proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
@@ -997,7 +999,7 @@ proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T
 
 proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))
@@ -1010,7 +1012,7 @@ proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(
 
 proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
-    let funcSeed = s.nextUint32()
+    let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
       var callSeed = funcSeed
       hashCombine(callSeed, hashArg(a)); hashCombine(callSeed, hashArg(b))

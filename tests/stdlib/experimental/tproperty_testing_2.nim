@@ -31,6 +31,153 @@ proc getSamples[T](gen: Gen[T], count: int = 256,
 
 suite "Property Testing with Integrated Shrinking":
 
+  test "Source Initialization API - newSource(seed, limit)":
+    let s = newSource(seed = 1234, limit = 50)
+    check s.limit == 50
+    check s.buffer.len == 0
+    check s.idempotent == false
+
+    # Check default limit
+    let s2 = newSource(seed = 1)
+    check s2.limit == DefaultSourceLimit
+
+
+  test "Source Initialization API - newSource(buffer)":
+    let buf = @[1.byte, 2.byte, 3.byte]
+    let s = newSource(buf)
+    check s.limit == buf.len
+    check s.buffer == buf
+    check s.idempotent == false
+
+
+  test "Primitive Byte & Kind I/O - writeRawByte and readRawByte":
+    let s = newSource(seed = 1)
+    # Recording
+    s.writeRawByte(10.byte)
+    s.writeRawByte(255.byte)
+    check s.buffer == @[10.byte, 255.byte]
+
+    # Replay
+    let sReplay = newSource(s.buffer)
+    check sReplay.readRawByte() == 10.byte
+    check sReplay.readRawByte() == 255.byte
+    # Overflow behavior: should return 0
+    check sReplay.readRawByte() == 0.byte
+
+
+  test "Primitive Byte & Kind I/O - writeStorageKind and readStorageKind":
+    let s = newSource(seed = 1)
+    s.writeStorageKind(skByte)
+    s.writeStorageKind(skRange)
+    s.writeStorageKind(skGroup)
+
+    check s.buffer == @[byte(ord(skByte)), byte(ord(skRange)), byte(ord(skGroup))]
+
+    let sReplay = newSource(s.buffer)
+    check sReplay.readStorageKind() == skByte
+    check sReplay.readStorageKind() == skRange
+    check sReplay.readStorageKind() == skGroup
+    # Overflow reads skByte by default as it's ord(0)
+    check sReplay.readStorageKind() == skByte
+
+
+  test "Multi-byte Serialization - bytesForRange and getScalarBytes":
+    # bytesForRange
+    check bytesForRange(0) == 1
+    check bytesForRange(255) == 1
+    check bytesForRange(256) == 2
+    check bytesForRange(65535) == 2
+    check bytesForRange(65536) == 4
+    check bytesForRange(4294967295'u64) == 4
+    check bytesForRange(4294967296'u64) == 8
+
+    # getScalarBytes
+    check getScalarBytes(skByte) == 1
+    check getScalarBytes(sk2Bytes) == 2
+    check getScalarBytes(sk4Bytes) == 4
+    check getScalarBytes(sk8Bytes) == 8
+    check getScalarBytes(skRange) == 0 # Or whatever fallback is appropriate
+  
+
+  test "Multi-byte Serialization - writeRawBytes and readRawBytes":
+    let s = newSource(seed = 1)
+
+    let 
+      v1: uint64 = 0xAB
+      v2: uint64 = 0xCDEF
+      v3: uint64 = 0x12345678
+      v4: uint64 = 0x9ABCDEF012345678'u64
+
+    s.writeRawBytes(v1, 1)
+    s.writeRawBytes(v2, 2)
+    s.writeRawBytes(v3, 4)
+    s.writeRawBytes(v4, 8)
+
+    let sReplay = newSource(s.buffer)
+    check sReplay.readRawBytes(1) == v1
+    check sReplay.readRawBytes(2) == v2
+    check sReplay.readRawBytes(4) == v3
+    check sReplay.readRawBytes(8) == v4
+    # Replay buffer exhaustion yields 0
+    check sReplay.readRawBytes(8) == 0
+
+
+  test "Generation Subsystem API - rngNextBytes":
+    let s = newSource(seed = 42)
+    let 
+      r1 = s.rngNextBytes(1)
+      r2 = s.rngNextBytes(2)
+      r3 = s.rngNextBytes(4)
+      r4 = s.rngNextBytes(8)
+
+    let s2 = newSource(seed = 42)
+    check s2.rngNextBytes(1) == r1
+    check s2.rngNextBytes(2) == r2
+    check s2.rngNextBytes(4) == r3
+    check s2.rngNextBytes(8) == r4
+
+
+  test "Generation Subsystem API - chooseScalarRaw and chooseRange":
+    let s = newSource(seed = 123)
+
+    # Recording
+    let s1 = s.chooseScalarRaw(skByte)
+    let s2 = s.chooseScalarRaw(sk4Bytes)
+
+    # Range choosing
+    let r1 = s.chooseRange(5, 10, skByte)
+    check r1 >= 5 and r1 <= 10
+
+    let r2 = s.chooseRange(1000, 2000, sk2Bytes)
+    check r2 >= 1000 and r2 <= 2000
+
+    # Replay
+    let sReplay = newSource(s.buffer)
+    check sReplay.chooseScalarRaw(skByte) == s1
+    check sReplay.chooseScalarRaw(sk4Bytes) == s2
+
+    check sReplay.chooseRange(5, 10, skByte) == r1
+    check sReplay.chooseRange(1000, 2000, sk2Bytes) == r2
+
+
+  test "Generation Subsystem API - bounds clamping on replay corruption":
+    # Let's manually craft a corrupted chooseRange buffer that is out of bounds
+    let s = newSource(seed = 1)
+
+    # What the buffer *should* look like, but we corrupt the final value
+    s.writeStorageKind(skRange)
+    s.writeStorageKind(skByte)
+    s.writeRawBytes(10, 1) # min
+    s.writeRawBytes(20, 1) # max
+    s.writeRawBytes(255, 1) # val range (max allowable is 10, but we provide 255)
+
+    let sReplay = newSource(s.buffer)
+    # The read rangeSize should be 10. The read val should be clamped from 255 -> 10.
+    # The mathematical return would be min + 10 = 10 + 10 = 20. Let's verify.
+    let r = sReplay.chooseRange(10, 20, skByte)
+    check r == 20
+
+
   test "Constant generator - produces the same value over and over again":
     let vals = getSamples(genConst(42))
     for val in vals:
@@ -574,6 +721,7 @@ suite "Property Testing with Integrated Shrinking":
     # Fail if >= Green.
     # Gen Green or Blue.
     # Expect shrink to Green (Simpler than Blue).
+    # TODO: occasionally fails, need to figure out why
     let prop = Property[Colors](
       gen: genEnum[Colors](),
       check: proc(x: Colors): PropertyStatus =
@@ -627,7 +775,7 @@ suite "Property Testing with Integrated Shrinking":
     # Use restricted generator to ensure 'A' appears often.
     
     let genRestricted = proc(s: Source): char =
-      let b = s.nextByte()
+      let b = cast[byte](s.chooseRange(0, 255, skByte))
       if (b mod 10) == 0: 'A' else: 'b'
 
     let propRestricted = Property[string](
