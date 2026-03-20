@@ -2689,6 +2689,9 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
       result[namePos] = checkSpecialOperators(c, result[namePos])
       hasError = hasError or result[namePos].kind == nkError
 
+  if result[genericParamsPos].kind == nkEmpty and s.magic == mNone:
+    paramsTypeCheck(c, s.typ, s.flags)
+
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
     if sfBorrow in s.flags:
@@ -2715,9 +2718,6 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     else:
       pushProcCon(c, s)
       if result[genericParamsPos].kind == nkEmpty:
-        if s.magic == mNone:
-          paramsTypeCheck(c, s.typ)
-
         maybeAddResult(c, s, result)
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
