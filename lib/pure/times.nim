@@ -1199,14 +1199,14 @@ proc toAdjTime(dt: DateTime): Time =
 
 when defined(js):
   proc localZonedTimeFromTime(time: Time): ZonedTime {.benign.} =
-    let jsDate = newDate(time.seconds * 1000)
+    let jsDate = newDate(float(time.seconds * 1000))
     let offset = jsDate.getTimezoneOffset() * secondsInMin
     result.time = time
     result.utcOffset = offset
     result.isDst = false
 
   proc localZonedTimeFromAdjTime(adjTime: Time): ZonedTime {.benign.} =
-    let utcDate = newDate(adjTime.seconds * 1000)
+    let utcDate = newDate(float(adjTime.seconds * 1000))
     let localDate = newDate(utcDate.getUTCFullYear(), utcDate.getUTCMonth(),
         utcDate.getUTCDate(), utcDate.getUTCHours(), utcDate.getUTCMinutes(),
         utcDate.getUTCSeconds(), 0)
