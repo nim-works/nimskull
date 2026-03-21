@@ -909,6 +909,7 @@ type
     taNoUntyped
     taIsTemplateOrMacro
     taProcContextIsNotMacro
+    taFFI ## the context is a usage at the FFI border, in either direction
 
   TTypeAllowedFlags* = set[TTypeAllowedFlag]
 

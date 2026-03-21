@@ -6,7 +6,7 @@ when not defined(js):
 type JsBigIntImpl {.importjs: "bigint".} = int # https://github.com/nim-lang/Nim/pull/16606
 type JsBigInt* = distinct JsBigIntImpl         ## Arbitrary precision integer for JavaScript target.
 
-func big*(integer: SomeInteger): JsBigInt {.importjs: "BigInt(#)".} =
+func big*(integer: int|uint): JsBigInt {.importjs: "BigInt(#)".} =
   ## Constructor for `JsBigInt`.
   runnableExamples:
     doAssert big(1234567890) == big"1234567890"
@@ -61,10 +61,10 @@ func wrapToUint*(this: JsBigInt; bits: Natural): JsBigInt {.importjs:
   runnableExamples:
     doAssert (big("3") + big("2") ** big("66")).wrapToUint(66) == big("3")
 
-func toNumber*(this: JsBigInt): BiggestInt {.importjs: "Number(#)".} =
+func toNumber*(this: JsBigInt): float {.importjs: "Number(#)".} =
   ## Does not do any bounds check and may or may not return an inexact representation.
   runnableExamples:
-    doAssert toNumber(big"2147483647") == 2147483647.BiggestInt
+    doAssert toNumber(big"2147483647") == 2147483647.0
 
 func `+`*(x, y: JsBigInt): JsBigInt {.importjs: "(# $1 #)".} =
   runnableExamples:
@@ -203,6 +203,17 @@ proc low*(_: typedesc[JsBigInt]): JsBigInt {.error:
 proc high*(_: typedesc[JsBigInt]): JsBigInt {.error:
   "Arbitrary precision integers do not have a known high.".} ## **Do NOT use.**
 
+proc big(val: float): JsBigInt {.importjs: "BigInt(#)".}
+
+proc big*(integer: uint64): JsBigInt =
+  ## Constructor for `JsBigInt`.
+  # a 64-bit integer is only a float underneath, making this the only way to
+  # properly perform the conversion
+  big(float(integer))
+
+proc big*(integer: int64): JsBigInt =
+  ## Constructor for `JsBigInt`.
+  big(float(integer))
 
 runnableExamples:
   block:

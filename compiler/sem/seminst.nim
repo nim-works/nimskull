@@ -436,7 +436,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     sideEffectsCheck(c, result)
     if result.magic notin {mSlice, mTypeOf}:
       # 'toOpenArray' is special and it is allowed to return 'openArray':
-      paramsTypeCheck(c, result.typ)
+      paramsTypeCheck(c, result.typ, result.flags)
   else:
     result = oldPrc
   popProcCon(c)

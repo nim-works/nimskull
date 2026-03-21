@@ -37,7 +37,7 @@ proc trailingZeros2Digits*(digits: uint32): int32 {.inline.} =
   return trailingZeros100[digits]
 
 when defined(js):
-  proc numToString(a: SomeInteger): cstring {.importjs: "((#) + \"\")".}
+  proc numToString(a: float): cstring {.importjs: "((#) + \"\")".}
 
 func addChars[T](result: var string, x: T, start: int, n: int) {.inline.} =
   let old = result.len
@@ -83,7 +83,7 @@ func addInt*(result: var string, x: uint64) =
   else:
     when not defined(js): addIntImpl(result, x)
     else:
-      addChars(result, numToString(x))
+      addChars(result, numToString(float(x)))
 
 proc addInt*(result: var string; x: int64) =
   ## Converts integer to its string representation and appends it to `result`.
@@ -107,7 +107,7 @@ proc addInt*(result: var string; x: int64) =
   when nimvm: impl()
   else:
     when defined(js):
-      addChars(result, numToString(x))
+      addChars(result, numToString(float(x)))
     else: impl()
 
 proc addInt*(result: var string; x: int) {.inline.} =

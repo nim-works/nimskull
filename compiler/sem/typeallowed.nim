@@ -119,15 +119,24 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
     result = t
   of tyNil:
     if kind != skConst and kind != skParam: result = t
-  of tyString, tyBool, tyChar, tyEnum, tyInt..tyUInt64, tyCstring, tyPointer:
+  of tyString, tyBool, tyChar, tyEnum, tyInt..tyInt32, tyUInt..tyUInt32,
+     tyFloat..tyFloat64, tyCstring, tyPointer:
     result = nil
+  of tyInt64, tyUInt64:
+    if taFFI in flags:
+      result = t
+    else:
+      result = nil
   of tyOrdinal:
     if kind != skParam: result = t
   of tyGenericInst, tyDistinct, tyAlias, tyInferred:
     result = typeAllowedAux(marker, lastSon(t), kind, c, flags)
   of tyRange:
     if skipTypes(t[0], abstractInst-{tyTypeDesc}).kind notin
-      {tyChar, tyEnum, tyInt..tyFloat64, tyInt..tyUInt64, tyRange}: result = t
+       {tyChar, tyEnum, tyInt..tyFloat64, tyInt..tyUInt64, tyRange}:
+      result = t
+    else:
+      result = typeAllowedAux(marker, lastSon(t), kind, c, flags)
   of tyOpenArray:
     # you cannot nest openArrays/sinks/etc.
     if (kind != skParam or taIsOpenArray in flags) and views notin c.features:
