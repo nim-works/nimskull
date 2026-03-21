@@ -1742,8 +1742,14 @@ proc genReprAux(p: PProc, n: CgNode, r: var TCompRes, magic: string; typ = "") =
 proc genRepr(p: PProc, n: CgNode, r: var TCompRes) =
   let t = skipTypes(n[1].typ, abstractVarRange)
   case t.kind:
-  of tyInt..tyInt64, tyUInt..tyUInt64:
+  of tyInt..tyInt32:
     genReprAux(p, n, r, "reprInt")
+  of tyUInt..tyUInt32:
+    genReprAux(p, n, r, "reprUInt")
+  of tyInt64:
+    genReprAux(p, n, r, "reprInt64")
+  of tyUInt64:
+    genReprAux(p, n, r, "reprUInt64")
   of tyChar:
     genReprAux(p, n, r, "reprChar")
   of tyBool:
