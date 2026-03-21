@@ -899,6 +899,51 @@ proc genCaseJS(p: PProc, desc: StructDesc, stmts: openArray[CgNode], n: CgNode) 
 
   lineF(p, "}$n", [])
 
+proc genCaseInt64(p: PProc, desc: StructDesc, stmts: openArray[CgNode], n: CgNode) =
+  ## Similar to `genCaseJs`, but handles selectors of 64-bit integer type, which
+  ## cannot be used in JavaScript switch statements.
+  let sel = gen(p, n[0])
+  let typ = n[0].typ
+  let leOp =
+    if isUnsigned(n[0].typ): "leUInt64"
+    else:                    "leInt64"
+
+  for i in 1..<n.len:
+    let it = n[i]
+    if isOfBranch(it):
+      var cond = ""
+      for j in 0..<it.len-1:
+        let e = it[j]
+        var expr = ""
+        if e.kind == cnkRange:
+          expr = "($2($3, $1) && $2($1, $4))" %
+            [rdLoc(sel), leOp, intLiteral(getInt(e[0]), typ),
+             intLiteral(getInt(e[1]), typ)]
+        else:
+          expr = "eqInt64($1, $2)" % [rdLoc(sel), intLiteral(getInt(e), typ)]
+
+        if cond.len == 0:
+          cond = expr
+        else:
+          cond.add " || "
+          cond.add expr
+
+      if i == 1: lineF(p, "if ($1) {$n", [cond])
+      else:      lineF(p, "} else if($1) {$n", [cond])
+    else:
+      if i == 1: lineF(p, "{$n", [])
+      else:      lineF(p, "} else {$n", [])
+
+    # as for normal switch-case statements, also perform inlining here
+    let target = it[^1].label
+    p.nested:
+      if target in desc.inline:
+        gen(p, desc, stmts, desc.inline[target])
+      else:
+        lineF(p, "break Label$1;$n", [$target])
+
+  lineF(p, "}$n", [])
+
 proc genAsmOrEmitStmt(p: PProc, n: CgNode) =
   genLineDir(p, n)
   p.body.add p.indentLine("")
@@ -2392,7 +2437,10 @@ proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int) =
     of stkTerminator:
       let n = stmts[it.stmt]
       if n.kind == cnkCaseStmt:
-        genCaseJS(p, desc, stmts, n)
+        if isInt64(n[0].typ):
+          genCaseInt64(p, desc, stmts, n)
+        else:
+          genCaseJS(p, desc, stmts, n)
       else:
         genStmt(p, n)
       # the statements immediately following the terminator are dead code,
