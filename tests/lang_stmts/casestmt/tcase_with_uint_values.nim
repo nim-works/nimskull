@@ -4,10 +4,6 @@ discard """
     Ensures that case statements work with uint operands and of-branch values
     not representable with the same-sized signed integer type
   '''
-  knownIssue.js: '''
-    Compiles correctly for JS, but doesn't work at run-time because
-    of the improper large integer support
-  '''
 """
 
 proc test[T: uint64|uint; S]() =
