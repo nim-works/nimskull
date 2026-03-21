@@ -2155,7 +2155,7 @@ proc genRangeChck(p: PProc, n: CgNode, r: var TCompRes) =
     gen(p, n[2], a)
     gen(p, n[3], b)
     useMagic(p, "chckRange")
-    r.res = "chckRange($1, $2, $3)" % [r.res, a.res, b.res]
+    r.res = "chckRange($1, $2, $3)" % [rdNumLoc(p, r, n[1].typ), a.res, b.res]
     r.kind = resExpr
 
 proc frameCreate(p: PProc; procname, filename: Rope): Rope =
