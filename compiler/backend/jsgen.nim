@@ -2050,21 +2050,95 @@ proc genConv(p: PProc, dest: PType, n: CgNode, r: var TCompRes) =
   if dest.kind == src.kind:
     # no-op conversion
     return
-  let toInt = (dest.kind in tyInt..tyInt32)
-  let fromInt = (src.kind in tyInt..tyInt32)
-  let toUint = (dest.kind in tyUInt..tyUInt32)
-  let fromUint = (src.kind in tyUInt..tyUInt32)
-  if toUint and (fromInt or fromUint):
-    let trimmer = unsignedTrimmer(dest.size)
-    r.res = "($1 $2)" % [r.res, trimmer]
-  elif dest.kind == tyBool:
-    r.res = "(!!($1))" % [r.res]
-    r.kind = resExpr
-  elif toInt:
-    r.res = "(($1) | 0)" % [r.res]
+
+  case dest.kind
+  of tyBool:
+    case src.kind
+    of tyInt64, tyUInt64:
+      useMagic(p, "eqInt64")
+      r.res = "(!eqInt64($1, {lo: 0, hi: 0}))" % [rdLoc(r)]
+    else:
+      r.res = "(!!$1)" % [rdLoc(r)]
+  of tyInt64, tyUInt64:
+    case src.kind
+    of tyInt..tyInt32:
+      useMagic(p, "sextInt64")
+      r.res = "sextInt64($1)" % [rdLoc(r)]
+    of tyUInt..tyUInt32, tyChar:
+      useMagic(p, "zextInt64")
+      r.res = "zextInt64($1)" % [rdLoc(r)]
+    of tyFloat, tyFloat64:
+      useMagic(p, "doubleToInt64")
+      r.res = "doubleToInt64($1)" % [rdLoc(r)]
+    of tyFloat32:
+      useMagic(p, "doubleToInt64")
+      r.res = "doubleToInt64($1)" % [rdLoc(r)]
+    of tyBool:
+      r.res = "($1 ? {lo: 1, hi: 0} : {lo: 0, hi: 0})" % [rdLoc(r)]
+    else:
+      discard "silently ignore"
+  of tyInt..tyInt32:
+    case src.kind
+    of tyInt..tyInt32, tyUInt..tyUInt32, tyChar:
+      discard "a no-op"
+    of tyInt64, tyUInt64:
+      useMagic(p, "truncInt64")
+      r.res = "(truncInt64($1) | 0)"
+    of tyFloat, tyFloat64, tyFloat32:
+      # NaN becomes zero
+      r.res = "($1 < $2 ? $2 : ($1 > $3 ? $3 : ($1 == $1 ? ($1|0) : 0)))" %
+        [rdLoc(r), $firstOrd(p.config, dest), $lastOrd(p.config, dest)]
+    of tyBool:
+      r.res = "($1 ? 1 : 0)" % [rdLoc(r)]
+    else:
+      discard "silently ignore"
+  of tyUInt..tyUInt32, tyChar:
+    case src.kind
+    of tyInt..tyInt32, tyUInt..tyUInt32, tyChar:
+      r.res = "($1 $2)" % [rdLoc(r), unsignedTrimmer(dest.size)]
+    of tyFloat, tyFloat64, tyFloat32:
+      # NaN becomes zero
+      r.res = "($1 > $2 ? $2 : ($1 > 0 ? ($1>>>0) : 0))" %
+        [rdLoc(r), $lastOrd(p.config, dest)]
+    of tyUInt64, tyInt64:
+      useMagic(p, "truncInt64")
+      r.res = "(truncInt64($1) $2)" % [rdLoc(r), unsignedTrimmer(dest.size)]
+    of tyBool:
+      r.res = "($1 ? 1 : 0)" % [rdLoc(r)]
+    else:
+      discard "silently ignore"
+  of tyFloat, tyFloat64:
+    case src.kind
+    of tyFloat32, tyInt..tyInt32, tyUInt..tyUInt32, tyChar:
+      discard "nothing to do"
+    of tyInt64:
+      useMagic(p, "int64ToDouble")
+      r.res = "int64ToDouble($1)" % [rdLoc(r)]
+    of tyUInt64:
+      useMagic(p, "uint64ToDouble")
+      r.res = "uint64ToDouble($1)" % [rdLoc(r)]
+    of tyBool:
+      r.res = "($1 ? 1 : 0)" % [rdLoc(r)]
+    else:
+      discard "silently ignore"
+  of tyFloat32:
+    # FIXME: the conversion needs to use fround for demoting from double
+    #        to single precision
+    case src.kind
+    of tyFloat64, tyFloat, tyInt..tyInt32, tyUInt..tyUInt32, tyChar:
+      discard "nothing to do"
+    of tyInt64:
+      useMagic(p, "int64ToDouble")
+      r.res = "int64ToDouble($1)" % [rdLoc(r)]
+    of tyUInt64:
+      useMagic(p, "uint64ToDouble")
+      r.res = "uint64ToDouble($1)" % [rdLoc(r)]
+    of tyBool:
+      r.res = "($1 ? 1 : 0)" % [rdLoc(r)]
+    else:
+      discard "silently ignore"
   else:
-    # TODO: What types must we handle here?
-    discard
+    discard "silently ignore"
 
 proc downConv(p: PProc, n: CgNode, r: var TCompRes) =
   gen(p, n.operand, r)        # XXX
