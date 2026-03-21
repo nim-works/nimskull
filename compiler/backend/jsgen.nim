@@ -184,6 +184,10 @@ type
     addrTaken: PackedSet[LocalId]
       ## locals that have their address taken at some point
 
+  MagicOp = distinct string
+    ## Helper type for marking a string as being the name of a
+    ## `system`-provided operation.
+
 const
   sfModuleInit* = sfMainModule
     ## the procedure is the 'init' procedure of a module
@@ -198,8 +202,12 @@ template `$`(x: BlockId): string =
 template isFilled(x: string): bool =
   x.len != 0
 
+proc isInt64(typ: PType): bool =
+  skipTypes(typ, abstractRange).kind in {tyUInt64, tyInt64}
+
 # forward declarations:
 proc setupLocalLoc(p: PProc, id: LocalId, kind: TSymKind; name = "")
+proc genConv(p: PProc, dest: PType, n: CgNode, r: var TCompRes)
 
 func analyseIfAddressTaken(n: CgNode, addrTaken: var PackedSet[LocalId]) =
   ## Recursively traverses the tree `n` and includes the IDs of all locals
@@ -444,66 +452,6 @@ proc getTemp(p: PProc, defineInLocals: bool = true): Rope =
   if defineInLocals:
     p.defs.add(p.indentLine("var $1;$n" % [result]))
 
-type
-  TMagicOps = array[mAddI..mUnaryPlusF64, string]
-
-const # magic checked op
-  jsMagics: TMagicOps = [
-    mAddI: "addInt",
-    mSubI: "subInt",
-    mMulI: "mulInt",
-    mDivI: "divInt",
-    mModI: "modInt",
-    mSucc: "addInt",
-    mPred: "subInt",
-    mAddF64: "",
-    mSubF64: "",
-    mMulF64: "",
-    mDivF64: "",
-    mShrI: "",
-    mShlI: "",
-    mAshrI: "",
-    mBitandI: "",
-    mBitorI: "",
-    mBitxorI: "",
-    mMinI: "nimMin",
-    mMaxI: "nimMax",
-    mAddU: "",
-    mSubU: "",
-    mMulU: "",
-    mDivU: "",
-    mModU: "",
-    mEqI: "",
-    mLeI: "",
-    mLtI: "",
-    mEqF64: "",
-    mLeF64: "",
-    mLtF64: "",
-    mLeU: "",
-    mLtU: "",
-    mEqEnum: "",
-    mLeEnum: "",
-    mLtEnum: "",
-    mEqCh: "",
-    mLeCh: "",
-    mLtCh: "",
-    mEqB: "",
-    mLeB: "",
-    mLtB: "",
-    mEqRef: "",
-    mLePtr: "",
-    mLtPtr: "",
-    mXor: "",
-    mEqCString: "",
-    mEqProc: "",
-    mUnaryMinusI: "negInt",
-    mUnaryMinusI64: "negInt64",
-    mAbsI: "absInt",
-    mNot: "",
-    mUnaryPlusI: "",
-    mBitnotI: "",
-    mUnaryPlusF64: ""]
-
 template binaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   # $1 and $2 in the `frmt` string bind to lhs and rhs of the expr,
   # $3 or $4 are legacy substitutions that also bind to the lhs and rhs
@@ -536,16 +484,18 @@ proc unsignedTrimmerJS(size: BiggestInt): Rope =
 template unsignedTrimmer(size: BiggestInt): Rope =
   size.unsignedTrimmerJS
 
-proc binaryUintExpr(p: PProc, n: CgNode, r: var TCompRes, op: string,
-                    reassign: static[bool] = false) =
+proc binaryUintExpr(p: PProc, n: CgNode, r: var TCompRes, op: string or MagicOp) =
   var x, y: TCompRes
   gen(p, n[1], x)
   gen(p, n[2], y)
   let trimmer = unsignedTrimmer(n[1].typ.skipTypes(abstractRange).size)
-  when reassign:
-    r.res = "$1 = (($1 $2 $3) $4)" % [x.rdLoc, rope op, y.rdLoc, trimmer]
+  when op is string:
+    r.res = op % [x.rdLoc, y.rdLoc]
+    r.res.add " "
+    r.res.add trimmer
   else:
-    r.res = "(($1 $2 $3) $4)" % [x.rdLoc, rope op, y.rdLoc, trimmer]
+    useMagic(p, op.string)
+    r.res = "($1($2, $3) $4)" % [string(op), x.rdLoc, y.rdLoc, trimmer]
   r.kind = resExpr
 
 template unaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
@@ -555,104 +505,195 @@ template unaryExpr(p: PProc, n: CgNode, r: var TCompRes, magic, frmt: string) =
   r.res = frmt % [r.rdLoc]
   r.kind = resExpr
 
-proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
-  var
-    x, y: TCompRes
-    xLoc,yLoc: Rope
-
-  useMagic(p, jsMagics[op])
-  if numArgs(n) == 2:
-    gen(p, n[1], x)
-    gen(p, n[2], y)
-    xLoc = x.rdLoc
-    yLoc = y.rdLoc
+proc unaryExpr(p: PProc, a: CgNode, r: var TCompRes, frmt: string or MagicOp) =
+  let arg = gen(p, a)
+  when frmt is string:
+    r.res = frmt % [rdLoc(arg)]
   else:
-    gen(p, n[1], r)
-    xLoc = r.rdLoc
+    # the operator is a `system`-provided procedure
+    useMagic(p, frmt.string)
+    r.res = "$1($2)" % [frmt.string, rdLoc(arg)]
 
-  template applyFormat(frmt) =
-    r.res = frmt % [xLoc, yLoc]
+  r.kind = resExpr
+
+proc binaryExpr(p: PProc, a, b: CgNode, r: var TCompRes, frmt: string or MagicOp) =
+  let x = gen(p, a)
+  let y = gen(p, b)
+  when frmt is string:
+    r.res = frmt % [rdLoc(x), rdLoc(y)]
+  else:
+    # the operator is a `system`-provided procedure
+    useMagic(p, frmt.string)
+    r.res = "$1($2, $3)" % [frmt.string, rdLoc(x), rdLoc(y)]
+
+  r.kind = resExpr
+
+proc rdNumLoc(p: PProc, a: TCompRes, typ: PType): Rope =
+  ## Returns the JavaScript expression for reading a JavaScript number value
+  ## from location `a`. True 64-bit integers are converted to doubles
+  ## (potentially losing information).
+  result = rdLoc(a)
+  case skipTypes(typ, abstractInst).kind
+  of tyInt64:
+    useMagic(p, "int64ToDouble")
+    result = "int64ToDouble($1)" % [result]
+  of tyUInt64:
+    useMagic(p, "uint64ToDouble")
+    result = "uint64ToDouble($1)" % [result]
+  else:
+    discard "nothing to do"
+
+proc patchedBinaryExpr(p: PProc, a, b: CgNode, r: var TCompRes,
+                       frmt: string or MagicOp) =
+  ## Like `binaryArith`, but inserts a conversion for the second operand when
+  ## it doesn't have the same type as the first operand, to work around
+  ## upstream compiler bugs. Also handles unsigned integer trimming.
+  let x = gen(p, a)
+  var y: TCompRes
+  genConv(p, a.typ, b, y)
+  when frmt is string:
+    r.res = frmt % [rdLoc(x), rdLoc(y)]
+  else:
+    # the operator is a `system`-provided procedure
+    useMagic(p, frmt.string)
+    r.res = "$1($2, $3)" % [frmt.string, rdLoc(x), rdLoc(y)]
+
+  if isUnsigned(a.typ):
+    r.res = "($1 $2)" %
+      [r.res, unsignedTrimmer(skipTypes(a.typ, abstractRange).size)]
+
+  r.kind = resExpr
+
+proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
+  template binary(frmt) =
+    binaryExpr(p, n[1], n[2], r, frmt)
+
+  template unary(frmt) =
+    unaryExpr(p, n[1], r, frmt)
+
+  template binary(frmtInt, frmtInt64) =
+    if isInt64(n[1].typ):
+      binaryExpr(p, n[1], n[2], r, frmtInt64)
+    elif isUnsigned(n.typ):
+      binaryUintExpr(p, n, r, frmtInt)
+    else:
+      binaryExpr(p, n[1], n[2], r, frmtInt)
+
+  template unary(frmtInt, frmtInt64) =
+    if isInt64(n[1].typ):
+      unaryExpr(p, n[1], r, frmtInt64)
+    else:
+      unaryExpr(p, n[1], r, frmtInt)
 
   case op:
-  of mAddI: applyFormat("addInt($1, $2)")
-  of mSubI: applyFormat("subInt($1, $2)")
-  of mMulI: applyFormat("mulInt($1, $2)")
-  of mDivI: applyFormat("divInt($1, $2)")
-  of mModI: applyFormat("modInt($1, $2)")
-  of mSucc: applyFormat("addInt($1, $2)")
-  of mPred: applyFormat("subInt($1, $2)")
-  of mAddF64: applyFormat("($1 + $2)")
-  of mSubF64: applyFormat("($1 - $2)")
-  of mMulF64: applyFormat("($1 * $2)")
-  of mDivF64: applyFormat("($1 / $2)")
-  of mShrI: applyFormat("")
+  of mAddI:
+    if isInt64(n[1].typ):
+      patchedBinaryExpr(p, n[1], n[2], r, MagicOp"checkedAddInt64")
+    else:
+      patchedBinaryExpr(p, n[1], n[2], r, MagicOp"addInt")
+  of mSubI:
+    if isInt64(n[1].typ):
+      patchedBinaryExpr(p, n[1], n[2], r, MagicOp"checkedSubInt64")
+    else:
+      patchedBinaryExpr(p, n[1], n[2], r, MagicOp"subInt")
+  of mMulI: binary(MagicOp"mulInt", MagicOp"checkedMulInt64")
+  of mDivI: binary(MagicOp"divInt", MagicOp"checkedDivInt64")
+  of mModI: binary(MagicOp"modInt", MagicOp"checkedModInt64")
+  of mAddF64: binary("($1 + $2)")
+  of mSubF64: binary("($1 - $2)")
+  of mMulF64: binary("($1 * $2)")
+  of mDivF64: binary("($1 / $2)")
   of mShlI:
-    if n[1].typ.size <= 4:
-      applyFormat("($1 << $2)")
+    let a = gen(p, n[1])
+    let b = gen(p, n[2])
+    # needs special handling for the shift operand
+    if isInt64(n[1].typ):
+      useMagic(p, "shlInt64")
+      r.res = "shlInt64($1, $2)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ)]
+    elif isUnsigned(n[1].typ):
+      r.res = "(($1 << $2) $3)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ),
+                                   unsignedTrimmer(getSize(p.config, n.typ))]
     else:
-      applyFormat("($1 * Math.pow(2, $2))")
+      r.res = "($1 << $2)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ)]
   of mAshrI:
-    if n[2].typ.size <= 4:
-      applyFormat("($1 >> $2)")
+    let a = gen(p, n[1])
+    let b = gen(p, n[2])
+    # needs special handling for the shift operand
+    if isInt64(n[1].typ):
+      useMagic(p, "ashrInt64")
+      r.res = "ashrInt64($1, $2)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ)]
     else:
-      applyFormat("Math.floor($1 / Math.pow(2, $2))")
-  of mBitandI: applyFormat("($1 & $2)")
-  of mBitorI: applyFormat("($1 | $2)")
-  of mBitxorI: applyFormat("($1 ^ $2)")
-  of mMinI: applyFormat("nimMin($1, $2)")
-  of mMaxI: applyFormat("nimMax($1, $2)")
-  of mAddU: applyFormat("")
-  of mSubU: applyFormat("")
-  of mMulU: applyFormat("")
-  of mDivU: applyFormat("")
-  of mModU: applyFormat("($1 % $2)")
-  of mEqI: applyFormat("($1 == $2)")
-  of mLeI: applyFormat("($1 <= $2)")
-  of mLtI: applyFormat("($1 < $2)")
-  of mEqF64: applyFormat("($1 == $2)")
-  of mLeF64: applyFormat("($1 <= $2)")
-  of mLtF64: applyFormat("($1 < $2)")
-  of mLeU: applyFormat("($1 <= $2)")
-  of mLtU: applyFormat("($1 < $2)")
-  of mEqEnum: applyFormat("($1 == $2)")
-  of mLeEnum: applyFormat("($1 <= $2)")
-  of mLtEnum: applyFormat("($1 < $2)")
-  of mEqCh: applyFormat("($1 == $2)")
-  of mLeCh: applyFormat("($1 <= $2)")
-  of mLtCh: applyFormat("($1 < $2)")
-  of mEqB: applyFormat("($1 == $2)")
-  of mLeB: applyFormat("($1 <= $2)")
-  of mLtB: applyFormat("($1 < $2)")
-  of mEqRef: applyFormat("($1 == $2)")
-  of mLePtr: applyFormat("($1 <= $2)")
-  of mLtPtr: applyFormat("($1 < $2)")
-  of mXor: applyFormat("($1 != $2)")
-  of mEqCString: applyFormat("($1 == $2)")
-  of mEqProc: applyFormat("($1 == $2)")
-  of mUnaryMinusI: applyFormat("negInt($1)")
-  of mUnaryMinusI64: applyFormat("negInt64($1)")
-  of mAbsI: applyFormat("absInt($1)")
-  of mNot: applyFormat("!($1)")
-  of mUnaryPlusI: applyFormat("+($1)")
-  of mBitnotI: applyFormat("~($1)")
-  of mUnaryPlusF64: applyFormat("+($1)")
+      r.res = "($1 >> $2)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ)]
+  of mBitandI: binary("($1 & $2)", MagicOp"bitAndInt64")
+  of mBitorI: binary("($1 | $2)", MagicOp"bitOrInt64")
+  of mBitxorI: binary("($1 ^ $2)", MagicOp"bitXorInt64")
+  of mMinI: binary(MagicOp"nimMin", MagicOp"nimMin64")
+  of mMaxI: binary(MagicOp"nimMax", MagicOp"nimMax64")
+  of mModU: binary("($1 % $2)", MagicOp"modUInt64")
+  of mEqI: binary("($1 == $2)", MagicOp"eqInt64")
+  of mLeI: binary("($1 <= $2)", MagicOp"leInt64")
+  of mLtI: binary("($1 < $2)", MagicOp"ltInt64")
+  of mEqF64: binary("($1 == $2)")
+  of mLeF64: binary("($1 <= $2)")
+  of mLtF64: binary("($1 < $2)")
+  of mLeU: binary("($1 <= $2)", MagicOp"leUInt64")
+  of mLtU: binary("($1 < $2)", MagicOp"ltUInt64")
+  of mEqEnum: binary("($1 == $2)")
+  of mLeEnum: binary("($1 <= $2)")
+  of mLtEnum: binary("($1 < $2)")
+  of mEqCh: binary("($1 == $2)")
+  of mLeCh: binary("($1 <= $2)")
+  of mLtCh: binary("($1 < $2)")
+  of mEqB: binary("($1 == $2)")
+  of mLeB: binary("($1 <= $2)")
+  of mLtB: binary("($1 < $2)")
+  of mEqRef: binary("($1 == $2)")
+  of mLePtr: binary("($1 <= $2)")
+  of mLtPtr: binary("($1 < $2)")
+  of mXor: binary("($1 != $2)")
+  of mEqCString: binary("($1 == $2)")
+  of mEqProc: binary("($1 == $2)")
+  of mUnaryMinusI: unary(MagicOp"negInt")
+  of mUnaryMinusI64: unary(MagicOp"checkedNegInt64")
+  of mAbsI: unary(MagicOp"absInt", MagicOp"absInt64")
+  of mNot: unary("!($1)")
+  of mUnaryPlusI: unary("$1") # a no-op
+  of mBitnotI:
+    if isInt64(n[1].typ):
+      unary(MagicOp"bitNotInt64")
+    elif isUnsigned(n[1].typ):
+      let arg = gen(p, n[1])
+      r.res = "(~($1) $2)" %
+        [rdLoc(arg), unsignedTrimmer(getSize(p.config, n.typ))]
+    else:
+      unary("~($1)")
+  of mUnaryPlusF64: unary("+($1)")
   else:
     unreachable(op)
 
 proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   case op
-  of mAddU: binaryUintExpr(p, n, r, "+")
-  of mSubU: binaryUintExpr(p, n, r, "-")
-  of mMulU: binaryUintExpr(p, n, r, "*")
+  of mAddU:
+    if isInt64(n.typ): patchedBinaryExpr(p, n[1], n[2], r, MagicOp"addInt64")
+    else:              patchedBinaryExpr(p, n[1], n[2], r, "($1 + $2)")
+  of mSubU:
+    if isInt64(n.typ): patchedBinaryExpr(p, n[1], n[2], r, MagicOp"subInt64")
+    else:              patchedBinaryExpr(p, n[1], n[2], r, "($1 - $2)")
+  of mMulU:
+    if isInt64(n.typ): binaryExpr(p, n[1], n[2], r, MagicOp"mulInt64")
+    else:              binaryUintExpr(p, n, r, "Math.imul($1, $2)")
   of mDivU:
-    binaryUintExpr(p, n, r, "/")
-    if n[1].typ.skipTypes(abstractRange).size == 8:
-      r.res = "Math.trunc($1)" % [r.res]
+    if isInt64(n.typ): binaryExpr(p, n[1], n[2], r, MagicOp"divUInt64")
+    else:              binaryUintExpr(p, n, r, "($1 / $2)")
   of mShrI:
-    var x, y: TCompRes
-    gen(p, n[1], x)
-    gen(p, n[2], y)
-    r.res = "($1 >>> $2)" % [x.rdLoc, y.rdLoc]
+    let a = gen(p, n[1])
+    let b = gen(p, n[2])
+    # needs special handling for the shift operand
+    if isInt64(n.typ):
+      useMagic(p, "shrInt64")
+      r.res = "shrInt64($1, $2)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ)]
+    else:
+      r.res = "($1 >>> $2)" % [rdLoc(a), rdNumLoc(p, b, n[2].typ)]
   of mEqRef:
     if mapType(n[1].typ) != etyBaseIndex:
       arithAux(p, n, r, op)
@@ -2002,10 +2043,10 @@ proc genObjConstr(p: PProc, n: CgNode, r: var TCompRes) =
   createObjInitList(p, t, fieldIDs, initList)
   r.res = ("{$1}") % [initList]
 
-proc genConv(p: PProc, n: CgNode, r: var TCompRes) =
-  var dest = skipTypes(n.typ, abstractVarRange)
-  var src = skipTypes(n.operand.typ, abstractVarRange)
-  gen(p, n.operand, r)
+proc genConv(p: PProc, dest: PType, n: CgNode, r: var TCompRes) =
+  let dest = skipTypes(dest, abstractVarRange)
+  let src = skipTypes(n.typ, abstractVarRange)
+  gen(p, n, r)
   if dest.kind == src.kind:
     # no-op conversion
     return
@@ -2500,19 +2541,42 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
     else:
       genCall(p, n, r)
   of cnkNeg:
-    let x = gen(p, n[0])
-    r.res = "(-$1)" % rdLoc(x)
+    if isInt64(n.typ):
+      unaryExpr(p, n[0], r, MagicOp"negInt64")
+    else:
+      let x = gen(p, n[0])
+      r.res = "(-$1)" % rdLoc(x)
     r.typ = mapType(n.typ)
     r.kind = resExpr
-  of cnkAdd: binaryExpr(p, n[0], n[1], r, "($1 + $2)")
-  of cnkSub: binaryExpr(p, n[0], n[1], r, "($1 - $2)")
-  of cnkMul: binaryExpr(p, n[0], n[1], r, "($1 * $2)")
-  of cnkDiv:
-    if mapType(n.typ) == etyFloat:
-      binaryExpr(p, n[0], n[1], r, "($1 / $2)")
+  of cnkAdd:
+    case mapType(n.typ)
+    of etyFloat:  binaryExpr(p, n[0], n[1], r, "($1 + $2)")
+    of etyObject: patchedBinaryExpr(p, n[0], n[1], r, MagicOp"addInt64")
+    of etyInt:    patchedBinaryExpr(p, n[0], n[1], r, "($1 + $2)")
+    else:         unreachable()
+  of cnkSub:
+    case mapType(n.typ)
+    of etyFloat:  binaryExpr(p, n[0], n[1], r, "($1 - $2)")
+    of etyObject: patchedBinaryExpr(p, n[0], n[1], r, MagicOp"subInt64")
+    of etyInt:    patchedBinaryExpr(p, n[0], n[1], r, "($1 - $2)")
+    else:         unreachable()
+  of cnkMul:
+    if isInt64(n.typ):
+      binaryExpr(p, n[0], n[1], r, MagicOp"mulInt64")
     else:
-      binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
-  of cnkModI: binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
+      # ``Math.imul`` doesn't have to be used here, as signed-integer overflow
+      # is undefined behaviour
+      binaryExpr(p, n[0], n[1], r, "($1 * $2)")
+  of cnkDiv:
+    case mapType(n.typ)
+    of etyFloat:  binaryExpr(p, n[0], n[1], r, "($1 / $2)")
+    of etyObject: binaryExpr(p, n[0], n[1], r, MagicOp"divInt64")
+    else:         binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+  of cnkModI:
+    if isInt64(n.typ):
+      binaryExpr(p, n[0], n[1], r, MagicOp"modInt64")
+    else:
+      binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
   of cnkClosureConstr:
     useMagic(p, "makeClosure")
     var tmp1, tmp2: TCompRes
@@ -2524,7 +2588,7 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   of cnkArrayConstr: genArrayConstr(p, n, r)
   of cnkTupleConstr: genTupleConstr(p, n, r)
   of cnkObjConstr: genObjConstr(p, n, r)
-  of cnkHiddenConv, cnkConv: genConv(p, n, r)
+  of cnkHiddenConv, cnkConv: genConv(p, n.typ, n.operand, r)
   of cnkLvalueConv:
     # non-object lvalue conversion are irrelevant to the JS backend
     gen(p, n.operand, r)
