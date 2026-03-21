@@ -9,6 +9,7 @@
 # https://hypothesis.works/articles/compositional-shrinking/
 
 import std/[
+    macros,   # sigh
     mersenne,
     options,
   ]
@@ -1221,44 +1222,18 @@ proc genProcVoid*(): Gen[proc()] =
 # For void procs with args, they just consume args but return nothing.
 # They don't need to be deterministic for return value since there is none.
 # They are essentially sinks.
-proc genProcVoid1*[T1](): Gen[proc(a: T1)] =
-  return proc(s: Source): proc(a: T1) = (proc(a: T1) = discard)
 
-proc genProcVoid2*[T1, T2](): Gen[proc(a: T1, b: T2)] =
-  return proc(s: Source): proc(a: T1, b: T2) = (proc(a: T1, b: T2) = discard)
+macro genProcVoidN*(T: varargs[typedesc]): untyped =
+  var args = @[bindSym"void"]
 
-proc genProcVoid3*[T1, T2, T3](): Gen[proc(a: T1, b: T2, c: T3)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3) = 
-    (proc(a: T1, b: T2, c: T3) = discard)
+  for t in T:
+    args.add(nnkIdentDefs.newTree(genSym("a"), t))
 
-proc genProcVoid4*[T1, T2, T3, T4](): Gen[proc(a: T1, b: T2, c: T3, d: T4)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4) = 
-    (proc(a: T1, b: T2, c: T3, d: T4) = discard)
+  let prc = newProc(params = args)
+  let Source = bindSym("Source")
 
-proc genProcVoid5*[T1, T2, T3, T4, T5](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5) = 
-    (proc(a: T1, b: T2, c: T3, d: T4, e: T5) = discard)
-
-proc genProcVoid6*[T1, T2, T3, T4, T5, T6](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6) = 
-    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6) = discard)
-
-proc genProcVoid7*[T1, T2, T3, T4, T5, T6, T7](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7) = 
-    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7) = discard)
-
-proc genProcVoid8*[T1, T2, T3, T4, T5, T6, T7, T8](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8) = 
-    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8) = discard)
-
-proc genProcVoid9*[T1, T2, T3, T4, T5, T6, T7, T8, T9](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9) = 
-    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9) = discard)
-
-proc genProcVoid10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10)] =
-  return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10) = 
-    (proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10) = discard)
-
+  result = quote do:
+    (proc(s: `Source`): auto = `prc`)
 
 # MARK: Property Helpers
 
