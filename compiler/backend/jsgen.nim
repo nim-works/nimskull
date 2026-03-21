@@ -2422,30 +2422,8 @@ proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
   if dest.kind == src.kind:
     # no-op conversion
     return
-  let toInt = (dest.kind in tyInt..tyInt32)
-  let toUint = (dest.kind in tyUInt..tyUInt32)
-  let fromInt = (src.kind in tyInt..tyInt32)
-  let fromUint = (src.kind in tyUInt..tyUInt32)
 
-  if toUint and (fromInt or fromUint):
-    let trimmer = unsignedTrimmer(dest.size)
-    r.res = "($1 $2)" % [r.res, trimmer]
-  elif toInt and (fromInt or fromUint):
-    if fromInt:
-      return
-    elif fromUint:
-      if src.size == 4 and dest.size == 4:
-        # XXX prevent multi evaluations
-        r.res = "($1 | 0)" % [r.res]
-      else:
-        let trimmer = unsignedTrimmer(dest.size)
-        let minuend = case dest.size
-          of 1: "0xfe"
-          of 2: "0xfffe"
-          of 4: "0xfffffffe"
-          else: ""
-        r.res = "($1 - ($2 $3))" % [rope minuend, r.res, trimmer]
-  elif dest.kind == tyPointer:
+  if dest.kind == tyPointer:
     # cast into pointer
     if r.typ == etyBaseIndex:
       discard "already a fat pointer, do nothing"
@@ -2462,6 +2440,105 @@ proc genCast(p: PProc, n: CgNode, r: var TCompRes) =
       r.res = r.address
       r.address = "" # clear out the address
       r.typ = d
+  elif src.kind in IntegralTypes and dest.kind in IntegralTypes:
+    case dest.kind
+    of tyInt64, tyUInt64:
+      case src.kind
+      of tyInt..tyInt32:
+        useMagic(p, "sextInt64")
+        r.res = "sextInt64($1)" % [rdLoc(r)]
+      of tyUInt..tyUInt32, tyChar:
+        useMagic(p, "zextInt64")
+        r.res = "zextInt64($1)" % [rdLoc(r)]
+      of tyFloat, tyFloat64:
+        useMagic(p, "castDoubleToInt64")
+        r.res = "castDoubleToInt64($1)" % [rdLoc(r)]
+      of tyFloat32:
+        useMagic(p, "castFloatToInt64")
+        r.res = "castFloatToInt64($1)" % [rdLoc(r)]
+      else:
+        discard "silently ignore"
+    of tyInt..tyInt32:
+      let op =
+        case dest.size
+        of 1: "<< 24 >> 24"
+        of 2: "<< 16 >> 16"
+        of 4: "| 0"
+        else: unreachable()
+
+      case src.kind
+      of tyInt..tyInt32, tyUInt..tyUInt32, tyChar:
+        r.res = "($1 $2)" % [rdLoc(r), op]
+      of tyInt64, tyUInt64:
+        useMagic(p, "truncInt64")
+        r.res = "(truncInt64($1) $2)" % [rdLoc(r), op]
+      of tyFloat, tyFloat64:
+        useMagic(p, "castDoubleToInt")
+        r.res = "(castDoubleToInt($1) $2)" % [rdLoc(r), op]
+      of tyFloat32:
+        useMagic(p, "castFloatToInt")
+        r.res = "(castFloatToInt($1) $2)" % [rdLoc(r), op]
+      else:
+        discard "silently ignore"
+    of tyUInt..tyUInt32, tyChar:
+      let op = unsignedTrimmer(dest.size)
+      case src.kind
+      of tyInt..tyInt32, tyUInt..tyUInt32, tyChar:
+        r.res = "($1 $2)" % [rdLoc(r), op]
+      of tyFloat, tyFloat64:
+        useMagic(p, "castDoubleToInt")
+        r.res = "(castDoubleToInt($1) $2)" % [rdLoc(r), op]
+      of tyFloat32:
+        useMagic(p, "castFloatToInt")
+        r.res = "(castFloatToInt($1) $2)" % [rdLoc(r), op]
+      of tyUInt64, tyInt64:
+        useMagic(p, "truncInt64")
+        r.res = "(truncInt64($1) $2)" % [rdLoc(r), op]
+      else:
+        discard "silently ignore"
+    of tyFloat, tyFloat64:
+      case src.kind
+      of tyFloat32:
+        useMagic(p, "castFloatToInt")
+        useMagic(p, "castIntToDobule")
+        r.res = "castIntToDouble(castFloatToInt($n))" % [rdLoc(r)]
+      of tyInt..tyInt32:
+        useMagic(p, "castIntToDouble")
+        # cast to a same-sized uint first, then cast to double
+        r.res = "castIntToDouble($1 $2)" %
+          [rdLoc(r), unsignedTrimmer(src.size)]
+      of tyUInt..tyUInt32, tyChar:
+        useMagic(p, "castIntToDouble")
+        r.res = "castIntToDouble($1)" % [rdLoc(r)]
+      of tyInt64, tyUInt64:
+        useMagic(p, "castInt64ToDouble")
+        r.res = "castInt64ToDouble($1)" % [rdLoc(r)]
+      else:
+        discard "silently ignore"
+    of tyFloat32:
+      case src.kind
+      of tyFloat64, tyFloat:
+        useMagic(p, "castDoubleToInt")
+        useMagic(p, "castIntToFloat")
+        r.res = "castIntToFloat(castDoubleToInt($n))" % [rdLoc(r)]
+      of tyInt..tyInt32:
+        useMagic(p, "castIntToFloat")
+        # cast to a same-sized uint first, then cast to float
+        r.res = "castIntToFloat($1 $2)" %
+          [rdLoc(r), unsignedTrimmer(src.size)]
+      of tyUInt..tyUInt32, tyChar:
+        useMagic(p, "castIntToFloat")
+        r.res = "castIntToFloat($1)" % [rdLoc(r)]
+      of tyInt64, tyUInt64:
+        useMagic(p, "castInt64ToFloat")
+        r.res = "castInt64ToFloat($1)" % [rdLoc(r)]
+      else:
+        discard "silently ignore"
+    else:
+      discard "silently ignore"
+  else:
+    # other casts require serialization/deserialization from bytes
+    discard "not implemented; silently ignored"
 
 proc gen(p: PProc, n: CgNode, r: var TCompRes) =
   r.typ = etyNone
