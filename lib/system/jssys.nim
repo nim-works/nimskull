@@ -699,6 +699,15 @@ proc nimCopy(dest, src: JSRef, ti: PNimType): JSRef =
         `result` = `src`.slice(0);
       }
     """
+  of tyInt64, tyUInt64:
+    asm """
+      if (`dest` === null || `dest` === undefined) {
+        `dest` = {};
+      }
+      `result` = `dest`;
+      `result`.lo = `src`.lo;
+      `result`.hi = `src`.hi;
+    """
   else:
     result = src
 
@@ -729,6 +738,10 @@ proc genericReset(x: JSRef, ti: PNimType): JSRef {.compilerproc.} =
       for (var i = 0; i < `x`.length; ++i) {
         `result`[i] = genericReset(`x`[i], `ti`.base);
       }
+    """
+  of tyInt64, tyUInt64:
+    asm """
+      `result` = {lo: 0, hi: 0};
     """
   else:
     discard
