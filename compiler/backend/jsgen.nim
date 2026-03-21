@@ -1103,9 +1103,12 @@ proc genArrayAddr(p: PProc, n: CgNode, r: var TCompRes) =
   if typ.kind == tyArray:
     first = firstOrd(p.config, typ[0])
   if first != 0:
-    r.res = "($1) - ($2)" % [b.res, rope(first)]
+    # TODO: handle 64-bit indices properly properly, by using the type-specific
+    #       arithmetic ops. The index processing should be inserted
+    #       by `mirgen`
+    r.res = "($1) - ($2)" % [rdNumLoc(p, b, m[1].typ), rope(first)]
   else:
-    r.res = b.res
+    r.res = rdNumLoc(p, b, m[1].typ)
   r.kind = resExpr
 
 proc genArrayAccess(p: PProc, n: CgNode, r: var TCompRes) =
@@ -1907,6 +1910,7 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     discard "implementation is missing"
   of mChckIndex:
     let
+      typ = n[2].typ
       first = firstOrd(p.config, n[1].typ)
       arr = gen(p, n[1])
       idx = gen(p, n[2])
@@ -1914,13 +1918,14 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     useMagic(p, "chckIndx")
     if first == 0:
       lineF(p, "(chckIndx($2, 0, ($1).length - 1));$n",
-            [rdLoc(arr), rdLoc(idx)])
+            [rdLoc(arr), rdNumLoc(p, idx, typ)])
     else:
       # can only be a statically-sized array
       lineF(p, "(chckIndx($1, $2, $3));$n",
-            [rdLoc(idx), rope(first), rope(lastOrd(p.config, n[1].typ))])
+            [rdNumLoc(p, idx, typ), rope(first), rope(lastOrd(p.config, n[1].typ))])
   of mChckBounds:
     let
+      typ = n[2].typ
       first = firstOrd(p.config, n[1].typ)
       arr = gen(p, n[1])
       lo = gen(p, n[2])
@@ -1929,11 +1934,11 @@ proc genMagic(p: PProc, n: CgNode, r: var TCompRes) =
     useMagic(p, "chckBounds")
     if first == 0:
       lineF(p, "chckBounds($2, $3, 0, ($1).length - 1);$n",
-            [rdLoc(arr), rdLoc(lo), rdLoc(hi)])
+            [rdLoc(arr), rdNumLoc(p, lo, typ), rdNumLoc(p, hi, typ)])
     else:
       # can only be a statically-sized array
       lineF(p, "(chckBounds($1, $2, $3, $4));$n",
-            [rdLoc(lo), rdLoc(hi), rope(first),
+            [rdNumLoc(p, lo, typ), rdNumLoc(p, hi, typ), rope(first),
              rope(lastOrd(p.config, n[1].typ))])
   of mChckField:
     genFieldCheck(p, n)
