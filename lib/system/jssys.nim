@@ -557,6 +557,41 @@ when not defined(nimNoZeroExtendMagic):
 proc nimMin(a, b: int): int {.compilerproc.} = return if a <= b: a else: b
 proc nimMax(a, b: int): int {.compilerproc.} = return if a >= b: a else: b
 
+# conversions and casts
+
+proc castIntToDouble(val: int): float64 {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(8);
+    var view = new Int32Array(buf);
+    view[0] = `val`;
+    view[1] = 0;
+    return (new Float64Array(buf))[0];
+  """
+
+proc castIntToFloat(val: int): float32 {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(4);
+    var view = new Int32Array(buf);
+    view[0] = `val`;
+    return (new Float32Array(buf))[0];
+  """
+
+proc castDoubleToInt(val: float64): int {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(8);
+    var view = new Float64Array(buf);
+    view[0] = `val`;
+    return (new Int32Array(buf))[0];
+  """
+
+proc castFloatToInt(val: float32): int {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(4);
+    var view = new Float32Array(buf);
+    view[0] = `val`;
+    return (new Int32Array(buf))[0];
+  """
+
 include "system/hti"
 
 proc isFatPointer(ti: PNimType): bool =
