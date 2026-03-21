@@ -151,42 +151,18 @@ block:
   let rtInt64Min = vmInt64Min
   doAssert rtInt64Min == int64 -9_223_372_036_854_775_808, "int 64 min"
   const sMin = $vmInt64Min
-  when defined(js):
-    # JS codegen has a bug and Nimskull emits the raw literal into JS which
-    # then gets approximated as a double, here JS and the VM disagree
-    if $rtInt64Min == sMin:
-      doAssert false, "JS coddegen fixed for int64, congrats, renable this test"
-    else:
-      discard "Javascript code gen is still broken"
-  else:
-    doAssert $rtInt64Min == sMin, "string compare int64 min VM vs runtime"
+  doAssert $rtInt64Min == sMin, "string compare int64 min VM vs runtime"
 
 block:
   const vmInt64Max = 0x7FFF_FFFF_FFFF_FFFF'i64
   let rtInt64Max = vmInt64Max
   doAssert rtInt64Max == int64 9_223_372_036_854_775_807, "int 64 max"
   const sMax = $vmInt64Max
-  when defined(js):
-    # JS codegen has a bug and Nimskull emits the raw literal into JS which
-    # then gets approximated as a double, here JS and the VM disagree
-    if $rtInt64Max == sMax:
-      doAssert false, "JS coddegen fixed for int64, congrats, renable this test"
-    else:
-      discard "Javascript code gen is still broken"
-  else:
-    doAssert $rtInt64Max == sMax, "string compare int64 max VM vs runtime"
+  doAssert $rtInt64Max == sMax, "string compare int64 max VM vs runtime"
 
 block:
   const vmUint64Max = 0xFFFF_FFFF_FFFF_FFFF'u64
   let rtUint64Max = vmUint64Max
   doAssert rtUint64Max == 18_446_744_073_709_551_615'u64, "unsigned int 64 max"
   const sMax = $vmUint64Max
-  when defined(js):
-    # JS codegen has a bug and Nimskull emits the raw literal into JS which
-    # then gets approximated as a double, here JS and the VM disagree
-    if $rtUint64max == sMax:
-      doAssert false, "JS coddegen fixed for uint64, congrats, renable this test"
-    else:
-      discard "Javascript code gen is still broken"
-  else:
-    doAssert $rtUint64Max == sMax, "string compare uint64 max VM vs runtime"
+  doAssert $rtUint64Max == sMax, "string compare uint64 max VM vs runtime"
