@@ -298,7 +298,8 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
   of tyRange, tyDistinct, tyOrdinal, tyProxy, tyLent:
     # tyLent is no-op as JS has pass-by-reference semantics
     result = mapType(t[0], indirect)
-  of tyInt..tyInt64, tyUInt..tyUInt64, tyChar: result = etyInt
+  of tyInt..tyInt32, tyUInt..tyUInt32, tyChar: result = etyInt
+  of tyInt64, tyUInt64: result = etyObject
   of tyBool: result = etyBool
   of tyFloat..tyFloat64: result = etyFloat
   of tySet: result = etyObject # map a set to a table
@@ -790,9 +791,13 @@ proc genRaiseStmt(p: PProc, n: CgNode) =
   lineF(p, "throw lastJSError;$n", [])
 
 func intLiteral(v: Int128, typ: PType): string =
-  if typ.kind == tyBool:
+  case skipTypes(typ, abstractRange + tyUserTypeClasses).kind
+  of tyBool:
     if v == Zero: "false"
     else:         "true"
+  of tyInt64, tyUInt64:
+    let bits = castToUInt64(v)
+    "{lo: $1, hi: $2}" % [$cast[uint32](bits), $cast[uint32](bits shr 32)]
   else:           $v
 
 proc gen(p: PProc, desc: StructDesc, stmts: openArray[CgNode], start: int)
@@ -911,7 +916,8 @@ proc needsNoCopy(p: PProc; y: CgNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
         ((mapType(y.typ) != etyBaseIndex) and
           (skipTypes(y.typ, abstractInst).kind in
-            {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc, tyOpenArray} + IntegralTypes))
+            {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc, tyOpenArray} + IntegralTypes -
+            {tyInt64, tyUInt64}))
 
 proc genAsgnAux(p: PProc, x, y: CgNode, noCopyNeeded: bool) =
   var a, b: TCompRes
@@ -1390,13 +1396,15 @@ proc arrayTypeForElemType(typ: PType): string =
 proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
   var t = skipTypes(typ, abstractInst)
   case t.kind
-  of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyChar:
+  of tyInt..tyInt32, tyUInt..tyUInt32, tyEnum, tyChar:
     if t.sym.extname == "bigint":
       result = putToSeq("0n", indirect)
     else:
       result = putToSeq("0", indirect)
   of tyFloat..tyFloat64:
     result = putToSeq("0.0", indirect)
+  of tyUInt64, tyInt64:
+    result = putToSeq("{lo: 0, hi: 0}", indirect)
   of tyRange, tyGenericInst, tyAlias, tySink, tyLent:
     result = createVar(p, lastSon(typ), indirect)
   of tySet:
