@@ -317,8 +317,7 @@ proc castFloatToInt64(val: float32): Int64 {.compilerproc, asmNoStackFrame.} =
     var buf = new ArrayBuffer(4);
     (new Float32Array(buf))[0] = `val`;
     var view = new Uint32Array(buf);
-    `result`.lo = view[0];
-    `result`.hi = 0;
+    return {lo: view[0], hi: 0};
   """
 
 proc castDoubleToInt64(val: float64): Int64 {.compilerproc, asmNoStackFrame.} =
@@ -326,8 +325,7 @@ proc castDoubleToInt64(val: float64): Int64 {.compilerproc, asmNoStackFrame.} =
     var buf = new ArrayBuffer(8);
     (new Float64Array(buf))[0] = `val`;
     var view = new Uint32Array(buf);
-    `result`.lo = view[0];
-    `result`.hi = view[1];
+    return {lo: view[0], hi: view[1]};
   """
 
 proc castInt64ToDouble(val: Int64): float64 {.compilerproc, asmNoStackFrame.} =
@@ -336,7 +334,7 @@ proc castInt64ToDouble(val: Int64): float64 {.compilerproc, asmNoStackFrame.} =
     var view = new Uint32Array(buf);
     view[0] = `val`.lo;
     view[1] = `val`.hi;
-    `result` = (new Float64Array(buf))[0];
+    return (new Float64Array(buf))[0];
   """
 
 proc castInt64ToFloat(val: Int64): float32 {.compilerproc, asmNoStackFrame.} =
@@ -344,7 +342,7 @@ proc castInt64ToFloat(val: Int64): float32 {.compilerproc, asmNoStackFrame.} =
     var buf = new ArrayBuffer(4);
     var view = new Uint32Array(buf);
     view[0] = `val`.lo;
-    `result` = (new Float32Array(buf))[0];
+    return (new Float32Array(buf))[0];
   """
 
 {.pop.}
