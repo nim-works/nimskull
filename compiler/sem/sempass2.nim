@@ -1408,6 +1408,7 @@ proc track(tracked: PEffects, n: PNode) =
       track(tracked, n[i])
       objConvCheck(tracked.config, n[i])
     if tracked.owner.kind != skMacro:
+      createTypeBoundOps(tracked, n.typ.lastSon, n.info)
       createTypeBoundOps(tracked, n.typ, n.info)
   of nkBracketExpr:
     if optStaticBoundsCheck in tracked.currOptions and n.len == 2:
