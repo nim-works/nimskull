@@ -4,6 +4,7 @@ discard """
     Ensures that case statements work with uint operands and of-branch values
     not representable with the same-sized signed integer type
   '''
+  knownIssue.js: "Running the generated code crashes `node` version < 24"
 """
 
 proc test[T: uint64|uint; S]() =
