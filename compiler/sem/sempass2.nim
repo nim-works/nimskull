@@ -1407,8 +1407,10 @@ proc track(tracked: PEffects, n: PNode) =
     for i in 0..<n.safeLen:
       track(tracked, n[i])
       objConvCheck(tracked.config, n[i])
-    if tracked.owner.kind != skMacro:
-      createTypeBoundOps(tracked, n.typ.lastSon, n.info)
+    if tracked.owner.kind != skMacro and n.typ != nil:
+      # the type might be nil when sempass2 is invoked in a
+      # ``compiles`` context
+      createTypeBoundOps(tracked, elemType(n.typ), n.info)
       createTypeBoundOps(tracked, n.typ, n.info)
   of nkBracketExpr:
     if optStaticBoundsCheck in tracked.currOptions and n.len == 2:
