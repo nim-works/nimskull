@@ -1,8 +1,8 @@
 discard """
   description: '''
     Regression test for a compiler crash in the edge case where the tuple type
-    used as an error is not used anywhere and a temporary has to be
-    materialized.
+    used as an array element type is not used anywhere else and a temporary of
+    said tuple type has to be materialized.
   '''
   joinable: false
 """
