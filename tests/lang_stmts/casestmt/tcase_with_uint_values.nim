@@ -4,8 +4,13 @@ discard """
     Ensures that case statements work with uint operands and of-branch values
     not representable with the same-sized signed integer type
   '''
-  knownIssue.js: "Running the generated code crashes `node` version < 24"
+  disabled: windows
 """
+
+# XXX: the test is disabled on Windows due to what seems to be a bug
+#      specifically with the Windows distribution of `node` version < 24,
+#      making the JS-variant of the test fail at run-time with an internal
+#      error in `node`
 
 proc test[T: uint64|uint; S]() =
   const Border = T(high(S)) # the highest possible signed integer value
