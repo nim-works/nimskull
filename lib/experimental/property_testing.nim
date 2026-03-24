@@ -996,11 +996,7 @@ type
     shrunkBuffer*: seq[byte]
 
 
-const defaultTrials* =
-  when defined(js) or defined(vm):
-    128
-  else:
-    1024
+const defaultTrials* = 1024 ## number of trials to run per property
 
 
 proc runProperty*[T](p: Property[T], trials: int = defaultTrials,

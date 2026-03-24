@@ -658,72 +658,64 @@ suite "Property Testing with Integrated Shrinking":
           check e in {E.low .. E.high}
           check e != A
 
-  when not defined(js):
-    # disable in js because it's way too slow right now, once optimized bring it back
-    test "Seq generator":
-      let samples = getSamples(genSeq(genEnum[E]()))
-      for s in samples:
-        checkpoint "s: " & $s
-        for s in samples:
-          for e in s:
-            check e in {E.low .. E.high}
+
+  test "Seq generator":
+    let samples = getSamples(genSeq(genEnum[E]()))
+    for s in samples:
+      checkpoint "s: " & $s
+      for e in s:
+        check e in {E.low .. E.high}
 
 
-    test "Seq generator - samples of a certain length":
-      let samples = getSamples(genSeq(genEnum[E](), minLen=2, maxLen=100))
-      for s in samples:
-        checkpoint "s: " & $s
-        for s in samples:
-          check s.len >= 2
-          for e in s:
-            check e in {E.low .. E.high}
+  test "Seq generator - samples of a certain length":
+    let samples = getSamples(genSeq(genEnum[E](), minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      check s.len >= 2
+      for e in s:
+        check e in {E.low .. E.high}
 
 
-    test "String generator":
-      let samples = getSamples(genString())
-      for s in samples:
-        checkpoint "s: " & $s
-        for s in samples:
-          for e in s:
-            check e in {char.low .. char.high}
+  test "String generator":
+    let samples = getSamples(genString())
+    for s in samples:
+      checkpoint "s: " & $s
+      for e in s:
+        check e in {char.low .. char.high}
 
 
-    test "String generator - samples of a certain length":
-      let samples = getSamples(genString(minLen=2, maxLen=100))
-      for s in samples:
-        checkpoint "s: " & $s
-        for s in samples:
-          check s.len >= 2
-          for e in s:
-            check e in {char.low .. char.high}
+  test "String generator - samples of a certain length":
+    let samples = getSamples(genString(minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      check s.len >= 2
+      for e in s:
+        check e in {char.low .. char.high}
 
 
-    test "ASCII string generator":
-      let samples = getSamples(genAsciiString())
-      for s in samples:
-        checkpoint "s: " & $s
-        for s in samples:
-          for e in s:
-            check e in {char(0) .. char(127)}
+  test "ASCII string generator":
+    let samples = getSamples(genAsciiString())
+    for s in samples:
+      checkpoint "s: " & $s
+      for e in s:
+        check e in {char(0) .. char(127)}
 
 
-    test "ASCII string generator - samples of a certain length":
-      let samples = getSamples(genAsciiString(minLen=2, maxLen=100))
-      for s in samples:
-        checkpoint "s: " & $s
-        for s in samples:
-          check s.len >= 2
-          for e in s:
-            check e in {char(0) .. char(127)}
+  test "ASCII string generator - samples of a certain length":
+    let samples = getSamples(genAsciiString(minLen=2))
+    for s in samples:
+      checkpoint "s: " & $s
+      check s.len >= 2
+      for e in s:
+        check e in {char(0) .. char(127)}
 
 
   test "Array generator":
     let samples = getSamples(genArray(genEnum[E](), 5))
     for s in samples:
       checkpoint "s: " & $s
-      for s in samples:
-        for e in s:
-          check e in {E.low .. E.high}
+      for e in s:
+        check e in {E.low .. E.high}
 
 
   test "Constant generator, produces the same value always":
