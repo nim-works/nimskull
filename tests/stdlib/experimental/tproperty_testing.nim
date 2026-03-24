@@ -15,9 +15,8 @@ from std/sequtils import toSeq
 from std/typetraits import enumLen
 
 
-type 
+type
   Colors = enum Red, Green, Blue
-
 
   E = enum A, B, C
 
@@ -101,12 +100,12 @@ suite "Property Testing with Integrated Shrinking":
     check getScalarBytes(sk4Bytes) == 4
     check getScalarBytes(sk8Bytes) == 8
     check getScalarBytes(skRange) == 0 # Or whatever fallback is appropriate
-  
+
 
   test "Multi-byte Serialization - writeRawBytes and readRawBytes":
     let s = newSource(seed = 1)
 
-    let 
+    let
       v1: uint64 = 0xAB
       v2: uint64 = 0xCDEF
       v3: uint64 = 0x12345678
@@ -128,7 +127,7 @@ suite "Property Testing with Integrated Shrinking":
 
   test "Generation Subsystem API - rngNextBytes":
     let s = newSource(seed = 42)
-    let 
+    let
       r1 = s.rngNextBytes(1)
       r2 = s.rngNextBytes(2)
       r3 = s.rngNextBytes(4)
@@ -184,71 +183,72 @@ suite "Property Testing with Integrated Shrinking":
 
   test "Structural Generation API - beginArray and readArrayLength":
     let s = newSource(seed = 1)
-    
+
     # Recording
     s.beginArray(5)
     s.beginArray(256)
     s.beginArray(65536)
-    
+
     # Replay
     let sReplay = newSource(s.buffer)
     check sReplay.readArrayLength() == 5
     check sReplay.readArrayLength() == 256
     check sReplay.readArrayLength() == 65536
-    
+
     # Overflow/exhaustion
     check sReplay.readArrayLength() == 0
 
 
   test "Structural Generation API - beginGroup and readGroupLength":
     let s = newSource(seed = 1)
-    
+
     # Recording
     s.beginGroup(3)
     s.beginGroup(10)
-    
+
     # Replay
     let sReplay = newSource(s.buffer)
     check sReplay.readGroupLength() == 3
     check sReplay.readGroupLength() == 10
-    
+
     # Overflow/exhaustion
     check sReplay.readGroupLength() == 0
 
 
   test "Structural Buffer Parser - skipNode":
     var s = newSource(seed = 1)
-    
+
     # 1. Scalar testing
     s.writeStorageKind(skByte)
     s.writeRawByte(42)
     s.writeStorageKind(sk4Bytes)
     s.writeRawBytes(1234, 4)
-    
+
     let endByte1 = skipNode(s.buffer, 0)
     check endByte1 == 2 # skByte (1) + val (1)
-    
+
     let endByte2 = skipNode(s.buffer, endByte1)
     check endByte2 == 2 + 5 # sk4Bytes (1) + val (4)
     check endByte2 == s.buffer.len
-    
+
     # 2. Range testing
     var sR = newSource(seed = 2)
-    let minV: uint64 = 100
-    let maxV: uint64 = 200 # size = 100 -> 1 byte
+    let
+      minV: uint64 = 100
+      maxV: uint64 = 200 # size = 100 -> 1 byte
     sR.recordRange(minV, maxV, 150, sk2Bytes)
     let endRange = skipNode(sR.buffer, 0)
     # skRange(1) + sk2Bytes(1) + min(2) + max(2) + valRange(1) = 7 bytes
     check endRange == 7
     check endRange == sR.buffer.len
-    
+
     # 3. Array testing
     var sA = newSource(seed = 3)
     sA.beginArray(3) # skArray8 (1) + len (1) = 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(1) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(2) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(3) # 2 bytes
-    
+
     let endArray = skipNode(sA.buffer, 0)
     check endArray == 2 + 2 + 2 + 2 # 8 bytes total
     check endArray == sA.buffer.len
@@ -261,7 +261,11 @@ suite "Property Testing with Integrated Shrinking":
     sS.writeRawBytes(10, 2)
     var yieldsS = 0
     for cand in candidates(sS.buffer):
-      # Should yield empty buffer, halved values (5, 2, 1, 0), decremented value (9), and decrement 2 (8)
+      # Should yield:
+      # - empty buffer
+      # - halved values (5 -> 2 -> 1 -> 0)
+      # - decremented value (9)
+      # - decrement 2 (8)
       yieldsS.inc
     check yieldsS == 7
 
@@ -271,16 +275,17 @@ suite "Property Testing with Integrated Shrinking":
     for i in 1..4:
       sA.writeStorageKind(skByte)
       sA.writeRawByte(byte(i))
-    
-    var yieldsA = 0
-    var seenLengths = newSeq[int]()
+
+    var
+      yieldsA = 0
+      seenLengths = newSeq[int]()
     for cand in candidates(sA.buffer):
       yieldsA.inc
       if cand.len > 0 and cand[0] == byte(skArray8) and cand.len > 1:
         seenLengths.add(int(cand[1]))
     # Expected Array element lengths yielded should include structural truncations
     check seenLengths.len > 0
-    check 0 in seenLengths or 2 in seenLengths or 3 in seenLengths
+    check 0 in seenLengths and 2 in seenLengths and 3 in seenLengths
 
 
   test "Constant generator - produces the same value over and over again":
@@ -293,13 +298,13 @@ suite "Property Testing with Integrated Shrinking":
     let
       vals = getSamples(genByte())
       expected = toSeq(byte.low .. byte.high)
-    
+
     checkpoint "vals: " & $vals
     checkpoint "expected: " & $expected
 
     for i, v in vals.sorted().pairs:
       check v == expected[i]
-    
+
     let vals2 = getSamples(genByte(), seed = defaultSeed + 1)
     checkpoint "vals2: " & $vals2
     check vals != vals2
@@ -310,13 +315,13 @@ suite "Property Testing with Integrated Shrinking":
     let
       vals = getSamples(genBool(), count = 2)
       expected = @[false, true]
-    
+
     checkpoint "vals: " & $vals
     checkpoint "expected: " & $expected
 
     for i, v in vals.sorted().pairs:
       check v == expected[i]
-    
+
     let vals2 = getSamples(genBool(), seed = defaultSeed + 1, count = 2)
     checkpoint "vals2: " & $vals2
     check vals != vals2
@@ -748,8 +753,7 @@ suite "Property Testing with Integrated Shrinking":
         psPass
     )
     discard runProperty(prop, trials=50)
-    if not (seenTrue and seenFalse):
-        checkpoint "Warning: genBool didn't produce both values in 50 runs (unlikely but possible)"
+    check seenTrue and seenFalse
 
 
   test "ASCII char generator, exhaustively produces all values in range in random order":
@@ -773,10 +777,6 @@ suite "Property Testing with Integrated Shrinking":
 
 
   test "UInt32 range generator, shrinking a simple integer predicate, exhaustive for small ranges":
-    # Predicate: x < 10.
-    # Failure: x >= 10.
-    # Expectation: Shrink to 10.
-    
     let prop = Property[uint32](
       gen: genUInt32(0, 100),
       check: proc(x: uint32): PropertyStatus =
@@ -784,21 +784,16 @@ suite "Property Testing with Integrated Shrinking":
     )
 
     let res = runProperty(prop, trials = 101, seed = 1)
-    
+
     check res.status == psFail
     check res.shrunk
-    if res.shrunkValue.isSome:
-      let val = res.shrunkValue.get
-      checkpoint "Shrunk value: " & $val
-      check val == 10
-      # this should work because small int ranges are exhaustive
+    check res.shrunkValue.isSome
+    let val = res.shrunkValue.get
+    checkpoint "Shrunk value: " & $val
+    check val == 10
 
 
   test "Integer range generator, shrinking a simple integer predicate, exhaustive for small ranges":
-    # Predicate: x < 10.
-    # Failure: x >= 10.
-    # Expectation: Shrink to 10.
-    
     let prop = Property[int](
       gen: genInt(-100, 100),
       check: proc(x: int): PropertyStatus =
@@ -806,7 +801,7 @@ suite "Property Testing with Integrated Shrinking":
     )
 
     let res = runProperty(prop, seed = 1)
-    
+
     check res.status == psFail
     check res.shrunk
     check res.shrunkValue.isSome
@@ -828,8 +823,8 @@ suite "Property Testing with Integrated Shrinking":
         if x < Green: psPass else: psFail
     )
     let res = runProperty(prop, trials=100)
-    if res.status == psFail:
-      check res.shrunkValue.get() == Green
+    check res.status == psFail
+    check res.shrunkValue.get() == Green
 
 
   test "Set generator property check":
@@ -843,37 +838,25 @@ suite "Property Testing with Integrated Shrinking":
     )
     let res = runProperty(prop)
     check res.status == psFail
-    # Minimal failure is size 1.
-    check res.shrunkValue.get().len == 1
-    # Expect {A}
     check res.shrunkValue.get() == {A}
 
 
   test "Shrinking a sequence length":
-    # Predicate: len(s) < 5
-    # Failure: len(s) >= 5
-    # Expectation: Shrink to len 5.
-    
     let prop = Property[seq[byte]](
       gen: genSeq(genByte(), minLen = 0, maxLen = 20),
       check: proc(s: seq[byte]): PropertyStatus =
         if s.len < 5: psPass else: psFail
     )
-    
+
     let res = runProperty(prop, trials = 100)
-    
+
     check res.status == psFail
-    if res.shrunkValue.isSome:
-      let val = res.shrunkValue.get
-      checkpoint "Shrunk seq: " & $val & " len: " & $val.len
-      check val.len >= 5
+    let val = res.shrunkValue.get
+    checkpoint "Shrunk seq: " & $val & " len: " & $val.len
+    check val.len == 5 # element deletion guarantees a sequence of length 5
 
 
   test "Shrinking a string content (manual seeded)":
-    # Predicate: not s.contains('A')
-    # Failure: s.contains('A')
-    # Use restricted generator to ensure 'A' appears often.
-    
     let genRestricted = proc(s: Source): char =
       let b = cast[byte](s.chooseRange(0, 255, skByte))
       if (b mod 10) == 0: 'A' else: 'b'
@@ -886,20 +869,12 @@ suite "Property Testing with Integrated Shrinking":
 
     let res = runProperty(propRestricted, trials = 200)
     if res.status == psFail:
-        let s = res.shrunkValue.get()
-        checkpoint "Shrunk string: " & $s
-        check s.contains('A')
-        # Minimal string containing A is just "A". 
-        # Or something small.
-        check s.len < 5
+      let s = res.shrunkValue.get()
+      checkpoint "Shrunk string: " & $s
+      check s == "A"
 
 
   test "Array generator produces arrays of a given length with given generator for elements":
-    # Array of 3 bytes.
-    # Want x[0] == 0.
-    # Fail if x[0] != 0.
-    # Shrink x[0] to 1 (0 passes, 1 fails).
-    # Minimal failure.
     let prop = Property[array[3, byte]](
       gen: genArray(genByte(), 3),
       check: proc(a: array[3, byte]): PropertyStatus =
@@ -909,13 +884,11 @@ suite "Property Testing with Integrated Shrinking":
     check res.status == psFail
     let shrunk = res.shrunkValue.get()
     check shrunk[0] == 1
-    # Check other elements are zeroed (simplest)
     check shrunk[1] == 0
     check shrunk[2] == 0
 
 
   test "Passing Property":
-    # This test covers non-shrinking pass behavior
     let prop = Property[int](
       gen: genInt(0, 100),
       check: proc(x: int): PropertyStatus =
@@ -928,34 +901,26 @@ suite "Property Testing with Integrated Shrinking":
 
 
   test "Filter creates a new generator and shrinks correctly":
-    # Even numbers. Want < 10.
-    # Fail 10, 12, ...
-    # Expect shrink to 10.
     let prop = Property[int](
       gen: genInt(0, 20).filter(proc(x: int): bool = x mod 2 == 0),
       check: proc(x: int): PropertyStatus =
         if x < 10: psPass else: psFail
     )
     let res = runProperty(prop, trials=100)
-    if res.status == psFail:
-      check res.shrunkValue.get() == 10
+    check res.status == psFail
+    check res.shrunkValue.get() == 10
+
 
   test "Map creates a new generator and shrinks correctly":
-    # Gen range 0..10. Map * 10 -> 0, 10, 20...
-    # Want < 50.
-    # Fail 50, 60...
-    # Shrink to 50.
-    # Underlying gen produces 5 (fails), 6 (fails)...
-    # Shrink underlying to 5. Map(5) = 50.
-    # TODO: this test occasionaly fails, reproduce and failure should emit counter example
     let prop = Property[int](
       gen: genInt(0, 10).map(proc(x: int): int = x * 10),
       check: proc(x: int): PropertyStatus =
         if x < 50: psPass else: psFail
     )
     let res = runProperty(prop, trials=100)
-    if res.status == psFail:
-      check res.shrunkValue.get() == 50
+    check res.status == psFail
+    check res.shrunkValue.get() == 50
+
 
   test "Exception in Check":
     let prop = Property[int](
@@ -978,7 +943,7 @@ suite "Property Testing with Integrated Shrinking":
     # However, currently runProperty treats psDiscard as "skip run" and might loop forever if all discard.
     # OR it just continues. Since our runner loops for fixed trials, if all discard, it returns psPass by default (no failure).
     # But let's verify it doesn't crash or fail.
-    
+
     # Ideally we'd want to check that it *tried* and discarded, but TestResult doesn't expose discard count.
     # We can at least ensure it doesn't crash.
     # TODO: add discard count to TestResult so we can verify the above
@@ -991,7 +956,7 @@ suite "Property Testing with Integrated Shrinking":
     let gen = genInt(0, 5).flatMap(proc(len: int): Gen[seq[byte]] =
         genSeq(genByte(), minLen = uint32(len), maxLen = uint32(len))
     )
-    
+
     let prop = Property[seq[byte]](
         gen: gen,
         check: proc(s: seq[byte]): PropertyStatus =
@@ -1003,12 +968,6 @@ suite "Property Testing with Integrated Shrinking":
 
 
   test "Shrinking FlatMapped generators works correctly":
-      # Gen size L. Gen Seq[byte] of size L.
-      # Predicate: L < 3.
-      # Fail if L >= 3.
-      # Expect shrink to L=3. Seq of length 3.
-      # Note: FlatMap shrinking is complex because the structure depends on the first value.
-      # Integrated shrinking handles this naturally!
       let gen = genInt(0, 10).flatMap(proc(len: int): Gen[seq[byte]] =
         genSeq(genByte(), minLen = uint32(len), maxLen = uint32(len))
       )
@@ -1018,15 +977,14 @@ suite "Property Testing with Integrated Shrinking":
         check: proc(s: seq[byte]): PropertyStatus =
             if s.len < 3: psPass else: psFail
       )
-      
+
       let res = runProperty(prop, trials=100)
-      if res.status == psFail:
-          check res.shrunkValue.get().len == 3
-          # It should shrink L to 3, then the seq content to zeros.
+      check res.status == psFail
+      check res.shrunkValue.get().len == 3
+      check res.shrunkValue.get() == @[byte(0), byte(0), byte(0)]
 
 
   test "1 Element Tuple Generation and Shrinking":
-    # TODO: this test occasionaly fails, reproduce and failure should emit counter example
     let prop = Property[(int,)](
       gen: genTuple(genInt(0, 10)),
       check: proc(t: (int,)): PropertyStatus =
@@ -1060,10 +1018,6 @@ suite "Property Testing with Integrated Shrinking":
     let res = runProperty(prop, trials=100)
     if res.status == psFail:
       let val = res.shrunkValue.get()
-      # Minimal sum >= 15 likely involves 10, 5, 0 or similar but distributed
-      # Shrinking should minimize lexicographically (based on byte order).
-      # First elements come first in byte stream.
-      # Expect roughly minimal components.
       check val[0] + val[1] + val[2] >= 15
 
 
@@ -1135,10 +1089,11 @@ suite "Property Testing with Integrated Shrinking":
     )
     let prop = Property[(int,int,int,int,int,int,int,int,int,int)](
         gen: gen10,
-        check: proc(t: (int,int,int,int,int,int,int,int,int,int)): PropertyStatus = psPass
+        check: proc(t: (int,int,int,int,int,int,int,int,int,int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=5)
-    check res.status == psPass
+    check res.status == psFail
+    check res.shrunkValue.get() == (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
 
   test "0-arity proc generation":
@@ -1196,5 +1151,5 @@ suite "Property Testing with Integrated Shrinking":
       forAll((i: genInt(0, 10), s: genString(1, 5))):
         if i >= 0 and i <= 10 and s.len >= 1 and s.len <= 5: psPass
         else: psFail
-    
+
     check result.status == psPass
