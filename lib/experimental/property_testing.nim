@@ -1001,7 +1001,10 @@ const defaultTrials* = 1024 ## number of trials to run per property
 
 proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
                      seed: uint32 = 0): TestResult[T] =
-  # Uses time as seed base if not provided 
+  ## Runs the property `p` for `trials` iterations, using `seed` as the base
+  ## seed. Returns a `TestResult` containing the status of the test, the number
+  ## of trials run, the seed used, and the failing value and buffer if a failure
+  ## was found. If `seed` is 0, the current time is used as the seed base.
   var masterSeed = seed
   if masterSeed == 0:
       masterSeed = uint32(getTime().toUnix() and 0xFFFFFFFF)
