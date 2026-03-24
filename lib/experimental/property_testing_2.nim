@@ -150,7 +150,6 @@ type
     indices: seq[int]
     pos: int
 
-
   PropertyStatus* = enum
     psPass,
     psFail,
