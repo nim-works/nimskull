@@ -203,17 +203,18 @@ proc low*(_: typedesc[JsBigInt]): JsBigInt {.error:
 proc high*(_: typedesc[JsBigInt]): JsBigInt {.error:
   "Arbitrary precision integers do not have a known high.".} ## **Do NOT use.**
 
-proc big(val: float): JsBigInt {.importjs: "BigInt(#)".}
-
-proc big*(integer: uint64): JsBigInt =
+func big*(integer: uint64): JsBigInt =
   ## Constructor for `JsBigInt`.
-  # a 64-bit integer is only a float underneath, making this the only way to
-  # properly perform the conversion
-  big(float(integer))
+  big(uint(integer)) + (big(uint(integer shr 32)) shl big"32")
 
-proc big*(integer: int64): JsBigInt =
+func big*(integer: int64): JsBigInt =
   ## Constructor for `JsBigInt`.
-  big(float(integer))
+  if integer < 0:
+    # safely compute the absolute first, convert that, and then negate
+    # the result
+    -big(0 - cast[uint64](integer))
+  else:
+    big(uint64(integer))
 
 runnableExamples:
   block:

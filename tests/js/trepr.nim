@@ -29,13 +29,13 @@ block uints:
     a: uint8 = 254'u8
     b: uint16 = 65300'u16
     c: uint32 = 4294967290'u32
-    # d: uint64 = 18446744073709551610'u64  -> unknown node type
+    d: uint64 = 18446744073709551610'u64
     e: uint = 1234567
 
   doAssert(repr(a) == "254")
   doAssert(repr(b) == "65300")
   doAssert(repr(c) == "4294967290")
-  # doAssert(repr(d) == "18446744073709551610")
+  doAssert(repr(d) == "18446744073709551610")
   doAssert(repr(e) == "1234567")
 
 block floats:

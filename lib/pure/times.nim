@@ -897,7 +897,9 @@ proc toWinTime*(t: Time): int64 =
 proc getTime*(): Time {.tags: [TimeEffect], benign.} =
   ## Gets the current time as a `Time` with up to nanosecond resolution.
   when defined(js):
-    let millis = newDate().getTime()
+    # XXX: converting to float first and then int64 is a workaround for
+    #      `getTime` not returning a `float`
+    let millis = int64(float(newDate().getTime()))
     let seconds = convert(Milliseconds, Seconds, millis)
     let nanos = convert(Milliseconds, Nanoseconds,
       millis mod convert(Seconds, Milliseconds, 1).int)
