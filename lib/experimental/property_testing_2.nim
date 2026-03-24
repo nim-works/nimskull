@@ -145,7 +145,7 @@ type
   Gen*[T] = proc(s: Source): T
 
   # Helper for exhaustive generation state
-  ExhaustiveState*[T] = ref object
+  ExhaustiveState[T] = ref object
     vals: seq[T]
     indices: seq[int]
     pos: int
