@@ -1327,7 +1327,6 @@ macro genVoidProcN*(T: varargs[typedesc]): untyped =
     args.add(nnkIdentDefs.newTree(genSym(names[i]), t, newEmptyNode()))
 
   let prc = newProc(params = args, pragmas = nnkPragma.newTree(ident"closure"))
-  let Source = bindSym("Source")
 
   result = quote do:
     genConst(`prc`)
