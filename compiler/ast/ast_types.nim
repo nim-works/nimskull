@@ -909,6 +909,7 @@ type
     taNoUntyped
     taIsTemplateOrMacro
     taProcContextIsNotMacro
+    taFFI ## the context is a usage at the FFI border, in either direction
 
   TTypeAllowedFlags* = set[TTypeAllowedFlag]
 
@@ -1278,9 +1279,7 @@ type
     adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
-  TAstDiag* {.acyclic.} = object
-    ## A diagnostic must never store a tree that references the diagnostic
-    ## itself.
+  TAstDiag* = object
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals

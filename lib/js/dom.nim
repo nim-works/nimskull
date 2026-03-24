@@ -781,7 +781,7 @@ type
 
   UIEvent* = ref UIEventObj ## see `docs<https://developer.mozilla.org/en-US/docs/Web/API/UIEvent>`_
   UIEventObj {.importc.} = object of Event
-    detail*: int64
+    detail*: int32
     view*: Window
 
   KeyboardEvent* = ref KeyboardEventObj ## see `docs<https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent>`_
@@ -1654,7 +1654,7 @@ proc item*(list: TouchList, i: int): Touch
 proc clearData*(dt: DataTransfer, format: cstring)
 proc getData*(dt: DataTransfer, format: cstring): cstring
 proc setData*(dt: DataTransfer, format: cstring, data: cstring)
-proc setDragImage*(dt: DataTransfer, img: Element, xOffset: int64, yOffset: int64)
+proc setDragImage*(dt: DataTransfer, img: Element, xOffset: int32, yOffset: int32)
 
 # DataTransferItem "methods"
 proc getAsFile*(dti: DataTransferItem): File

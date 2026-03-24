@@ -21,11 +21,6 @@ description: '''
   . It is expected that the order of operands on these operators should not
     affect the operation.
 '''
-knownIssue.js: '''
-  The JavaScript backend generates non BigInteger integer literals for these
-  calculations resulting in a rounding error for integers over 2^53-1 due
-  to JavaScript using floating point numbers internally.
-'''
 """
 
 import typetraits

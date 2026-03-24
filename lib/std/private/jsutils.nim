@@ -62,8 +62,8 @@ when defined(js):
     ## The same as `Number.MAX_SAFE_INTEGER` or `2^53 - 1`.
     ## See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/MAX_SAFE_INTEGER
   runnableExamples:
-    let a {.importjs: "Number.MAX_SAFE_INTEGER".}: int64
-    assert a == maxSafeInteger
+    let a {.importjs: "Number.MAX_SAFE_INTEGER".}: float
+    assert int64(a) == maxSafeInteger
 
   proc isInteger*[T](x: T): bool {.importjs: "Number.isInteger(#)".} =
     runnableExamples:

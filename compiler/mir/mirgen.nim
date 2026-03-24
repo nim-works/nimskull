@@ -334,7 +334,7 @@ proc toIntLiteral(env: var MirEnv, n: PNode): Value =
   assert n.kind in nkIntLiterals
   let typ = env.types.add(n.typ)
   # use the type for deciding what whether it's a signed or unsigned value
-  case n.typ.skipTypes(abstractRange + {tyEnum}).kind
+  case n.typ.skipTypes(abstractRange + {tyEnum} + tyUserTypeClasses).kind
   of tyInt..tyInt64, tyBool:
     intLiteral(env, n.intVal, typ)
   of tyUInt..tyUInt64, tyChar, tyPtr, tyPointer, tyProc:

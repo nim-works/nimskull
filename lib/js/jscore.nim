@@ -74,7 +74,7 @@ proc parse*(d: DateLib, s: cstring): int {.importjs.}
 proc newDate*(): DateTime {.
   importjs: "new Date()".}
 
-proc newDate*(date: int|int64|string): DateTime {.
+proc newDate*(date: int|float|string): DateTime {.
   importjs: "new Date(#)".}
 
 proc newDate*(year, month, day, hours, minutes,
