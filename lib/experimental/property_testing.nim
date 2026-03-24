@@ -15,23 +15,20 @@
 ## A property test instead asserts universal truths about the function:
 ##
 runnableExamples:
-  # import experimental/property_testing_2 # required in other files
+  # import experimental/property_testing # required in other files
 
-  proc applyDiscount(total, discount: int): int = 
+  proc applyDiscount(total, discount: int): int =
     max(0, total - discount)
-  let propValidDiscount = forAll(
-    genInt(0, 1000), # Cart total
-    genInt(0, 100),  # Discount amount
-    proc(total, discount: int): PropertyStatus =
+
+  let result = runProperty:
+    forAll (total: genInt(0, 1000), discount: genInt(0, 100)):
       let discounted = applyDiscount(total, discount)
       # Property 1: The discounted total is never greater than the original total
       if discounted > total: return psFail
       # Property 2: The discounted total is never negative
       if discounted < 0: return psFail
       return psPass
-  )
 
-  let result = runProperty(propValidDiscount)
   assert result.status == psPass
 ##
 ## ### Core Concepts
@@ -111,6 +108,7 @@ from std/sequtils import delete, mapIt, toSeq
 from std/sugar import `=>`
 from std/times import getTime, toUnix
 from std/typetraits import enumLen
+from std/sets import incl, contains, initHashSet
 
 # MARK: Core Types
 
@@ -1334,39 +1332,77 @@ macro genVoidProcN*(T: varargs[typedesc]): untyped =
   result = quote do:
     genConst(`prc`)
 
+
 # MARK: Property Helpers
 
-# TODO: implement these like `execProperty` and `forAll` from `property_testing`
-# TODO: rework these to be a macro, which will mean accepting a varargs of
-#       typedescs, returning a routine with the appropriate signature for
-#       generators and then accepting the subsequent generators
+macro forAll*(gens: untyped, check: untyped): untyped =
+  ## `forAll` takes a tuple of generators and a check procedure body, and
+  ## returns a Property[T] where T is a tuple type of all the generators.
 
-proc forAll*[T](gen: Gen[T], check: proc(x: T): PropertyStatus): Property[T] = 
-  return Property[T](gen: gen, check: check)
+  if gens.kind notin {nnkTupleConstr, nnkPar}:
+    error("Generators must be provided as a tuple, e.g., (g1: genInt(), g2: genString())", gens)
 
-proc forAll*[T1, T2](g1: Gen[T1], g2: Gen[T2], check: proc(x: T1, y: T2): PropertyStatus): Property[(T1, T2)] = 
-  return Property[(T1, T2)](gen: genTuple(g1, g2), check: check)
+  var
+    genExprs = newSeq[NimNode]()
+    typeInferences = newSeq[NimNode]()
+    paramNames = newSeq[NimNode]()
+    paramNamesSet = initHashSet[string]()
 
-proc forAll*[T1, T2, T3](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], check: proc(x: T1, y: T2, z: T3): PropertyStatus): Property[(T1, T2, T3)] = 
-  return Property[(T1, T2, T3)](gen: genTuple(g1, g2, g3), check: check)
+  for g in gens:
+    expectKind(g, nnkExprColonExpr)
+    let
+      paramName = g[0]
+      genExpr   = g[1]
+      genExprCopy = copyNimTree(genExpr)
+      typeInference = quote do:
+        typeof((`genExprCopy`)(default(Source)))
 
-proc forAll*[T1, T2, T3, T4](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], check: proc(x: T1, y: T2, z: T3, w: T4): PropertyStatus): Property[(T1, T2, T3, T4)] = 
-  return Property[(T1, T2, T3, T4)](gen: genTuple(g1, g2, g3, g4), check: check)
+    if paramNamesSet.contains(paramName.strVal):
+      error("Duplicate parameter name: " & paramName.strVal, paramName)
 
-proc forAll*[T1, T2, T3, T4, T5](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5): PropertyStatus): Property[(T1, T2, T3, T4, T5)] = 
-  return Property[(T1, T2, T3, T4, T5)](gen: genTuple(g1, g2, g3, g4, g5), check: check)
+    paramNamesSet.incl(paramName.strVal)
+    paramNames.add(paramName)
+    genExprs.add(copyNimTree(genExpr))
+    typeInferences.add(typeInference)
 
-proc forAll*[T1, T2, T3, T4, T5, T6](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6)] = 
-  return Property[(T1, T2, T3, T4, T5, T6)](gen: genTuple(g1, g2, g3, g4, g5, g6), check: check)
+  let propType = if typeInferences.len == 1:
+                   copyNimTree(typeInferences[0])
+                 else:
+                   let ty = newNimNode(nnkTupleConstr)
+                   for t in typeInferences: ty.add(copyNimTree(t))
+                   ty
 
-proc forAll*[T1, T2, T3, T4, T5, T6, T7](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7)] = 
-  return Property[(T1, T2, T3, T4, T5, T6, T7)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7), check: check)
+  var
+    procArgs = @[ident("PropertyStatus")]
+    procBody = newStmtList()
 
-proc forAll*[T1, T2, T3, T4, T5, T6, T7, T8](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7, s: T8): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7, T8)] = 
-  return Property[(T1, T2, T3, T4, T5, T6, T7, T8)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7, g8), check: check)
+  if genExprs.len == 1:
+    procArgs.add(newIdentDefs(paramNames[0], copyNimTree(propType)))
+    procBody.add(check)
+  else:
+    let argsName = genSym("args")
+    procArgs.add(newIdentDefs(argsName, copyNimTree(propType)))
+    for i, name in paramNames:
+      procBody.add(newTree(nnkLetSection,
+        newIdentDefs(name, newEmptyNode(), newTree(nnkBracketExpr, argsName, newIntLitNode(i)))
+      ))
+    procBody.add(check)
 
-proc forAll*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7, s: T8, r: T9): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] = 
-  return Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7, g8, g9), check: check)
+  let checkProc = newProc(
+    params = procArgs,
+    pragmas = newTree(nnkPragma, ident("closure")),
+    body = procBody
+  )
 
-proc forAll*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], g10: Gen[T10], check: proc(x: T1, y: T2, z: T3, w: T4, v: T5, u: T6, t: T7, s: T8, r: T9, q: T10): PropertyStatus): Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] = 
-  return Property[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)](gen: genTuple(g1, g2, g3, g4, g5, g6, g7, g8, g9, g10), check: check)
+  let genArg = if genExprs.len == 1:
+                 genExprs[0]
+               else:
+                 let call = newCall(ident("genTuple"))
+                 for e in genExprs: call.add(e)
+                 call
+
+  result = newTree(nnkObjConstr,
+    newTree(nnkBracketExpr, ident("Property"), propType),
+    newTree(nnkExprColonExpr, ident("gen"), genArg),
+    newTree(nnkExprColonExpr, ident("check"), checkProc)
+  )

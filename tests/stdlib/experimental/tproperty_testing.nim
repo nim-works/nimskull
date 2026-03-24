@@ -1189,3 +1189,12 @@ suite "Property Testing with Integrated Shrinking":
         psPass
     )
     check runProperty(prop).status == psPass
+
+
+  test "forAll macro bindings":
+    let result = runProperty:
+      forAll((i: genInt(0, 10), s: genString(1, 5))):
+        if i >= 0 and i <= 10 and s.len >= 1 and s.len <= 5: psPass
+        else: psFail
+    
+    check result.status == psPass
