@@ -845,12 +845,12 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
     yield @[]
 
   var nodes: seq[(int, StorageKind)] = @[]
-  
+
   proc collectNodes(buf: seq[byte], pos: int) =
     if pos >= buf.len: return
     let kind = cast[StorageKind](buf[pos])
     nodes.add((pos, kind))
-    
+
     var p = pos + 1
     case kind
     of skArray8:
@@ -870,31 +870,34 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
         let n = int(buf[p]); p += 1
         for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
     else: discard
-  
+
   if buffer.len > 0:
     var p = 0
     while p < buffer.len:
       collectNodes(buffer, p)
       p = skipNode(buffer, p)
-    
+
   # Strategy 1: Array Element Deletion
   for (pos, kind) in nodes:
-    if kind == skArray8 or kind == skArray16 or kind == skArray32:
-      var lenBytes = 0
-      if kind == skArray8: lenBytes = 1
-      elif kind == skArray16: lenBytes = 2
-      else: lenBytes = 4
-      
+    if kind in {skArray8, skArray16, skArray32}:
+      let lenBytes =
+        case kind
+        of skArray8:  1
+        of skArray16: 2
+        of skArray32: 4
+        else:         unreachable("Invalid kind: " & $kind)
+
       if pos + lenBytes < buffer.len:
         let numElems = int(decodeUint64(buffer, pos + 1, lenBytes))
         if numElems > 0:
-          var elemStarts: seq[int] = @[]
-          var p = pos + 1 + lenBytes
+          var
+            elemStarts: seq[int] = @[]
+            p = pos + 1 + lenBytes
           for _ in 0 ..< numElems:
             elemStarts.add(p)
             p = skipNode(buffer, p)
           elemStarts.add(p)
-          
+
           var k = numElems
           while k > 0:
             var i = 0
@@ -902,8 +905,9 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
               var copy = buffer
               let newElems = numElems - k
               writeUint64(copy, pos + 1, lenBytes, cast[uint64](newElems))
-              let delStart = elemStarts[i]
-              let delEnd = elemStarts[i + k] - 1
+              let
+                delStart = elemStarts[i]
+                delEnd   = elemStarts[i + k] - 1
               if delStart <= delEnd:
                 copy.delete(delStart .. delEnd)
               yield copy
@@ -921,10 +925,11 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
         if p + 2 * sBytes <= buffer.len:
           # skip min & max bytes
           p += 2 * sBytes
-          let rMin = decodeUint64(buffer, pos + 2, sBytes)
-          let rMax = decodeUint64(buffer, pos + 2 + sBytes, sBytes)
-          let rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
-          let vBytes = bytesForRange(rangeSize)
+          let
+            rMin = decodeUint64(buffer, pos + 2, sBytes)
+            rMax = decodeUint64(buffer, pos + 2 + sBytes, sBytes)
+            rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+            vBytes = bytesForRange(rangeSize)
           if p + vBytes <= buffer.len:
             let val = decodeUint64(buffer, p, vBytes)
             var tryVal = val
@@ -944,11 +949,12 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
 
   # Strategy 3: Unbounded Scalar Lowering
   for (pos, kind) in nodes:
-    if kind == skByte or kind == sk2Bytes or kind == sk4Bytes or kind == sk8Bytes:
+    if kind in {skByte, sk2Bytes, sk4Bytes, sk8Bytes}:
       let sBytes = getScalarBytes(kind)
       if pos + 1 + sBytes <= buffer.len:
-        let p = pos + 1
-        let val = decodeUint64(buffer, p, sBytes)
+        let
+          p = pos + 1
+          val = decodeUint64(buffer, p, sBytes)
         var tryVal = val
         while tryVal > 0:
           tryVal = tryVal div 2
@@ -963,21 +969,6 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
           var copy = buffer
           writeUint64(copy, p, sBytes, val - 2)
           yield copy
-
-
-func `<`(x, y: seq[byte]): bool =
-  ## Lexicographical comparison for sequences of bytes, used for ordering
-  ## shrunk values. `x < y` if `x` is lexicographically smaller than `y`,
-  ## meaning `x` is shorter or has smaller bytes at the first differing
-  ## position.
-  result = x.len < y.len
-  if not result and x.len == y.len:
-    for i in 0 ..< x.len:
-      if x[i] == y[i]:
-        continue
-      else:
-        result = x[i] < y[i]
-        break
 
 
 # MARK: Runner
@@ -1003,12 +994,11 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
   ## seed. Returns a `TestResult` containing the status of the test, the number
   ## of trials run, the seed used, and the failing value and buffer if a failure
   ## was found. If `seed` is 0, the current time is used as the seed base.
-  var masterSeed = seed
-  if masterSeed == 0:
-      masterSeed = uint32(getTime().toUnix() and 0xFFFFFFFF)
-      
-  var rng = initRand(int64(masterSeed))
-  
+  let mainSeed = if seed == 0: uint32(getTime().toUnix() and 0xFFFFFFFF)
+                 else:         seed
+
+  var rng = initRand(int64(mainSeed))
+
   result.status = psPass
   result.runCount = 0
 
@@ -1016,59 +1006,66 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
     result.runCount = i
     let runSeed = uint32(rng.next() and 0xFFFFFFFF'u64)
     result.seed = runSeed
-    
+
     var
       s = newSource(runSeed)
       val: T
       status: PropertyStatus
-    
+
     try:
       val = p.gen(s)
       status = p.check(val)
     except FilterExhaustedError:
-        # Filter failed too many times, discard this run
-        status = psDiscard
+      # Filter failed too many times, discard this run
+      status = psDiscard
     except SourceLimitExceededError:
-        # General generation error (limit exceeded perhaps)
-        status = psDiscard # Or failure? Typically discard if valid input couldn't be formed
+      # General generation error (limit exceeded perhaps)
+      status = psDiscard # Or failure? Typically discard if valid input couldn't be formed
     except:
       # Exception during gen (other than known ones) or check counts as failure
       status = psFail
       # We could capture exception msg here
-    
+
     if status == psDiscard:
-        continue # Skip this run, verify if we should counting it against trials?
-                 # Usually discards shouldn't count towards success, 
-                 # but we accept it for simplicity here to avoid infinite loops.
+      # It might be tempting to not count this trial, but we could be stuck in a 
+      # loop of discarding. A better approach would be to limit the number of 
+      # discards, but for now we'll just count it as a pass.
+      continue
 
     if status == psFail:
       # Found failure!
       result.status = psFail
       result.failingValue = some(val)
       result.failingBuffer = s.buffer
-      
+
       # Start shrinking
-      var bestBuffer = s.buffer
-      var bestVal = val
+      var 
+        bestBuffer = s.buffer
+        bestVal = val
 
       # Shrink loop
       var improved = true
       while improved:
         improved = false
         for cand in candidates(bestBuffer):
-          if cand.len >= bestBuffer.len and cand == bestBuffer: continue # Skip if same
-          
+          if cand.len >= bestBuffer.len and cand == bestBuffer:
+            # Skip if same
+            continue
+
           # Try candidate
-          var sCand = newSource(cand)
-          var cVal: T
-          var cStatus: PropertyStatus
-          
+          var
+            sCand = newSource(cand)
+            cVal: T
+            cStatus: PropertyStatus
+
           try:
             cVal = p.gen(sCand)
             cStatus = p.check(cVal)
           except:
+            # Likely an area of improvement to capture the exception as part of 
+            # the failure
             cStatus = psFail # Exception is failure too
-            
+
           if cStatus == psFail:
             # Our candidates iterator uses AST heuristics to generate strictly 
             # smaller or simpler candidate buffers.
