@@ -8,7 +8,7 @@ discard """
 
 
 import std/[options, unittest, strutils]
-import experimental/property_testing_2
+import experimental/property_testing
 
 from std/algorithm import sorted
 from std/sequtils import toSeq
