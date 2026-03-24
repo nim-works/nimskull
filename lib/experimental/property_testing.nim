@@ -106,7 +106,6 @@ import std/[
     random,
   ]
 
-from std/algorithm import sort
 from std/hashes import hash
 from std/sequtils import delete, mapIt, toSeq
 from std/sugar import `=>`
