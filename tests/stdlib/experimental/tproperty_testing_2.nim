@@ -1159,11 +1159,22 @@ suite "Property Testing with Integrated Shrinking":
       )
       check runProperty(prop).status == psPass
 
+
   test "0-arity void proc generation":
     let prop = Property[proc()](
-      gen: genProcVoid(),
+      gen: genVoidProc(),
       check: proc(f: proc()): PropertyStatus =
         f() # Should just work
+        psPass
+    )
+    check runProperty(prop).status == psPass
+
+
+  test "N-arity void proc generation":
+    let prop = Property[proc(a: int, b: int): void](
+      gen: genVoidProcN(int, int),
+      check: proc(f: proc(a: int, b: int): void): PropertyStatus =
+        f(1, 2)
         psPass
     )
     check runProperty(prop).status == psPass

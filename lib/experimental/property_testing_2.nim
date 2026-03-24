@@ -108,7 +108,7 @@ import std/[
 
 from std/algorithm import sort
 from std/hashes import hash
-from std/sequtils import delete, toSeq
+from std/sequtils import delete, mapIt, toSeq
 from std/sugar import `=>`
 from std/times import getTime, toUnix
 from std/typetraits import enumLen
@@ -1311,7 +1311,7 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen
 
 # Void return variants
 
-proc genProcVoid*(): Gen[proc()] =
+proc genVoidProc*(): Gen[proc()] =
   return proc(s: Source): proc() =
     # Function with no return value and no args doesn't need to do anything 
     # other than exist. 
@@ -1321,21 +1321,28 @@ proc genProcVoid*(): Gen[proc()] =
 # They don't need to be deterministic for return value since there is none.
 # They are essentially sinks.
 
-macro genProcVoidN*(T: varargs[typedesc]): untyped =
+macro genVoidProcN*(T: varargs[typedesc]): untyped =
   var args = @[bindSym"void"]
 
-  for t in T:
-    args.add(nnkIdentDefs.newTree(genSym("a"), t))
+  let names = toSeq('a'..'z').mapIt($it)
+  if args.len > names.len:
+    error("genVoidProcN: too many arguments, max: " & $names.len)
 
-  let prc = newProc(params = args)
+  for i, t in T.pairs:
+    args.add(nnkIdentDefs.newTree(genSym(names[i]), t, newEmptyNode()))
+
+  let prc = newProc(params = args, pragmas = nnkPragma.newTree(ident"closure"))
   let Source = bindSym("Source")
 
   result = quote do:
-    (proc(s: `Source`): auto = `prc`)
+    genConst(`prc`)
 
 # MARK: Property Helpers
 
 # TODO: implement these like `execProperty` and `forAll` from `property_testing`
+# TODO: rework these to be a macro, which will mean accepting a varargs of
+#       typedescs, returning a routine with the appropriate signature for
+#       generators and then accepting the subsequent generators
 
 proc forAll*[T](gen: Gen[T], check: proc(x: T): PropertyStatus): Property[T] = 
   return Property[T](gen: gen, check: check)
