@@ -1,8 +1,8 @@
 discard """
-  targets: "c"
-  knownIssue.js vm: '''
-    - js doesn't support uint64
-    - the vm doesn't support random number generation
+  targets: "c js vm"
+  knownIssue.vm: '''
+    the vm doesn't support random number generation
+    the js target doesn't support uint64
   '''
 """
 
@@ -669,7 +669,7 @@ suite "Property Testing with Integrated Shrinking":
 
 
   test "Seq generator - samples of a certain length":
-    let samples = getSamples(genSeq(genEnum[E](), minLen=2))
+    let samples = getSamples(genSeq(genEnum[E](), minLen=2, maxLen=100))
     for s in samples:
       checkpoint "s: " & $s
       for s in samples:
@@ -688,7 +688,7 @@ suite "Property Testing with Integrated Shrinking":
 
 
   test "String generator - samples of a certain length":
-    let samples = getSamples(genString(minLen=2))
+    let samples = getSamples(genString(minLen=2, maxLen=100))
     for s in samples:
       checkpoint "s: " & $s
       for s in samples:
@@ -707,7 +707,7 @@ suite "Property Testing with Integrated Shrinking":
 
 
   test "ASCII string generator - samples of a certain length":
-    let samples = getSamples(genAsciiString(minLen=2))
+    let samples = getSamples(genAsciiString(minLen=2, maxLen=100))
     for s in samples:
       checkpoint "s: " & $s
       for s in samples:

@@ -91,10 +91,13 @@ runnableExamples:
 ## - https://hypothesis.works/articles/compositional-shrinking/
 
 
-# MARK: TODOs
-# - update library for js support (itemize and add todos here)
+# MARK: Future Development TODOs:
 # - increase default number of scenario runs to 1000
+# - rename to `property_testing`
+# - separate core and api modules
 # - allow pluggable random number generators
+# - integrate with unittest runner
+# - improve performance for JS by easing up on the 64-bit math
 
 
 import std/[
@@ -994,7 +997,15 @@ type
     shrunkBuffer*: seq[byte]
 
 
-proc runProperty*[T](p: Property[T], trials: int = 256, seed: uint32 = 0): TestResult[T] =
+const defaultTrials* =
+  when defined(js) or defined(vm):
+    128
+  else:
+    1024
+
+
+proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
+                     seed: uint32 = 0): TestResult[T] =
   # Uses time as seed base if not provided 
   var masterSeed = seed
   if masterSeed == 0:
