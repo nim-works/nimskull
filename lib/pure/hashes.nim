@@ -224,7 +224,7 @@ when defined(nimPreviewHashRef) or defined(nimdoc):
 proc hash*(x: float): Hash {.inline.} =
   ## Efficient hashing of floats.
   let y = x + 0.0 # for denormalization
-  result = hashWangYi1(cast[Hash](y))
+  result = hashWangYi1(cast[int64](y))
 
 # Forward declarations before methods that hash containers. This allows
 # containers to contain other containers
