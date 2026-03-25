@@ -65,14 +65,6 @@ when defined(js):
       proc jsNow(): float {.importjs: "window.performance.now()".}
       result = jsNow() / 1000
 
-  # Workaround for #6752.
-  {.push overflowChecks: off.}
-  proc `-`(a, b: int64): int64 =
-    system.`-`(a, b)
-  proc `+`(a, b: int64): int64 =
-    system.`+`(a, b)
-  {.pop.}
-
 elif defined(posix) and not defined(osx):
   import std/posix
 
