@@ -1,17 +1,17 @@
 ## Property Testing library, which allows for the specification and testing
 ## of properties of code.
 ##
-## Property-based testing is a methodology where you define general characteristics 
-## (properties) that your code should satisfy across a wide range of inputs, rather 
-## than asserting specific outputs for hardcoded inputs. This library automatically 
-## generates random inputs to test these properties, and if a failure occurs, it 
-## aggressively "shrinks" the input to find the minimal, simplest example that 
+## Property-based testing is a methodology where you define general characteristics
+## (properties) that your code should satisfy across a wide range of inputs, rather
+## than asserting specific outputs for hardcoded inputs. This library automatically
+## generates random inputs to test these properties, and if a failure occurs, it
+## aggressively "shrinks" the input to find the minimal, simplest example that
 ## reproduces the bug.
 ##
 ## ### Motivating Example
 ##
-## Imagine an e-commerce function that applies a coupon discount to a shopping cart 
-## total. A naive unit test might check `applyDiscount(100, 20) == 80`. 
+## Imagine an e-commerce function that applies a coupon discount to a shopping cart
+## total. A naive unit test might check `applyDiscount(100, 20) == 80`.
 ## A property test instead asserts universal truths about the function:
 ##
 runnableExamples:
@@ -34,28 +34,28 @@ runnableExamples:
 ## ### Core Concepts
 ##
 ## The library revolves around a few key types and concepts:
-## - **Properties (`forAll`)**: The idiomatic way to define a test is using the `forAll` 
-##   procedures, which pair generators with a predicate function that returns a `PropertyStatus` 
+## - **Properties (`forAll`)**: The idiomatic way to define a test is using the `forAll`
+##   procedures, which pair generators with a predicate function that returns a `PropertyStatus`
 ##   (`psPass`, `psFail`, or `psDiscard`).
-## - **Generators (`Gen[T]`)**: Procedures that consume a `Source` of randomness to 
+## - **Generators (`Gen[T]`)**: Procedures that consume a `Source` of randomness to
 ##   produce values of type `T`.
 ## - **Shrinking**: An automatic process that simplifies failing test cases.
 ##
 ## ### Writing Property Tests
 ##
 ## Tests are typically constructed using `forAll` and executed with `runProperty`.
-## `runProperty` runs the scenario numerous times (default 256) with different seeds. 
-## If a failure (`psFail`) is encountered, the library automatically begins shrinking 
-## the generated inputs to find the most minimal reproducing case, which is then 
+## `runProperty` runs the scenario numerous times (default 256) with different seeds.
+## If a failure (`psFail`) is encountered, the library automatically begins shrinking
+## the generated inputs to find the most minimal reproducing case, which is then
 ## available in the `TestResult`.
-## 
-## Tests can return `psDiscard` if the generated inputs do not meet certain 
-## preconditions, effectively skipping that run without failing the test. For example, 
+##
+## Tests can return `psDiscard` if the generated inputs do not meet certain
+## preconditions, effectively skipping that run without failing the test. For example,
 ## validating that a division function works correctly when the denominator is not zero.
 ##
 ## ### Generators and Sources
 ##
-## To generate data, you build or compose `Gen[T]` procedures. The standard library provides 
+## To generate data, you build or compose `Gen[T]` procedures. The standard library provides
 ## many built-in generators:
 ## - **Primitives**: `genInt`, `genBool`, `genByte`, `genChar`, `genString`.
 ## - **Collections**: `genSeq`, `genSet`, `genArray`.
@@ -65,22 +65,22 @@ runnableExamples:
 ## - `map`: Transforms the output of a generator (e.g., generating even numbers by mapping `x => x * 2`).
 ## - `filter`: Discards values that don't meet a predicate. (Use sparingly, as too many retries raise `FilterExhaustedError`).
 ## - `flatMap`: Chains generators dependently.
-## 
-## Underlying all generation is the `Source` object. It provides the entropy for generators 
-## and records the sequence of choices made. This recording is what enables the library's 
+##
+## Underlying all generation is the `Source` object. It provides the entropy for generators
+## and records the sequence of choices made. This recording is what enables the library's
 ## powerful, integrated shrinking capabilities.
 ##
 ## ### Integrated Shrinking
-## 
-## This library uses **integrated shrinking** (inspired by Hypothesis). 
-## Unlike traditional type-directed shrinking, this library shrinks the *underlying byte stream* 
-## (the `Source` buffer) that produced the values, rather than shrinking the typed values themselves. 
-## 
+##
+## This library uses **integrated shrinking** (inspired by Hypothesis).
+## Unlike traditional type-directed shrinking, this library shrinks the *underlying byte stream*
+## (the `Source` buffer) that produced the values, rather than shrinking the typed values themselves.
+##
 ## This approach has several massive advantages:
 ## - You do not need to write custom `shrink` functions for your custom types.
-## - Filtering and `flatMap` work perfectly and maintain invariants during shrinking, 
+## - Filtering and `flatMap` work perfectly and maintain invariants during shrinking,
 ##   because the shrinking happens on the raw entropy before the combinators run.
-## - It aggressively finds minimal examples using structural heuristics like sequence deletion, 
+## - It aggressively finds minimal examples using structural heuristics like sequence deletion,
 ##   binary search on numeric ranges, and unbounded scalar lowering.
 ##
 ## See the following posts on the hows and whys of integrated shrinking:
@@ -248,7 +248,7 @@ proc rngNextBytes*(s: Source, bytes: int): uint64 =
   return val
 
 
-proc rngNextUInt32(s: Source): uint32 = 
+proc rngNextUInt32(s: Source): uint32 =
   uint32(s.rng.next() and 0xFFFFFFFF'u64)
 
 
@@ -280,11 +280,11 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
   if s.recording:
     let
       rangeSize = max - min
-      valRange = 
+      valRange =
         if rangeSize == 0: 0'u64
         elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
         else: s.rngNextBytes(8) mod (rangeSize + 1)
-      
+
     result = min + valRange
     s.recordRange(min, max, result, scalarKind)
   else:
@@ -370,15 +370,15 @@ proc filter*[T](g: Gen[T], pred: proc(x: T): bool, maxRetries: int = 100): Gen[T
   return proc(s: Source): T =
     # This loop requires care to avoid infinite loops.
     # We should probably limit retries.
-    
+
     # Try first attempt
     result = g(s)
     if pred(result): return result
-    
+
     for _ in 0 ..< maxRetries:
       result = g(s)
       if pred(result): return result
-      
+
     # If exhausted, we must inform the caller that generation failed.
     # Checks using this generator should likely discard the run.
     raise newException(FilterExhaustedError, "Filter retries exhausted")
@@ -439,7 +439,7 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
   ## This effectively shuffles the "remaining" items and picks one.
   ## Once `pos` reaches end, it switches to pure random
 
-  let 
+  let
     indices = toSeq(0 ..< vals.len)
     state = ExhaustiveState[T](vals: vals, indices: indices, pos: 0)
 
@@ -462,7 +462,7 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
         state.pos.inc
       else:
         chosenIdx = int(randValOrig mod uint32(state.vals.len))
-        
+
       # Record it formally as a range so shrinking works predictably!
       s.recordRange(0, cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
 
@@ -470,7 +470,7 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
 
 
 proc genExhaustiveRange*[T](min: T, rangeSize: uint64): Gen[T] =
-  let 
+  let
     len = int(rangeSize + 1)
     indices = toSeq(0 ..< len)
     state = ExhaustiveRangeState[T](min: min, rangeSize: rangeSize, indices: indices, pos: 0)
@@ -494,7 +494,7 @@ proc genExhaustiveRange*[T](min: T, rangeSize: uint64): Gen[T] =
         state.pos.inc
       else:
         chosenIdx = int(randValOrig mod uint32(len))
-      
+
       # Record it formally as a range so shrinking works predictably!
       s.recordRange(0, rangeSize, cast[uint64](chosenIdx), tgtK)
 
@@ -706,7 +706,7 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
     var len = chooseLen
     if s.recording: s.beginArray(chooseLen)
     else: len = min(chooseLen, uint16(s.readArrayLength()))
-      
+
     let upperLimit = maxLen * 15
     var i = 0
     while result.len < int(len) and i < upperLimit:
@@ -722,12 +722,12 @@ proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]
     var len =
       if maxLen == minLen: minLen
       else: cast[uint32](s.chooseRange(cast[uint64](minLen), cast[uint64](maxLen), sk4Bytes))
-      
+
     if s.recording:
       s.beginArray(len)
     else:
       len = min(len, s.readArrayLength())
-      
+
     result = newSeq[T](int(len))
     for i in 0 ..< int(len):
       result[i] = g(s)
@@ -751,8 +751,8 @@ proc genAsciiString*(minLen: uint32 = 0, maxLen: uint32 = 100): Gen[string] =
   genString(minLen, maxLen, genAsciiChar())
 
 
-proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] = 
-  return proc(s: Source): array[size, T] = 
+proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] =
+  return proc(s: Source): array[size, T] =
     if s.recording: s.beginArray(size)
     else: discard s.readArrayLength()
     var arr: array[size, T]
@@ -773,10 +773,10 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
   ## Parses the structural `StorageKind` at `startPos` and returns the index
   ## immediately *after* the fully encoded node (including all nested children).
   if startPos >= buffer.len: return buffer.len
-  
+
   let kind = cast[StorageKind](buffer[startPos])
   var pos = startPos + 1
-  
+
   case kind
   of skByte: pos += 1
   of sk2Bytes: pos += 2
@@ -830,7 +830,7 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
       let n = int(buffer[pos])
       pos += 1
       for _ in 0 ..< n: pos = skipNode(buffer, pos)
-      
+
   return if pos > buffer.len: buffer.len else: pos
 
 
@@ -1027,8 +1027,8 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       # We could capture exception msg here
 
     if status == psDiscard:
-      # It might be tempting to not count this trial, but we could be stuck in a 
-      # loop of discarding. A better approach would be to limit the number of 
+      # It might be tempting to not count this trial, but we could be stuck in a
+      # loop of discarding. A better approach would be to limit the number of
       # discards, but for now we'll just count it as a pass.
       continue
 
@@ -1039,7 +1039,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       result.failingBuffer = s.buffer
 
       # Start shrinking
-      var 
+      var
         bestBuffer = s.buffer
         bestVal = val
 
@@ -1062,12 +1062,12 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             cVal = p.gen(sCand)
             cStatus = p.check(cVal)
           except:
-            # Likely an area of improvement to capture the exception as part of 
+            # Likely an area of improvement to capture the exception as part of
             # the failure
             cStatus = psFail # Exception is failure too
 
           if cStatus == psFail:
-            # Our candidates iterator uses AST heuristics to generate strictly 
+            # Our candidates iterator uses AST heuristics to generate strictly
             # smaller or simpler candidate buffers.
             # We accept the first one that fails:
             bestBuffer = cand
@@ -1306,8 +1306,8 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen
 
 proc genVoidProc*(): Gen[proc()] =
   return proc(s: Source): proc() =
-    # Function with no return value and no args doesn't need to do anything 
-    # other than exist. 
+    # Function with no return value and no args doesn't need to do anything
+    # other than exist.
     return proc() = discard
 
 # For void procs with args, they just consume args but return nothing.
