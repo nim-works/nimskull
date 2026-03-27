@@ -115,7 +115,7 @@ const
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize,
     wIncompleteStruct, wCompleteStruct, wByCopy, wByRef,
     wInheritable, wGensym, wInject, wRequiresInit, wUnion, wPacked,
-    wBorrow, wGcSafe, wExplain, wPackage}
+    wBorrow, wGcSafe, wExplain}
   fieldPragmas* = declPragmas + {wGuard, wBitsize, wCursor,
     wRequiresInit, wNoalias, wAlign} - {wExportNims, wNodecl} # why exclude these?
   varPragmas* = declPragmas + {wVolatile, wRegister, wThreadVar,
@@ -1324,10 +1324,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
           #       Use a dedicated error diagnostic
           result = invalidPragma(c, it)
         else: incl(sym.typ.flags, tfInheritable)
-      of wPackage:
-        result = noVal(c, it)
-        assert sym.typ != nil
-        incl(sym.flags, sfForward)
       of wAcyclic:
         result = noVal(c, it)
         assert sym.typ != nil
