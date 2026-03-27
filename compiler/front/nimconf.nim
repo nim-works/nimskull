@@ -7,8 +7,138 @@
 #    distribution, for details about the copyright.
 #
 
-## This module handles the reading of config file(s).
-## 
+## Nim Configuration File Language
+## ===============================
+##
+## The Nim compiler uses a simple configuration file language to customize its behavior. This document describes the syntax and features of this language.
+##
+## File Format
+## -----------
+##
+## Configuration files typically use the `<module>.nim.cfg` or `nim.cfg`. They are plain text files with a custom syntax for setting compiler options and defining conditional compilation.
+##
+## Basic Syntax
+## ------------
+##
+## Each line in a configuration file can be one of the following:
+##
+## 1. An option setting
+## 2. A directive
+## 3. A comment (starts with #)
+##
+## Option Settings
+## ---------------
+##
+## Any of the Nim command line options can be set using the following syntax:
+##
+## .. code-block::
+##   -{0,2}option_name *([:=]|%=) *"value"
+##
+## Values need to be quoted if they contain spaces.
+## For boolean options, a value of `true` can be omitted.
+##
+## Examples:
+##
+## .. code-block::
+##  threads
+##
+## See `docs/advopts.rst` for compiler options.
+##
+## Directives
+## ----------
+##
+## Directives start with the `@` symbol and provide additional control over the configuration process.
+##
+## Conditional Compilation
+## ^^^^^^^^^^^^^^^^^^^^^^^
+##
+## - `@if <condition>:`
+## - `@elif <condition>:`
+## - `@else:`
+## - `@end`
+##
+## These directives allow for conditional compilation based on defined symbols or expressions.
+##
+## Output
+## ^^^^^^
+##
+## - `@write "message"`
+##
+## Writes a message during configuration processing.
+##
+## Environment Variables
+## ^^^^^^^^^^^^^^^^^^^^^
+##
+## - `@putenv "key" "value"`
+## - `@prependenv "key" "value"`
+## - `@appendenv "key" "value"`
+##
+## These directives manipulate environment variables during configuration.
+##
+## File Inclusion
+## ^^^^^^^^^^^^^^
+##
+## - `@include "filename"`
+##
+## Includes another configuration file.
+##
+## Expressions
+## -----------
+##
+## Expressions can be used in conditional compilation directives. They support:
+##
+## - Boolean operators: `and`, `or`, `not`
+## - Parentheses for grouping
+## - Defined symbol checking
+##
+## Example:
+##
+## @if defined(windows) and not defined(mingw):
+##   # Windows-specific non-MinGW configuration
+## @end
+##
+##
+## Variable Expansion
+## ------------------
+##
+## The `%=` operator can be used for variable expansion. It expands variables using the current configuration and environment variables. #TODO: which takes precedence?
+##
+## Example:
+##
+## nimblePath %= "$home/.nimble/pkgs/"
+##
+## This will expand `$home` to the user's home directory.
+##
+## String Concatenation
+## --------------------
+##
+## Strings can be concatenated using the `&` operator.
+##
+## Comments
+## --------
+##
+## Comments start with the `#` character and continue to the end of the line.
+##
+## Example:
+##
+## This is a comment
+##
+## threads = on # Enable threading
+##
+## Configuration Variables
+## -----------------------
+##
+## Configuration varirables are used to set backend build tool options.
+##
+## .. code-block::
+##   gcc.options.linker = ""
+##   gcc.options.linker : ""
+##   gcc.options.linker %= "-L$home/lib"
+##
+## Configuration variable identifiers must start with a letter, contain a dot `.`,
+## and be at least 10 characters long.
+##
+##
 ## ..note:: Even though this module is very effectful in its processing of a
 ##          config file and updating a `ConfigRef`, it must not assume that
 ##          it's handling a 'canonical' `ConfigRef` for the current program and
@@ -35,6 +165,7 @@ import
   compiler/utils/[
     pathutils,
   ]
+from compiler/front/msgs import toFullPath
 
 type
   ConfigFileEventKind* = enum
@@ -90,7 +221,7 @@ type
         discard
     instLoc*: InstantiationInfo ## instantiation in this module's source
     msg*: string
-  
+
   NimConfEvtWriter* = proc(config: ConfigRef,
                            evt: ConfigFileEvent,
                            writeFrom: InstantiationInfo): void
@@ -103,6 +234,7 @@ type
     stopOnError: bool              ## whether to continue if an error occurs
     stopProcessing: bool           ## set if `stopOnError` and an error
                                    ## occurred, or if there is a fatal error
+    identCache: IdentCache
 
   CancelConfigProcessing = object of CatchableError
     ## internal error used to halt processing
@@ -129,7 +261,7 @@ proc callEvtWriter(N: var NimConfParser, e: ConfigFileEvent,
 
 proc handleError(N: var NimConfParser,
                  ev: range[cekParseExpectedX..cekInvalidDirective],
-                 errMsg: string, 
+                 errMsg: string,
                  instLoc = instLoc(-1)) =
   let e = ConfigFileEvent(kind: ev,
                           location: N.lexer.getLineInfo,
@@ -139,9 +271,9 @@ proc handleError(N: var NimConfParser,
 
 proc handleExpectedX(N: var NimConfParser, missing: string,
                     instLoc = instLoc(-1)) =
-  let e = ConfigFileEvent(kind: cekParseExpectedX, 
-                          location: N.lexer.getLineInfo, 
-                          instLoc: instLoc, 
+  let e = ConfigFileEvent(kind: cekParseExpectedX,
+                          location: N.lexer.getLineInfo,
+                          instLoc: instLoc,
                           msg: missing)
   N.callEvtWriter(e, instLoc)
 
@@ -289,6 +421,8 @@ proc jumpToDirective(N: var NimConfParser, tok: var Token, dest: TJumpDest) =
     else:
       ppGetTok(N, tok)
 
+proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool
+
 proc parseDirective(N: var NimConfParser, tok: var Token) =
   ppGetTok(N, tok)            # skip @
   case whichKeyword(tok.ident)
@@ -324,64 +458,68 @@ proc parseDirective(N: var NimConfParser, tok: var Token) =
       var key = $tok
       ppGetTok(N, tok)
       os.putEnv(key, os.getEnv(key) & $tok)
+    of "include":
+      ppGetTok(N, tok)
+      let configFile = toAbsolute(expandTilde($tok), N.config.toFullPath(N.lexer.fileIdx).parentDir.AbsoluteDir)
+      let currentLexer = N.lexer # `readConfigFile` clobbers it, so save the lexer so we can restore it
+      block:
+        if readConfigFile(N, configFile):
+          N.config.configFiles.add(configFile)
+        N.lexer = currentLexer # restore the lexer
       ppGetTok(N, tok)
     else:
       handleError(N, cekInvalidDirective, $tok)
-
-proc confTok(N: var NimConfParser, tok: var Token) =
-  ppGetTok(N, tok)
-  while tok.ident != nil and tok.ident.s == "@":
-    parseDirective(N, tok)    # else: give the token to the parser
 
 proc checkSymbol(N: var NimConfParser, tok: Token) =
   if tok.tokType notin {tkSymbol..tkInt64Lit, tkStrLit..tkTripleStrLit}:
     handleError(N, cekParseExpectedIdent, $tok)
 
 proc parseAssignment(N: var NimConfParser, tok: var Token) =
+  template nextTok: untyped = ppGetTok(N, tok)
   if tok.ident != nil:
     if tok.ident.s == "-" or tok.ident.s == "--":
-      confTok(N, tok)           # skip unnecessary prefix
+      nextTok           # skip unnecessary prefix
   var info = getLineInfo(N.lexer, tok) # save for later in case of an error
   checkSymbol(N, tok)
   var s = $tok
-  confTok(N, tok)             # skip symbol
+  nextTok             # skip symbol
   var val = ""
   while tok.tokType == tkDot:
     s.add('.')
-    confTok(N, tok)
+    nextTok
     checkSymbol(N, tok)
     s.add($tok)
-    confTok(N, tok)
+    nextTok
   if tok.tokType == tkBracketLe:
     # BUGFIX: val, not s!
-    confTok(N, tok)
+    nextTok
     checkSymbol(N, tok)
     val.add('[')
     val.add($tok)
-    confTok(N, tok)
+    nextTok
     if tok.tokType == tkBracketRi:
-      confTok(N, tok)
+      nextTok
     else:
       handleError(N, cekParseExpectedCloseX, "]")
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
   if tok.tokType in {tkColon, tkEquals} or percent:
     if val.len > 0: val.add(':')
-    confTok(N, tok)           # skip ':' or '=' or '%'
+    nextTok           # skip ':' or '=' or '%'
     checkSymbol(N, tok)
     val.add($tok)
-    confTok(N, tok)           # skip symbol
+    nextTok           # skip symbol
     if tok.tokType in {tkColon, tkEquals}:
       val.add($tok) # add the :
-      confTok(N, tok)           # skip symbol
+      nextTok           # skip symbol
       checkSymbol(N, tok)
       val.add($tok) # add the token after it
-      confTok(N, tok)           # skip symbol
+      nextTok           # skip symbol
     while tok.ident != nil and tok.ident.s == "&":
-      confTok(N, tok)
+      nextTok
       checkSymbol(N, tok)
       val.add($tok)
-      confTok(N, tok)
+      nextTok
   let
     v =
       if percent:
@@ -408,9 +546,12 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
   else:
     discard
 
-proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
-                    cache: IdentCache): bool =
+proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile): bool =
   ## assumes `cfgEvtWriter` has already been set, do not export
+  if filename in N.config.configFiles:
+    # Avoid circular inclusion
+    return false
+
   var
     tok: Token
     stream: PLLStream
@@ -418,7 +559,7 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
   stream = llStreamOpen(filename, fmRead)
   if stream != nil:
     initToken(tok)
-    openLexer(N.lexer, filename, stream, cache, N.config)
+    openLexer(N.lexer, filename, stream, N.identCache, N.config)
 
     # save the existing source of command parameters and use the config file
     let oldCmdLineSrcIdx = N.config.commandLineSrcIdx
@@ -426,13 +567,16 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
 
     try:
       tok.tokType = tkEof       # to avoid a pointless warning
-      confTok(N, tok)           # read in the first token
+      ppGetTok(N, tok)          # read in the first token
 
       while tok.tokType != tkEof:
-        parseAssignment(N, tok)
+        if tok.ident != nil and tok.ident.s == "@":
+          parseDirective(N, tok)    # else: give the token to the parser
+        else:
+          parseAssignment(N, tok)
 
-      if N.condStack.len > 0:
-        handleError(N, cekParseExpectedX, "@end")
+      # if N.condStack.len > 0:
+      #   handleError(N, cekParseExpectedX, "@end")
 
       result = true
     except CancelConfigProcessing:
@@ -477,13 +621,11 @@ iterator configFiles(N: NimConfParser, cfg: RelativeFile): AbsoluteFile =
       # project wide config file:
       yield changeFileExt(N.config.projectFull, "nim.cfg")
 
-proc loadConfigs(
-    N: var NimConfParser, cfg: RelativeFile, cache: IdentCache
-  ): bool =
+proc loadConfigs(N: var NimConfParser, cfg: RelativeFile): bool =
   setDefaultLibpath(N.config)
 
   for cfgFile in configFiles(N, cfg):
-    if readConfigFile(N, cfgFile, cache):
+    if readConfigFile(N, cfgFile):
       N.config.configFiles.add(cfgFile)
 
   for filename in N.config.configFiles:
@@ -498,8 +640,8 @@ proc loadConfigs*(
     stopOnError: bool = true
   ): bool {.inline.} =
   var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
-                             stopOnError: stopOnError)
-  parser.loadConfigs(cfg, cache)
+                             stopOnError: stopOnError, identCache: cache)
+  parser.loadConfigs(cfg)
 
 proc readConfigFile*(
   filename: AbsoluteFile, cache: IdentCache,
@@ -507,5 +649,5 @@ proc readConfigFile*(
 ): bool {.inline.} =
   # created and exported for `nimph`
   var parser = NimConfParser(config: conf, cfgEvtWriter: evtHandler,
-                             stopOnError: true)
-  parser.readConfigFile(filename, cache)
+                             stopOnError: true, identCache: cache)
+  parser.readConfigFile(filename)
