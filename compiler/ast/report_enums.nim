@@ -307,13 +307,11 @@ type
     rsemExportRequiresToplevel
     rsemExperimentalRequiresToplevel
     rsemMethodRequiresToplevel
-    rsemPackageRequiresToplevel
     rsemConverterRequiresToplevel
     rsemImportRequiresToplevel
     rsemUnexpectedToplevelDefer
     rsemUsingRequiresToplevel
     rsemInvalidVisibility
-    rsemUnknownPackageName
     rsemUnexpectedInfixInInclude
 
     # ..
@@ -480,7 +478,6 @@ type
     rsemNoObjectOrTupleType
     rsemForExpectsIterator
     rsemSelectorMustBeOfCertainTypes
-    rsemTypeCannotBeForwarded
     rsemDoubleCompletionOf
     rsemExpectedInvariantParam
     rsemCovariantUsedAsNonCovariant
