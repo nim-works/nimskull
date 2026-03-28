@@ -1689,10 +1689,7 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
   elif tfByCopy in pt.flags: return false
   case pt.kind
   of tyObject:
-    if s.typ.sym != nil and sfForward in s.typ.sym.flags:
-      # forwarded objects are *always* passed by pointers for consistency!
-      result = true
-    elif (optByRef in s.options) or (getSize(conf, pt) > conf.target.floatSize * 3):
+    if (optByRef in s.options) or (getSize(conf, pt) > conf.target.floatSize * 3):
       result = true           # requested anyway
     elif (tfFinal in pt.flags) and (pt[0] == nil):
       result = false          # no need, because no subtyping possible

@@ -126,48 +126,6 @@ ambiguous, a static error will be produced.
   p value2
 
 
-Package level objects
-=====================
-
-Every Nim module resides in a (nimble) package. An object type can be attached
-to the package it resides in. If that is done, the type can be referenced from
-other modules as an `incomplete`:idx: object type. This feature allows to
-break up recursive type dependencies across module boundaries. Incomplete
-object types are always passed `byref` and can only be used in pointer like
-contexts (`var/ref/ptr IncompleteObject`) in general, since the compiler does
-not yet know the size of the object. To complete an incomplete object,
-the `package` pragma has to be used. `package` implies `byref`.
-
-As long as a type `T` is incomplete, no runtime type information for `T` is
-available.
-
-
-Example:
-
-.. code-block:: nim
-
-  # module A (in an arbitrary package)
-  type
-    Pack.SomeObject = object # declare as incomplete object of package 'Pack'
-    Triple = object
-      a, b, c: ref SomeObject # pointers to incomplete objects are allowed
-
-  # Incomplete objects can be used as parameters:
-  proc myproc(x: SomeObject) = discard
-
-
-.. code-block:: nim
-
-  # module B (in package "Pack")
-  type
-    SomeObject* {.package.} = object # Use 'package' to complete the object
-      s, t: string
-      x, y: int
-
-This feature will likely be superseded in the future by support for
-recursive module dependencies.
-
-
 Importing private symbols
 =========================
 

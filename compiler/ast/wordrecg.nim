@@ -67,7 +67,7 @@ type
     wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",
-    wSafecode = "safecode", wPackage = "package",
+    wSafecode = "safecode",
     wNoRewrite = "norewrite", wNoDestroy = "nodestroy", wPragma = "pragma",
     wCompileTime = "compileTime", wNoInit = "noinit", wPassc = "passc", wPassl = "passl",
     wLocalPassc = "localPassC", wBorrow = "borrow", wDiscardable = "discardable",
