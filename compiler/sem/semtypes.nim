@@ -904,22 +904,23 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     localReport(c.config, n[0].info, reportTyp(
       rsemExpectedOrdinalOrFloat, typ))
 
-  if firstOrd(c.config, typ) != 0:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedLow0Discriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(0),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
-  elif lengthOrd(c.config, typ) > 0x00007FFF:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedHighCappedDiscriminant,
-      # TODO: fix storage and actually report data, previously captured:
-      #       - expected: toInt128(32768),
-      #       - got: firstOrd(c.config, typ)),
-      typ: typ,
-      sym: a[0].sym))
+  if chckCovered:
+    if firstOrd(c.config, typ) != 0:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedLow0Discriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(0),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
+    elif lengthOrd(c.config, typ) > 0x00007FFF:
+      localReport(c.config, n.info, SemReport(
+        kind: rsemExpectedHighCappedDiscriminant,
+        # TODO: fix storage and actually report data, previously captured:
+        #       - expected: toInt128(32768),
+        #       - got: firstOrd(c.config, typ)),
+        typ: typ,
+        sym: a[0].sym))
 
   for i in 1..<n.len:
     let b = n[i]
@@ -1107,16 +1108,8 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
   if realBase == nil and tfInheritable in flags:
     result.flags.incl tfInheritable
   if tfAcyclic in flags: result.flags.incl tfAcyclic
-  if result.n.isNil:
-    result.n = newNodeI(nkRecList, n.info)
-  else:
-    # partial object so add things to the check
-    pos += addInheritedFields(check, result)
-    if not incompleteType(result):
-      # this record AST represents the final addition to the object; the
-      # size can be computed now
-      result.size = szUncomputedSize
-      result.align = szUncomputedSize
+  c.config.internalAssert(result.n.isNil, n.info)
+  result.n = newNodeI(nkRecList, n.info)
 
   semRecordNodeAux(c, n[2], check, pos, result.n, result)
   if n[0].kind != nkEmpty:

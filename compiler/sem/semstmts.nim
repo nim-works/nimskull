@@ -1777,37 +1777,7 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
   checkSonsLen(typeDef, 3, c.config)
   var name = typeDef[0]
   var s: PSym
-  if name.kind == nkDotExpr and typeDef[2].kind == nkObjectTy:
-    let
-      pkgName = legacyConsiderQuotedIdent(c, name[0], nil)
-      typName = legacyConsiderQuotedIdent(c, name[1], nil)
-      pkg = c.graph.packageSyms.strTableGet(pkgName)
-    if pkg.isNil or pkg.kind != skPackage:
-      localReport(c.config, name.info, reportStr(
-        rsemUnknownPackageName, pkgName.s))
-
-    else:
-      let typsym = c.graph.packageTypes.strTableGet(typName)
-      if typsym.isNil:
-        s = semIdentDef(c, name[1], skType)
-        s.typ = newTypeS(tyObject, c)
-        s.typ.sym = s
-        # until the type is completed, the size and alignment are treated as
-        # unknown
-        s.typ.size = szUnknownSize
-        s.typ.align = szUnknownSize
-        s.flags.incl sfForward
-        c.graph.packageTypes.strTableAdd s
-        addInterfaceDecl(c, s)
-      elif typsym.kind == skType and sfForward in typsym.flags:
-        s = typsym
-        addInterfaceDecl(c, s)
-      else:
-        localReport(c.config, name.info, reportSym(
-          rsemTypeCannotBeForwarded, typsym))
-
-        s = typsym
-  else:
+  if true:
     s = semIdentDef(c, name, skType)
     s.typ = newTypeS(tyForward, c)
     s.typ.sym = s             # process pragmas:
@@ -1825,22 +1795,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       # type
       s.typ.flags.incl tfHasMeta
 
-    if sfForward in s.flags:
-      # check if the symbol already exists:
-      let pkg = c.module.owner
-      if not isTopLevel(c) or pkg.isNil:
-        localReport(c.config, name, reportSem rsemPackageRequiresToplevel)
-      else:
-        let typsym = c.graph.packageTypes.strTableGet(s.name)
-        if typsym != nil:
-          if sfForward notin typsym.flags or sfNoForward notin typsym.flags:
-            typeCompleted(typsym)
-            typsym.info = s.info
-          else:
-            localReport(c.config, name.info, reportSymbols(
-              rsemDoubleCompletionOf, @[typsym, s]))
-
-          s = typsym
     # add it here, so that recursive types are possible:
     if sfGenSym notin s.flags:
       addInterfaceDecl(c, s)
@@ -2689,6 +2643,9 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
       result[namePos] = checkSpecialOperators(c, result[namePos])
       hasError = hasError or result[namePos].kind == nkError
 
+  if result[genericParamsPos].kind == nkEmpty and s.magic == mNone:
+    paramsTypeCheck(c, s.typ, s.flags)
+
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
     if sfBorrow in s.flags:
@@ -2715,9 +2672,6 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     else:
       pushProcCon(c, s)
       if result[genericParamsPos].kind == nkEmpty:
-        if s.magic == mNone:
-          paramsTypeCheck(c, s.typ)
-
         maybeAddResult(c, s, result)
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))

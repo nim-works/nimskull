@@ -48,6 +48,9 @@ type
     CoDistinct
     CoHashTypeInsideNode
 
+const
+  considerAll = {ConsiderFlag.low .. ConsiderFlag.high}
+
 proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag])
 
 proc hashSym(c: var MD5Context, s: PSym) =
@@ -102,6 +105,15 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
     c &= n.strVal
   of nkWithSons:
     for i in 0..<n.len: hashTree(c, n[i], flags)
+
+
+proc hashTree*(n: PNode; flags: set[ConsiderFlag] = considerAll): SigHash =
+  ## Computes the hash of an AST node (`n`) using the given flags.
+  var c: MD5Context
+  md5Init c
+  hashTree(c, n, flags)
+  md5Final(c, result.MD5Digest)
+
 
 proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
   if t == nil:

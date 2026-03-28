@@ -22,6 +22,7 @@ const
   MemberV2Trace = 4
   MemberV2TypeInfo = 5
   MemberV2Flags = 6
+  MemberV2Base = 7
 
   # ``TNimType`` fields
   MemberV1Size = 0
@@ -160,6 +161,11 @@ proc genTypeInfoV2(c; env; typ: PType, bu): NodeRef =
     # the v2 RTTI needs to link back to the v1 RTTI
     let info = getTypeInfoV1(c, env, t, bu)
     fields.addField bu, MemberV2TypeInfo, ^bu.use(info)
+
+  if t.kind == tyObject and t[0] != nil:
+    # link the base type's RTTI
+    let base = skipToObject(t[0])
+    fields.addField bu, MemberV2Base, ^bu.use(getTypeInfoV2(c, env, base, bu))
 
   bu.build RecConstr(^c.rttiV2Type, fields)
 

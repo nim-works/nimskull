@@ -1372,9 +1372,9 @@ proc emitDefault(c; env; dest: Expr, stmts; bu) =
 
 proc genOf(c; env; tree; e: Expr, typ: TypeId; bu): NodeRef =
   bu.build Call(
-    ^bu.useCompilerProc(c, env, "isObj"),
+    ^bu.useCompilerProc(c, env, "isObjV2"),
     ^c.fieldAccess(env, e, -1, bu),
-    Value(CstringType, ^genTypeInfo2Name(env[typ])))
+    *use(^c.getTypeInfoV2(env, env[typ], bu)))
 
 proc emitLength(c; env; dest, val: Expr, stmts, bu) =
   ## Emits a statement for storing the length of sequence-like `val` in `dest`.
@@ -1624,6 +1624,8 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
           Bitcast(UInt8Type, ^arg(0)),
           Bitcast(UInt8Type, ^arg(1))),
         ^c.genInt(env, 0, UInt8Type, bu)))
+  of mUnaryPlusI, mUnaryPlusF64:
+    wrapAsgn ^arg(0)
   of mAddU, mSubU, mMulU, mDivU, mModU:
     const Map = [mAddU: cnkAdd, mSubU: cnkSub,
                  mMulU: cnkMul, mDivU: cnkDiv, mModU: cnkMod]
@@ -1870,18 +1872,29 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     var
       temp  = c.newTemp(env, StringType, stmts, bu)
       len   = Expr(typ: VoidType)
+      clen  = 0 # constant length
 
     # compute the length expression:
     for (_, _, it) in tree.arguments(n):
-      let val =
-        if tree[it].typ == CharType:
-          bu.buildExpr env.types.sizeType:
-            ^c.genInt(env, 1, env.types.sizeType, bu)
-        else:
-          let L = c.newTemp(env, env.types.sizeType, stmts, bu)
-          c.emitLength(env, L, value(it), stmts, bu)
-          L
+      if tree[it].typ == CharType:
+        inc clen
+      elif tree[it].kind == mnkConst:
+        # can only be a constant string
+        inc clen, env[env[env.dataFor(tree[it].cnst)][0].strVal].len
+      else:
+        let L = c.newTemp(env, env.types.sizeType, stmts, bu)
+        c.emitLength(env, L, value(it), stmts, bu)
 
+        if len.typ == VoidType:
+          len = L
+        else:
+          len = bu.buildExpr env.types.sizeType:
+            Add(^env.types.sizeType, *use(len), *use(L))
+
+    # combine the 'len' expression with the constant part, if any:
+    if clen != 0:
+      let val = bu.buildExpr env.types.sizeType:
+        ^c.genInt(env, clen, env.types.sizeType, bu)
       if len.typ == VoidType:
         len = val
       else:

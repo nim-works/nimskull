@@ -1733,6 +1733,9 @@ when not defined(js) and not isNimVmTarget:
       traceImpl: pointer
       typeInfoV1: pointer # for backwards compat, usually nil
       flags: int
+      base: ptr TNimTypeV2
+        ## only used for object types. The parent type, or nil, when there's
+        ## no parent
     PNimTypeV2 = ptr TNimTypeV2
 
 when notJSnotNims and defined(nimSeqsV2):

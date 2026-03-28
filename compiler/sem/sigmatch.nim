@@ -2435,6 +2435,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     elif skipTypes(arg.typ, abstractVar-{tyTypeDesc}).kind == tyTuple or
          m.inheritancePenalty > oldInheritancePenalty:
       result = implicitConv(nkHiddenSubConv, f, arg, m, c)
+    elif f.kind != tyVar and (arg.typ.isIntLit or arg.typ.isFloatLit):
+      # assume that the resolved formal type and the argument type aren't
+      # equal and pessimisticely insert a conversion
+      result = implicitConv(nkHiddenStdConv, f, arg, m, c)
     elif arg.typ.isEmptyContainer:
       result = arg.copyTree
       result.typ = getInstantiatedType(c, arg, m, f)

@@ -601,12 +601,6 @@ func hasDestructor*(t: PType): bool {.inline.} =
   ## tracking hooks (that is, is resource-like).
   result = tfHasAsgn in t.skipTypes(skipForHooks).flags
 
-template incompleteType*(t: PType): bool =
-  t.sym != nil and {sfForward, sfNoForward} * t.sym.flags == {sfForward}
-
-template typeCompleted*(s: PSym) =
-  incl s.flags, sfNoForward
-
 template detailedInfo*(sym: PSym): string =
   sym.name.s
 

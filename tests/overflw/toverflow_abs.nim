@@ -4,7 +4,6 @@ discard """
   matrix: "--overflowChecks:on"
   exitcode: 1
   outputsub: "over- or underflow"
-  knownIssue.js: "64-bit signed integers aren't fully supported"
 """
 
 {.push overflowChecks: off.}

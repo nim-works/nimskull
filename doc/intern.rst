@@ -203,11 +203,11 @@ For more details on the specific report kinds and categories see the
 storing postponed or writing out activated reports) and `msgs.nim` (for
 main logic related to error handing and report submission).
 
-When report need to be written out it is handed to
+When a report needs to be written out it is handed to
 `ConfigRef.structuredReportHook` - it can be reimplemented by other
 tooling, can generate output information in any format (json,
-pretty-printed, S-expression), and filter it out unnecessary reports.
-Default implementation of the report hook is provided in the
+pretty-printed, S-expression), and filter out unnecessary reports.
+A default implementation of the report hook is provided in the
 `cli_reporter.nim` - if you want to improve particular error messages it is
 (ideally) the only (compiler) file that you need to edit.
 

@@ -1122,15 +1122,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemInvalidVisibility:
       result = "invalid visibility: '$1'" % r.ast.render
 
-    of rsemUnknownPackageName:
-      result = "unknown package name: " % r.str
-
-    of rsemTypeCannotBeForwarded:
-      result = r.symstr & " is not a type that can be forwarded"
-
-    of rsemPackageRequiresToplevel:
-      result = "only top level types in a package can be 'package'"
-
     of rsemDoubleCompletionOf:
       result = "cannot complete type '" &
         r.symbols[1].name.s &
@@ -1245,7 +1236,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       if r.ast.info.line != n.info.line or
          r.ast.info.fileIndex != n.info.fileIndex:
-
         result.add "; start of expression here: " & conf$r.ast.info
 
       if r.ast.typ.kind == tyProc:

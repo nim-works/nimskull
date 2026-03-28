@@ -528,10 +528,16 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym
 
-proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
+proc paramsTypeCheck(c: PContext, typ: PType, sflags: TSymFlags) {.inline.} =
   let
     kind = skProc
-    t = typeAllowed(typ, kind, c)
+    flags =
+      if c.config.backend == backendJs and
+         {sfImportc, sfInfixCall} * sflags == {sfImportc, sfInfixCall}:
+        {taFFI}
+      else:
+        {}
+    t = typeAllowed(typ, kind, c, flags)
     info = typ.n.info
   if t != nil:
     # var err: string

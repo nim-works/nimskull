@@ -421,10 +421,6 @@ proc captureBetween*(s: string, first: char, second = '\0', start = 0): string =
 proc integerOutOfRangeError() {.noinline.} =
   raise newException(ValueError, "Parsed integer outside of valid range")
 
-# See #6752
-when defined(js):
-  {.push overflowChecks: off.}
-
 proc rawParseInt(s: string, b: var BiggestInt, start = 0): int =
   var
     sign: BiggestInt = -1
@@ -449,9 +445,6 @@ proc rawParseInt(s: string, b: var BiggestInt, start = 0): int =
     else:
       b = b * sign
       result = i - start
-
-when defined(js):
-  {.pop.} # overflowChecks: off
 
 proc parseBiggestInt*(s: string, number: var BiggestInt, start = 0): int {.
   rtl, extern: "npuParseBiggestInt", noSideEffect, raises: [ValueError].} =

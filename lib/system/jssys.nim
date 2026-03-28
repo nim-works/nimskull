@@ -477,6 +477,9 @@ else:
     """.}
 
 # Arithmetic:
+
+include system/jsint64
+
 proc checkOverflowInt(a: int) {.asmNoStackFrame, compilerproc.} =
   asm """
     if (`a` > 2147483647 || `a` < -2147483648) `raiseOverflow`();
@@ -522,53 +525,11 @@ proc checkOverflowInt64(a: int64) {.asmNoStackFrame, compilerproc.} =
     if (`a` > 9223372036854775807 || `a` < -9223372036854775808) `raiseOverflow`();
   """
 
-proc addInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
-  asm """
-    var result = `a` + `b`;
-    `checkOverflowInt64`(result);
-    return result;
-  """
-
-proc subInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
-  asm """
-    var result = `a` - `b`;
-    `checkOverflowInt64`(result);
-    return result;
-  """
-
-proc mulInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
-  asm """
-    var result = `a` * `b`;
-    `checkOverflowInt64`(result);
-    return result;
-  """
-
-proc divInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
-  asm """
-    if (`b` == 0) `raiseDivByZero`();
-    if (`b` == -1 && `a` == 9223372036854775807) `raiseOverflow`();
-    return Math.trunc(`a` / `b`);
-  """
-
-proc modInt64(a, b: int): int {.asmNoStackFrame, compilerproc.} =
-  asm """
-    if (`b` == 0) `raiseDivByZero`();
-    if (`b` == -1 && `a` == 9223372036854775807) `raiseOverflow`();
-    return Math.trunc(`a` % `b`);
-  """
-
 proc negInt(a: int): int {.compilerproc.} =
   result = a*(-1)
   checkOverflowInt(result)
 
-proc negInt64(a: int64): int64 {.compilerproc.} =
-  result = a*(-1)
-  checkOverflowInt64(result)
-
 proc absInt(a: int): int {.compilerproc.} =
-  result = if a < 0: a*(-1) else: a
-
-proc absInt64(a: int64): int64 {.compilerproc.} =
   result = if a < 0: a*(-1) else: a
 
 when not defined(nimNoZeroExtendMagic):
@@ -595,6 +556,41 @@ when not defined(nimNoZeroExtendMagic):
 
 proc nimMin(a, b: int): int {.compilerproc.} = return if a <= b: a else: b
 proc nimMax(a, b: int): int {.compilerproc.} = return if a >= b: a else: b
+
+# conversions and casts
+
+proc castIntToDouble(val: int): float64 {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(8);
+    var view = new Int32Array(buf);
+    view[0] = `val`;
+    view[1] = 0;
+    return (new Float64Array(buf))[0];
+  """
+
+proc castIntToFloat(val: int): float32 {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(4);
+    var view = new Int32Array(buf);
+    view[0] = `val`;
+    return (new Float32Array(buf))[0];
+  """
+
+proc castDoubleToInt(val: float64): int {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(8);
+    var view = new Float64Array(buf);
+    view[0] = `val`;
+    return (new Int32Array(buf))[0];
+  """
+
+proc castFloatToInt(val: float32): int {.compilerproc, asmNoStackFrame.} =
+  asm """
+    var buf = new ArrayBuffer(4);
+    var view = new Float32Array(buf);
+    view[0] = `val`;
+    return (new Int32Array(buf))[0];
+  """
 
 include "system/hti"
 
@@ -699,6 +695,15 @@ proc nimCopy(dest, src: JSRef, ti: PNimType): JSRef =
         `result` = `src`.slice(0);
       }
     """
+  of tyInt64, tyUInt64:
+    asm """
+      if (`dest` === null || `dest` === undefined) {
+        `dest` = {};
+      }
+      `result` = `dest`;
+      `result`.lo = `src`.lo;
+      `result`.hi = `src`.hi;
+    """
   else:
     result = src
 
@@ -729,6 +734,10 @@ proc genericReset(x: JSRef, ti: PNimType): JSRef {.compilerproc.} =
       for (var i = 0; i < `x`.length; ++i) {
         `result`[i] = genericReset(`x`[i], `ti`.base);
       }
+    """
+  of tyInt64, tyUInt64:
+    asm """
+      `result` = {lo: 0, hi: 0};
     """
   else:
     discard

@@ -628,8 +628,8 @@ template report*[R: ReportTypes](
 
 template report*[R: ReportTypes](
     conf: ConfigRef, tinfo: TLineInfo, inReport: R): TErrorHandling =
-  ## Write out new report, updating it's location info using `tinfo` and
-  ## it's instantiation info with `instantiationInfo()` of the template.
+  ## Write out new report, updating its location info using `tinfo` and
+  ## its instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =

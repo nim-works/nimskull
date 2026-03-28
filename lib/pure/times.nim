@@ -204,27 +204,6 @@ include "system/inclrtl"
 when defined(js):
   import std/jscore
 
-  # This is really bad, but overflow checks are broken badly for
-  # ints on the JS backend. See #6752.
-  {.push overflowChecks: off.}
-  proc `*`(a, b: int64): int64 =
-    system.`*`(a, b)
-  proc `*`(a, b: int): int =
-    system.`*`(a, b)
-  proc `+`(a, b: int64): int64 =
-    system.`+`(a, b)
-  proc `+`(a, b: int): int =
-    system.`+`(a, b)
-  proc `-`(a, b: int64): int64 =
-    system.`-`(a, b)
-  proc `-`(a, b: int): int =
-    system.`-`(a, b)
-  proc inc(a: var int, b: int) =
-    system.inc(a, b)
-  proc inc(a: var int64, b: int) =
-    system.inc(a, b)
-  {.pop.}
-
 elif defined(posix):
   import std/posix
 
@@ -897,7 +876,9 @@ proc toWinTime*(t: Time): int64 =
 proc getTime*(): Time {.tags: [TimeEffect], benign.} =
   ## Gets the current time as a `Time` with up to nanosecond resolution.
   when defined(js):
-    let millis = newDate().getTime()
+    # XXX: converting to float first and then int64 is a workaround for
+    #      `getTime` not returning a `float`
+    let millis = int64(float(newDate().getTime()))
     let seconds = convert(Milliseconds, Seconds, millis)
     let nanos = convert(Milliseconds, Nanoseconds,
       millis mod convert(Seconds, Milliseconds, 1).int)
@@ -1199,14 +1180,14 @@ proc toAdjTime(dt: DateTime): Time =
 
 when defined(js):
   proc localZonedTimeFromTime(time: Time): ZonedTime {.benign.} =
-    let jsDate = newDate(time.seconds * 1000)
+    let jsDate = newDate(float(time.seconds * 1000))
     let offset = jsDate.getTimezoneOffset() * secondsInMin
     result.time = time
     result.utcOffset = offset
     result.isDst = false
 
   proc localZonedTimeFromAdjTime(adjTime: Time): ZonedTime {.benign.} =
-    let utcDate = newDate(adjTime.seconds * 1000)
+    let utcDate = newDate(float(adjTime.seconds * 1000))
     let localDate = newDate(utcDate.getUTCFullYear(), utcDate.getUTCMonth(),
         utcDate.getUTCDate(), utcDate.getUTCHours(), utcDate.getUTCMinutes(),
         utcDate.getUTCSeconds(), 0)
