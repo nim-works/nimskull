@@ -954,6 +954,22 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
               i.inc
             k = k div 2
 
+  template numberShrinker(val: uint64, p: int, vBytes: int, buffer: seq[byte]) =
+    var tryVal = val
+    while tryVal > 0:
+      tryVal = tryVal div 2
+      var copy = buffer
+      writeUint64(copy, p, vBytes, tryVal)
+      yield copy
+    if val >= 3: # val < 3 is covered by prior while loop and val - 1
+      var copy = buffer
+      writeUint64(copy, p, vBytes, val - 1)
+      yield copy
+    if val >= 4: # val < 4 is covered by prior while loop and val - 1
+      var copy = buffer
+      writeUint64(copy, p, vBytes, val - 2)
+      yield copy
+
   # Strategy 2: Range Binary Search
   for (pos, kind) in nodes:
     if kind == skRange:
@@ -972,20 +988,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
             vBytes = bytesForRange(rangeSize)
           if p + vBytes <= buffer.len:
             let val = decodeUint64(buffer, p, vBytes)
-            var tryVal = val
-            while tryVal > 0:
-              tryVal = tryVal div 2
-              var copy = buffer
-              writeUint64(copy, p, vBytes, tryVal)
-              yield copy
-            if val > 0:
-              var copy = buffer
-              writeUint64(copy, p, vBytes, val - 1)
-              yield copy
-            if val > 1:
-              var copy = buffer
-              writeUint64(copy, p, vBytes, val - 2)
-              yield copy
+            numberShrinker(val, p, vBytes, buffer)
 
   # Strategy 3: Unbounded Scalar Lowering
   for (pos, kind) in nodes:
@@ -995,20 +998,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
         let
           p = pos + 1
           val = decodeUint64(buffer, p, sBytes)
-        var tryVal = val
-        while tryVal > 0:
-          tryVal = tryVal div 2
-          var copy = buffer
-          writeUint64(copy, p, sBytes, tryVal)
-          yield copy
-        if val > 0:
-          var copy = buffer
-          writeUint64(copy, p, sBytes, val - 1)
-          yield copy
-        if val > 1:
-          var copy = buffer
-          writeUint64(copy, p, sBytes, val - 2)
-          yield copy
+        numberShrinker(val, p, sBytes, buffer)
 
 
 # MARK: Runner
