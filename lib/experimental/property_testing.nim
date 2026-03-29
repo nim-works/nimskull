@@ -877,24 +877,34 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
     nodes.add((pos, kind))
 
     var p = pos + 1
+    let
+      lenBytes =
     case kind
-    of skArray8:
-      if p < buf.len:
-        let n = int(buf[p]); p += 1
-        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
-    of skArray16:
-      if p + 1 < buf.len:
-        let n = int(decodeUint64(buf, p, 2)); p += 2
-        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
-    of skArray32:
-      if p + 3 < buf.len:
-        let n = int(decodeUint64(buf, p, 4)); p += 4
-        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
-    of skGroup:
-      if p < buf.len:
-        let n = int(buf[p]); p += 1
-        for _ in 0 ..< n: collectNodes(buf, p); p = skipNode(buf, p)
-    else: discard
+        of skArray8:  1
+        of skArray16: 2
+        of skArray32: 4
+        of skGroup:   1
+        else:         0
+
+    doAssert(lenBytes == 0 or (p + lenBytes - 1) < buf.len, "buffer is too short, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes)
+
+    if lenBytes > 0 and (p + lenBytes - 1) < buf.len:
+      let n = int(decodeUint64(buf, p, lenBytes))
+
+      doAssert(lenBytes > 0 or n == 0, "lenBytes was 0 and n was > 0")
+
+      p += lenBytes
+      doAssert(p < buf.len or n == 0, "buffer is too short after reading length, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes & " n: " & $n)
+      let currentlyCollectedNodeCount = nodes.len
+      for _ in 0 ..< n:
+        doAssert(lenBytes > 0, "len bytes was 0")
+        collectNodes(buf, p)
+        p = skipNode(buf, p)
+
+      doAssert(nodes.len >= currentlyCollectedNodeCount + n,
+               "nodes.len was not greater than or equal to currentlyCollectedNodeCount + n, nodes.len: " & $nodes.len &
+               " currentlyCollectedNodeCount: " & $currentlyCollectedNodeCount &
+               " n: " & $n)
 
   if buffer.len > 0:
     var p = 0
@@ -903,14 +913,14 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
       p = skipNode(buffer, p)
 
   # Strategy 1: Array Element Deletion
-  for (pos, kind) in nodes:
+  for i, (pos, kind) in nodes.pairs:
     if kind in {skArray8, skArray16, skArray32}:
       let lenBytes =
         case kind
         of skArray8:  1
         of skArray16: 2
         of skArray32: 4
-        else:         unreachable("Invalid kind: " & $kind)
+        else:         unreachable("Invalid kind: " & $kind & " pos: " & $pos & " i: " & $i & " nodes: " & $nodes)
 
       if pos + lenBytes < buffer.len:
         let numElems = int(decodeUint64(buffer, pos + 1, lenBytes))
@@ -1086,10 +1096,13 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
           try:
             cVal = p.gen(sCand)
             cStatus = p.check(cVal)
-          except:
-            # Likely an area of improvement to capture the exception as part of
-            # the failure
-            cStatus = psFail # Exception is failure too
+          except SourceLimitExceededError:
+            # TODO: this is for debugging, it shouldn't happen here
+            unreachable("SourceLimitExceededError during shrinking shouldn't be possible")
+          except CatchableError as e:
+            # TODO: capture the exception and add it to the result
+            raise
+            cStatus = psFail
 
           if cStatus == psFail:
             # Our candidates iterator uses AST heuristics to generate strictly
@@ -1326,6 +1339,7 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen
       hashCombine(callSeed, hashArg(i)); hashCombine(callSeed, hashArg(j))
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
+
 
 # Void return variants
 
