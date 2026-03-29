@@ -1016,6 +1016,7 @@ suite "Tuples & Procedures":
     )
     check runProperty(prop).status == psPass
 
+
 # MARK: Public API & Properties
 suite "Public API & Properties":
 
@@ -1031,14 +1032,17 @@ suite "Public API & Properties":
 
 
   test "Nested structure shrinking accurately minimizes inner components":
-    let result = runProperty:
-      forAll((items: genSeq(genTuple(genInt(), genString(minLen=1)), 1, 10))):
-        var hasUpper = false
-        for item in items:
-          for c in item[1]:
-            if c in {'A'..'Z'}: hasUpper = true
-        if hasUpper: psFail else: psPass
+    let
+      property =
+        forAll((items: genSeq(genTuple(genInt(), genString(minLen=1)), 1, 10))):
+          var hasUpper = false
+          for item in items:
+            for c in item[1]:
+              if c in {'A'..'Z'}: hasUpper = true
+          if hasUpper: psFail else: psPass
+      result = runProperty(property, seed=4)
 
+    checkpoint "shrunkBuffer: " & treeRepr(result.shrunkBuffer)
     check result.status == psFail
     check result.shrunk == true
     # The smallest failing value should be a 1-item seq containing the smallest int (0)

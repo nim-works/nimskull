@@ -109,6 +109,7 @@ from std/sugar import `=>`
 from std/times import getTime, toUnix
 from std/typetraits import enumLen
 from std/sets import incl, contains, initHashSet
+from std/strutils import repeat
 
 # MARK: Core Types
 
@@ -855,51 +856,53 @@ proc writeUint64(buffer: var seq[byte], pos: int, bytes: int, val: uint64) =
       buffer[pos + i] = byte((val shr (i * 8)) and 0xFF)
 
 
+proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) =
+  assert pos < buf.len, "collectNodes pos is out of bounds, pos: " & $pos &
+                        " buf.len: " & $buf.len
+  let kind = cast[StorageKind](buf[pos])
+  nodes.add((pos, kind))
+
+  var p = pos + 1
+  let
+    lenBytes =
+      case kind
+      of skArray8:  1
+      of skArray16: 2
+      of skArray32: 4
+      of skGroup:   1
+      else:         0
+
+  doAssert(lenBytes == 0 or (p + lenBytes - 1) < buf.len, "buffer is too short, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes)
+
+  if lenBytes > 0 and (p + lenBytes - 1) < buf.len:
+    let n = int(decodeUint64(buf, p, lenBytes))
+
+    doAssert(lenBytes > 0 or n == 0, "lenBytes was 0 and n was > 0")
+
+    p += lenBytes
+    doAssert(p < buf.len or n == 0, "buffer is too short after reading length, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes & " n: " & $n)
+    let currentlyCollectedNodeCount = nodes.len
+    for _ in 0 ..< n:
+      doAssert(lenBytes > 0, "len bytes was 0")
+      collectNodes(nodes, buf, p)
+      p = skipNode(buf, p)
+
+    doAssert(nodes.len >= currentlyCollectedNodeCount + n,
+              "nodes.len was not greater than or equal to currentlyCollectedNodeCount + n, nodes.len: " & $nodes.len &
+              " currentlyCollectedNodeCount: " & $currentlyCollectedNodeCount &
+              " n: " & $n)
+
+
 iterator candidates*(buffer: seq[byte]): seq[byte] =
   if buffer.len > 0:
     yield @[]
 
   var nodes: seq[(int, StorageKind)] = @[]
 
-  proc collectNodes(buf: seq[byte], pos: int) =
-    if pos >= buf.len: return
-    let kind = cast[StorageKind](buf[pos])
-    nodes.add((pos, kind))
-
-    var p = pos + 1
-    let
-      lenBytes =
-        case kind
-        of skArray8:  1
-        of skArray16: 2
-        of skArray32: 4
-        of skGroup:   1
-        else:         0
-
-    doAssert(lenBytes == 0 or (p + lenBytes - 1) < buf.len, "buffer is too short, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes)
-
-    if lenBytes > 0 and (p + lenBytes - 1) < buf.len:
-      let n = int(decodeUint64(buf, p, lenBytes))
-
-      doAssert(lenBytes > 0 or n == 0, "lenBytes was 0 and n was > 0")
-
-      p += lenBytes
-      doAssert(p < buf.len or n == 0, "buffer is too short after reading length, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes & " n: " & $n)
-      let currentlyCollectedNodeCount = nodes.len
-      for _ in 0 ..< n:
-        doAssert(lenBytes > 0, "len bytes was 0")
-        collectNodes(buf, p)
-        p = skipNode(buf, p)
-
-      doAssert(nodes.len >= currentlyCollectedNodeCount + n,
-               "nodes.len was not greater than or equal to currentlyCollectedNodeCount + n, nodes.len: " & $nodes.len &
-               " currentlyCollectedNodeCount: " & $currentlyCollectedNodeCount &
-               " n: " & $n)
-
   if buffer.len > 0:
     var p = 0
     while p < buffer.len:
-      collectNodes(buffer, p)
+      collectNodes(nodes, buffer, p)
       p = skipNode(buffer, p)
 
   # Strategy 1: Array Element Deletion
@@ -987,6 +990,72 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
           p = pos + 1
           val = decodeUint64(buffer, p, sBytes)
         numberShrinker(val, p, sBytes, buffer)
+
+
+# MARK: Buffer Tree Tools
+
+proc treeRepr*(buffer: seq[byte]): string =
+  ## Returns a string representation of the buffer tree, stored in `buffer`,
+  ## mostly used for debugging and exploration.
+  var
+    nodes: seq[(int, StorageKind)] = @[]
+    p = 0
+    indent = 0
+
+  collectNodes(nodes, buffer, p)
+  result &= "nodes: " & $nodes & "\nbuffer: " & $buffer & "\nrepr: " # DELETEME debugging code
+  var counters: seq[int] = @[]
+  for (pos, kind) in nodes:
+    if counters.len > 0:
+      counters[-1].dec
+      if counters[-1] == 0:
+        discard counters.pop()
+        indent.dec
+        result &= "  ".repeat(indent) & "}"
+
+    case kind:
+      of skArray8, skArray16, skArray32:
+        let lenBytes =
+          case kind
+          of skArray8: 1
+          of skArray16: 2
+          of skArray32: 4
+          else: unreachable()
+
+        if pos + lenBytes < buffer.len:
+          let n = int(decodeUint64(buffer, pos + 1, lenBytes))
+          if n > 0:
+            indent.inc
+            result &= "  ".repeat(indent) & $kind & " (size: " & $n & ")"
+            indent.dec
+      of skRange:
+        let
+          tgtKind = cast[StorageKind](buffer[pos + 1])
+          sBytes = getScalarBytes(tgtKind)
+          minVal = decodeUint64(buffer, pos + 2, sBytes)
+          maxVal = decodeUint64(buffer, pos + 2 + sBytes, sBytes)
+          vBytes = bytesForRange(maxVal - minVal)
+          val = decodeUint64(buffer, pos + 2 + 2 * sBytes, vBytes)
+        result &= "  ".repeat(indent) & $kind & " (kind: " & $tgtKind &
+                  ", min: " & $minVal & ", max: " & $maxVal & ", val: " &
+                  $val & ")"
+      of skGroup:
+        result &= "  ".repeat(indent) & $kind & " {"
+        indent.inc
+        counters.add(int(decodeUint64(buffer, pos + 1, 1)))
+      of skByte, sk2Bytes, sk4Bytes, sk8Bytes:
+        let val = decodeUint64(buffer, pos + 1, getScalarBytes(kind))
+        result &= "  ".repeat(indent) & $kind & " (value: " & $val & ")"
+      of skNBytes:
+        let lenBytes = 1
+        if pos + lenBytes < buffer.len:
+          let n = int(decodeUint64(buffer, pos + 1, lenBytes))
+          if n > 0:
+            indent.inc
+            result &= "  ".repeat(indent) & $kind & " (size: " & $n & ")"
+            indent.dec
+
+  return result
 
 
 # MARK: Runner
