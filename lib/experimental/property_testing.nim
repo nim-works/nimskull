@@ -345,20 +345,19 @@ proc readArrayLength*(s: Source): uint32 =
     result = 0
 
 
-proc beginGroup*(s: Source, numElements: uint32) =
+proc beginGroup*(s: Source, numElements: uint8) =
   ## Marks the beginning of a heterogeneous group (tuple, object) with `numElements`
   if s.recording:
     s.writeStorageKind(skGroup)
-    let bytes = bytesForRange(numElements)
-    s.writeRawBytes(numElements, bytes)
+    s.writeRawBytes(numElements, 1)
 
 
-proc readGroupLength*(s: Source): uint32 =
+proc readGroupLength*(s: Source): uint8 =
   ## Parses a group marker and returns the number of fields
   if s.recording: return 0
   let k = s.readStorageKind()
   if k == skGroup:
-    result = uint32(s.readRawBytes(1))
+    result = uint8(s.readRawBytes(1))
   else:
     result = 0
 
