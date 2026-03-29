@@ -175,10 +175,10 @@ suite "Generation Subsystem API":
     let s2 = s.chooseScalarRaw(sk4Bytes)
 
     # Range choosing
-    let r1 = s.chooseRange(5, 10, skByte)
+    let r1 = s.chooseRange(5'u64, 10'u64, skByte)
     check r1 >= 5 and r1 <= 10
 
-    let r2 = s.chooseRange(1000, 2000, sk2Bytes)
+    let r2 = s.chooseRange(1000'u64, 2000'u64, sk2Bytes)
     check r2 >= 1000 and r2 <= 2000
 
     # Replay
@@ -186,8 +186,8 @@ suite "Generation Subsystem API":
     check sReplay.chooseScalarRaw(skByte) == s1
     check sReplay.chooseScalarRaw(sk4Bytes) == s2
 
-    check sReplay.chooseRange(5, 10, skByte) == r1
-    check sReplay.chooseRange(1000, 2000, sk2Bytes) == r2
+    check sReplay.chooseRange(5'u64, 10'u64, skByte) == r1
+    check sReplay.chooseRange(1000'u64, 2000'u64, sk2Bytes) == r2
 
 
   test "Generation Subsystem API - bounds clamping on replay corruption":
@@ -204,7 +204,7 @@ suite "Generation Subsystem API":
     let sReplay = newSource(s.buffer)
     # The read rangeSize should be 10. The read val should be clamped from 255 -> 10.
     # The mathematical return would be min + 10 = 10 + 10 = 20. Let's verify.
-    let r = sReplay.chooseRange(10, 20, skByte)
+    let r = sReplay.chooseRange(10'u64, 20'u64, skByte)
     check r == 20
 
 
@@ -725,7 +725,7 @@ suite "Shrinking Engine & Internals":
 
   test "Shrinking a string content (manual seeded)":
     let genRestricted = proc(s: Source): char =
-      let b = cast[byte](s.chooseRange(0, 255, skByte))
+      let b = cast[byte](s.chooseRange(0'u64, 255'u64, skByte))
       if (b mod 10) == 0: 'A' else: 'b'
 
     let propRestricted = Property[string](

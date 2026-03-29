@@ -283,7 +283,7 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
       valRange =
         if rangeSize == 0: 0'u64
         elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
-        else: s.rngNextBytes(8) mod (rangeSize + 1)
+        else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
 
     result = min + valRange
     s.recordRange(min, max, result, scalarKind)
@@ -295,14 +295,27 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
         sBytes = getScalarBytes(tgtKind)
         rMin = s.readRawBytes(sBytes)
         rMax = s.readRawBytes(sBytes)
-        rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+        rangeSize = rMax - rMin
         rVal = s.readRawBytes(bytesForRange(rangeSize))
         safeVal = if rVal > rangeSize: rangeSize else: rVal
       result = rMin + safeVal
-      if result > max: result = max
-      if result < min: result = min
     else:
       result = min
+
+
+template convertInt64ToUint64(x: int64): uint64 =
+  ## Convert int64 to uint64, preserving the order of values.
+  if x < 0:
+    uint64(x) - (1u64 shl 63)
+  else:
+    uint64(x) + (1u64 shl 63)
+
+
+proc chooseRange*(s: Source, min, max: int64, scalarKind: StorageKind): int64 =
+  let
+    uMin = convertInt64ToUint64(min)
+    uMax = convertInt64ToUint64(max)
+  return cast[int64](chooseRange(s, uMin, uMax, scalarKind))
 
 
 proc beginArray*(s: Source, len: uint32) =
@@ -347,10 +360,6 @@ proc readGroupLength*(s: Source): uint32 =
   if s.recording: return 0
   let k = s.readStorageKind()
   if k == skGroup:
-    # We don't know exactly how many bytes are used for `numElements` from just `skGroup`.
-    # Design says "1 byte element count". Let's assume 1 byte for now based on `skGroup` comment.
-    # If the format requires variable bytes, we'd need another marker or fixed size.
-    # For now, let's read 1 byte.
     result = uint32(s.readRawBytes(1))
   else:
     result = 0
@@ -540,12 +549,16 @@ proc genAsciiChar*(): Gen[char] =
 proc genInt*(min, max: int): Gen[int] =
   ## Create an integer arbitrary for the range [min, max].
   assert max >= min
-  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  let
+    uMin = convertInt64ToUint64(min)
+    uMax = convertInt64ToUint64(max)
+    rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int =
-      cast[int](s.chooseRange(cast[uint64](min), cast[uint64](max), sk8Bytes))
+      cast[int](s.chooseRange(uMin, uMax, sk8Bytes))
+
 
 proc genInt*(): Gen[int] =
   ## Generate an int for the full range of int.
@@ -555,12 +568,15 @@ proc genInt*(): Gen[int] =
 proc genInt8*(min, max: int8): Gen[int8] =
   ## Create an int8 generator for the range [min, max].
   assert max >= min
-  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  let
+    uMin = convertInt64ToUint64(min)
+    uMax = convertInt64ToUint64(max)
+    rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int8 =
-      cast[int8](s.chooseRange(cast[uint64](min), cast[uint64](max), skByte))
+      cast[int8](s.chooseRange(uMin, uMax, skByte))
 
 
 proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
@@ -568,12 +584,15 @@ proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
 
 proc genInt16*(min, max: int16): Gen[int16] =
   assert max >= min
-  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  let
+    uMin = convertInt64ToUint64(min)
+    uMax = convertInt64ToUint64(max)
+    rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int16 =
-      cast[int16](s.chooseRange(cast[uint64](min), cast[uint64](max), sk2Bytes))
+      cast[int16](s.chooseRange(uMin, uMax, sk2Bytes))
 
 
 proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
@@ -581,12 +600,15 @@ proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
 
 proc genInt32*(min, max: int32): Gen[int32] =
   assert max >= min
-  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  let
+    uMin = convertInt64ToUint64(min)
+    uMax = convertInt64ToUint64(max)
+    rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int32 =
-      cast[int32](s.chooseRange(cast[uint64](min), cast[uint64](max), sk4Bytes))
+      cast[int32](s.chooseRange(uMin, uMax, sk4Bytes))
 
 
 proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
@@ -594,12 +616,15 @@ proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
 
 proc genInt64*(min, max: int64): Gen[int64] =
   assert max >= min
-  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  let
+    uMin = convertInt64ToUint64(min)
+    uMax = convertInt64ToUint64(max)
+    rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
   else:
     return proc(s: Source): int64 =
-      cast[int64](s.chooseRange(cast[uint64](min), cast[uint64](max), sk8Bytes))
+      cast[int64](s.chooseRange(uMin, uMax, sk8Bytes))
 
 
 proc genInt64*(): Gen[int64] = genInt64(low(int64), high(int64))
