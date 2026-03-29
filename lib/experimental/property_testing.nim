@@ -301,19 +301,35 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
       result = min
 
 
-template convertInt64ToUint64(x: int64): uint64 =
-  ## Convert int64 to uint64, preserving the order of values.
-  if x < 0:
-    uint64(x) - (1u64 shl 63)
-  else:
-    uint64(x) + (1u64 shl 63)
+template renumerateInt64ToUint64(x: int64): uint64 =
+  ## Maps int64 to uint64 values, preserving the order of values, the reverse
+  ## of `renumerateUint64ToInt64`. This treats `(1u64 shl 63)` as the midpoint
+  ## value, meaning `0i64` becomes `(1u64 shl 63)`, `1i64` becomes
+  ## `(1u64 shl 63) + 1`, etc.
+  uint64:
+    if x < 0:
+      uint64(x) - (1u64 shl 63)
+    else:
+      uint64(x) + (1u64 shl 63)
+
+
+template renumerateUint64ToInt64(x: uint64): int64 =
+  ## Maps uint64 to int64 values, preserving the order of values, the reverse
+  ## of `renumerateInt64ToUint64`. This treats `(1u64 shl 63)` as the midpoint
+  ## value, meaning `(1u64 shl 63)` becomes `0i64`, `(1u64 shl 63) + 1` becomes
+  ## `1i64`, etc.
+  int64:
+    if x >= (1u64 shl 63):
+      x - (1u64 shl 63)
+    else:
+      x + (1u64 shl 63)
 
 
 proc chooseRange*(s: Source, min, max: int64, scalarKind: StorageKind): int64 =
   let
-    uMin = convertInt64ToUint64(min)
-    uMax = convertInt64ToUint64(max)
-  return cast[int64](chooseRange(s, uMin, uMax, scalarKind))
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
+  return renumerateUint64ToInt64(chooseRange(s, uMin, uMax, scalarKind))
 
 
 proc beginArray*(s: Source, len: uint32) =
@@ -547,8 +563,8 @@ proc genInt*(min, max: int): Gen[int] =
   ## Create an integer arbitrary for the range [min, max].
   assert max >= min
   let
-    uMin = convertInt64ToUint64(min)
-    uMax = convertInt64ToUint64(max)
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
     rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
@@ -566,8 +582,8 @@ proc genInt8*(min, max: int8): Gen[int8] =
   ## Create an int8 generator for the range [min, max].
   assert max >= min
   let
-    uMin = convertInt64ToUint64(min)
-    uMax = convertInt64ToUint64(max)
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
     rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
@@ -582,8 +598,8 @@ proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
 proc genInt16*(min, max: int16): Gen[int16] =
   assert max >= min
   let
-    uMin = convertInt64ToUint64(min)
-    uMax = convertInt64ToUint64(max)
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
     rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
@@ -598,8 +614,8 @@ proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
 proc genInt32*(min, max: int32): Gen[int32] =
   assert max >= min
   let
-    uMin = convertInt64ToUint64(min)
-    uMax = convertInt64ToUint64(max)
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
     rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
@@ -614,8 +630,8 @@ proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
 proc genInt64*(min, max: int64): Gen[int64] =
   assert max >= min
   let
-    uMin = convertInt64ToUint64(min)
-    uMax = convertInt64ToUint64(max)
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
     rangeSize = uMax - uMin
   if rangeSize <= 255'u64:
     return genExhaustiveRange(min, rangeSize)
@@ -974,7 +990,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
           let
             rMin = decodeUint64(buffer, pos + 2, sBytes)
             rMax = decodeUint64(buffer, pos + 2 + sBytes, sBytes)
-            rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+            rangeSize = rMax - rMin
             vBytes = bytesForRange(rangeSize)
           if p + vBytes <= buffer.len:
             let val = decodeUint64(buffer, p, vBytes)
