@@ -306,11 +306,7 @@ template renumerateInt64ToUint64(x: int64): uint64 =
   ## of `renumerateUint64ToInt64`. This treats `(1u64 shl 63)` as the midpoint
   ## value, meaning `0i64` becomes `(1u64 shl 63)`, `1i64` becomes
   ## `(1u64 shl 63) + 1`, etc.
-  uint64:
-    if x < 0:
-      uint64(x) - (1u64 shl 63)
-    else:
-      uint64(x) + (1u64 shl 63)
+  uint64(x) + (1u64 shl 63)
 
 
 template renumerateUint64ToInt64(x: uint64): int64 =
@@ -318,11 +314,7 @@ template renumerateUint64ToInt64(x: uint64): int64 =
   ## of `renumerateInt64ToUint64`. This treats `(1u64 shl 63)` as the midpoint
   ## value, meaning `(1u64 shl 63)` becomes `0i64`, `(1u64 shl 63) + 1` becomes
   ## `1i64`, etc.
-  int64:
-    if x >= (1u64 shl 63):
-      x - (1u64 shl 63)
-    else:
-      x + (1u64 shl 63)
+  cast[int64](x - (1u64 shl 63))
 
 
 proc chooseRange*(s: Source, min, max: int64, scalarKind: StorageKind): int64 =
