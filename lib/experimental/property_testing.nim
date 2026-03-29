@@ -809,57 +809,57 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
   of sk8Bytes: pos += 8
   of skNBytes:
     doAssert pos < buffer.len, "skipNode buffer ran out before n for nbytes for skNBytes"
-      let n = int(buffer[pos])
-      pos += 1 + n
+    let n = int(buffer[pos])
+    pos += 1 + n
   of skRange:
     doAssert pos < buffer.len, "skipNode buffer ran out before kind for range"
-      let tgtKind = cast[StorageKind](buffer[pos])
-      pos += 1
-      let sBytes = getScalarBytes(tgtKind)
+    let tgtKind = cast[StorageKind](buffer[pos])
+    pos += 1
+    let sBytes = getScalarBytes(tgtKind)
     doAssert pos + 2 * sBytes <= buffer.len, "skipNode buffer ran out before min and max for range"
-        let rMin = decodeUint64(buffer, pos, sBytes)
-        pos += sBytes
-        let rMax = decodeUint64(buffer, pos, sBytes)
-        pos += sBytes
+    let rMin = decodeUint64(buffer, pos, sBytes)
+    pos += sBytes
+    let rMax = decodeUint64(buffer, pos, sBytes)
+    pos += sBytes
     doAssert rMax >= rMin
     let rangeSize = rMax - rMin
-        pos += bytesForRange(rangeSize)
+    pos += bytesForRange(rangeSize)
   of skBoolString8:
     doAssert pos < buffer.len, "skipNode buffer ran out before n for boolstring8"
-      let n = int(buffer[pos])
-      pos += 1 + (n + 7) div 8
+    let n = int(buffer[pos])
+    pos += 1 + (n + 7) div 8
   of skBoolString16:
     doAssert pos + 1 < buffer.len, "skipNode buffer ran out before n for boolstring16"
-      let n = int(decodeUint64(buffer, pos, 2))
-      pos += 2 + (n + 7) div 8
+    let n = int(decodeUint64(buffer, pos, 2))
+    pos += 2 + (n + 7) div 8
   of skBoolString32:
     doAssert pos + 3 < buffer.len, "skipNode buffer ran out before n for boolstring32"
-      let n = int(decodeUint64(buffer, pos, 4))
-      pos += 4 + (n + 7) div 8
+    let n = int(decodeUint64(buffer, pos, 4))
+    pos += 4 + (n + 7) div 8
   of skArray8:
     doAssert pos < buffer.len, "skipNode buffer ran out before n for array8"
-      let n = int(buffer[pos])
-      pos += 1
+    let n = int(buffer[pos])
+    pos += 1
     doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array8"
-      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+    for _ in 0 ..< n: pos = skipNode(buffer, pos)
   of skArray16:
     doAssert pos + 1 < buffer.len, "skipNode buffer ran out before n for array16"
-      let n = int(decodeUint64(buffer, pos, 2))
-      pos += 2
+    let n = int(decodeUint64(buffer, pos, 2))
+    pos += 2
     doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array16"
-      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+    for _ in 0 ..< n: pos = skipNode(buffer, pos)
   of skArray32:
     doAssert pos + 3 < buffer.len, "skipNode buffer ran out before n for array32"
-      let n = int(decodeUint64(buffer, pos, 4))
-      pos += 4
+    let n = int(decodeUint64(buffer, pos, 4))
+    pos += 4
     doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array32"
-      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+    for _ in 0 ..< n: pos = skipNode(buffer, pos)
   of skGroup:
     doAssert pos < buffer.len, "skipNode buffer ran out before n for group"
-      let n = int(buffer[pos])
-      pos += 1
+    let n = int(buffer[pos])
+    pos += 1
     doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for group"
-      for _ in 0 ..< n: pos = skipNode(buffer, pos)
+    for _ in 0 ..< n: pos = skipNode(buffer, pos)
 
   return if pos > buffer.len: buffer.len else: pos
 
@@ -884,7 +884,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
     var p = pos + 1
     let
       lenBytes =
-    case kind
+        case kind
         of skArray8:  1
         of skArray16: 2
         of skArray32: 4
