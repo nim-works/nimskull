@@ -797,7 +797,7 @@ proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
 proc skipNode*(buffer: seq[byte], startPos: int): int =
   ## Parses the structural `StorageKind` at `startPos` and returns the index
   ## immediately *after* the fully encoded node (including all nested children).
-  if startPos >= buffer.len: return buffer.len
+  doAssert startPos < buffer.len, "skipNode startPos out of bounds"
 
   let kind = cast[StorageKind](buffer[startPos])
   var pos = startPos + 1
@@ -808,52 +808,57 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
   of sk4Bytes: pos += 4
   of sk8Bytes: pos += 8
   of skNBytes:
-    if pos < buffer.len:
+    doAssert pos < buffer.len, "skipNode buffer ran out before n for nbytes for skNBytes"
       let n = int(buffer[pos])
       pos += 1 + n
   of skRange:
-    if pos < buffer.len:
+    doAssert pos < buffer.len, "skipNode buffer ran out before kind for range"
       let tgtKind = cast[StorageKind](buffer[pos])
       pos += 1
       let sBytes = getScalarBytes(tgtKind)
-      if pos + 2 * sBytes <= buffer.len:
+    doAssert pos + 2 * sBytes <= buffer.len, "skipNode buffer ran out before min and max for range"
         let rMin = decodeUint64(buffer, pos, sBytes)
         pos += sBytes
         let rMax = decodeUint64(buffer, pos, sBytes)
         pos += sBytes
-        let rangeSize = if rMax > rMin: rMax - rMin else: 0'u64
+    doAssert rMax >= rMin
+    let rangeSize = rMax - rMin
         pos += bytesForRange(rangeSize)
   of skBoolString8:
-    if pos < buffer.len:
+    doAssert pos < buffer.len, "skipNode buffer ran out before n for boolstring8"
       let n = int(buffer[pos])
       pos += 1 + (n + 7) div 8
   of skBoolString16:
-    if pos + 1 < buffer.len:
+    doAssert pos + 1 < buffer.len, "skipNode buffer ran out before n for boolstring16"
       let n = int(decodeUint64(buffer, pos, 2))
       pos += 2 + (n + 7) div 8
   of skBoolString32:
-    if pos + 3 < buffer.len:
+    doAssert pos + 3 < buffer.len, "skipNode buffer ran out before n for boolstring32"
       let n = int(decodeUint64(buffer, pos, 4))
       pos += 4 + (n + 7) div 8
   of skArray8:
-    if pos < buffer.len:
+    doAssert pos < buffer.len, "skipNode buffer ran out before n for array8"
       let n = int(buffer[pos])
       pos += 1
+    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array8"
       for _ in 0 ..< n: pos = skipNode(buffer, pos)
   of skArray16:
-    if pos + 1 < buffer.len:
+    doAssert pos + 1 < buffer.len, "skipNode buffer ran out before n for array16"
       let n = int(decodeUint64(buffer, pos, 2))
       pos += 2
+    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array16"
       for _ in 0 ..< n: pos = skipNode(buffer, pos)
   of skArray32:
-    if pos + 3 < buffer.len:
+    doAssert pos + 3 < buffer.len, "skipNode buffer ran out before n for array32"
       let n = int(decodeUint64(buffer, pos, 4))
       pos += 4
+    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array32"
       for _ in 0 ..< n: pos = skipNode(buffer, pos)
   of skGroup:
-    if pos < buffer.len:
+    doAssert pos < buffer.len, "skipNode buffer ran out before n for group"
       let n = int(buffer[pos])
       pos += 1
+    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for group"
       for _ in 0 ..< n: pos = skipNode(buffer, pos)
 
   return if pos > buffer.len: buffer.len else: pos
