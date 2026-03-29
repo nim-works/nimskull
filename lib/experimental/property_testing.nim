@@ -120,9 +120,6 @@ type
     sk8Bytes       ## 8 bytes
     skNBytes       ## N bytes
     skRange        ## Range of values
-    skBoolString8  ## Boolean string, with size stored in the next byte
-    skBoolString16 ## Boolean string, with size stored in the next 2 bytes
-    skBoolString32 ## Boolean string, with size stored in the next 4 bytes
     skArray8       ## Array of bytes, with size stored in the next byte
     skArray16      ## Array of 2 bytes, with size stored in the next 2 bytes
     skArray32      ## Array of 4 bytes, with size stored in the next 4 bytes
@@ -824,18 +821,6 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
     doAssert rMax >= rMin
     let rangeSize = rMax - rMin
     pos += bytesForRange(rangeSize)
-  of skBoolString8:
-    doAssert pos < buffer.len, "skipNode buffer ran out before n for boolstring8"
-    let n = int(buffer[pos])
-    pos += 1 + (n + 7) div 8
-  of skBoolString16:
-    doAssert pos + 1 < buffer.len, "skipNode buffer ran out before n for boolstring16"
-    let n = int(decodeUint64(buffer, pos, 2))
-    pos += 2 + (n + 7) div 8
-  of skBoolString32:
-    doAssert pos + 3 < buffer.len, "skipNode buffer ran out before n for boolstring32"
-    let n = int(decodeUint64(buffer, pos, 4))
-    pos += 4 + (n + 7) div 8
   of skArray8:
     doAssert pos < buffer.len, "skipNode buffer ran out before n for array8"
     let n = int(buffer[pos])
