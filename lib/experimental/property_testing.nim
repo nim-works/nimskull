@@ -955,6 +955,9 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
       writeUint64(copy, p, vBytes, val - 2)
       yield copy
 
+  # TODO: implement skNBytes shrinking
+  #       it's basically an arbitrary precision bigint
+
   # Strategy 2: Range Binary Search
   for (pos, kind) in nodes:
     if kind == skRange:
