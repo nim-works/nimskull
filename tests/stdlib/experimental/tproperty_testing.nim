@@ -123,7 +123,6 @@ suite "Core Storage API":
     check getScalarBytes(sk2Bytes) == 2
     check getScalarBytes(sk4Bytes) == 4
     check getScalarBytes(sk8Bytes) == 8
-    check getScalarBytes(skRange) == 0 # Or whatever fallback is appropriate
 
 
   test "Multi-byte Serialization - writeRawBytes and readRawBytes":
@@ -211,16 +210,20 @@ suite "Generation Subsystem API":
 # MARK: Structural API & Parser
 suite "Structural API & Parser":
 
-  test "Structural Generation API - beginArray and readArrayLength":
+  test "Structural Generation API - beginArray and beginFixedArray and readArrayLength":
     let s = newSource(seed = 1)
 
     # Recording
-    s.beginArray(5)
-    s.beginArray(256)
-    s.beginArray(65536)
+    let dynamicLen = s.beginArray(1, 2)
+    s.beginFixedArray(5)
+    s.beginFixedArray(256)
+    s.beginFixedArray(65536)
 
     # Replay
     let sReplay = newSource(s.buffer)
+    let readLen = sReplay.readArrayLength()
+    check readLen in {1, 2}
+    check readLen == dynamicLen
     check sReplay.readArrayLength() == 5
     check sReplay.readArrayLength() == 256
     check sReplay.readArrayLength() == 65536
@@ -233,13 +236,14 @@ suite "Structural API & Parser":
     let s = newSource(seed = 1)
 
     # Recording
-    s.beginGroup(3)
-    s.beginGroup(10)
+    let
+      groupLen1 = s.beginGroup(3)
+      groupLen2 = s.beginGroup(10)
 
     # Replay
     let sReplay = newSource(s.buffer)
-    check sReplay.readGroupLength() == 3
-    check sReplay.readGroupLength() == 10
+    check sReplay.readGroupLength() == 3 and groupLen1 == 3
+    check sReplay.readGroupLength() == 10 and groupLen2 == 10
 
     # Overflow/exhaustion
     check sReplay.readGroupLength() == 0
@@ -274,13 +278,14 @@ suite "Structural API & Parser":
 
     # 3. Array testing
     var sA = newSource(seed = 3)
-    sA.beginArray(3) # skArray8 (1) + len (1) = 2 bytes
+    sA.beginFixedArray(3) # skArray (1) + len_range (1 + 1 + 1 + 1 + 1) = 6 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(1) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(2) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(3) # 2 bytes
 
+    checkpoint "sA.buffer: " & $sA.buffer
     let endArray = skipNode(sA.buffer, 0)
-    check endArray == 2 + 2 + 2 + 2 # 8 bytes total
+    check endArray == 1 + 5 + 2 + 2 + 2
     check endArray == sA.buffer.len
 
 
@@ -301,8 +306,8 @@ suite "Structural API & Parser":
 
     # 2. Array Deletion Validation
     var sA = newSource(seed = 2)
-    sA.beginArray(4) # len=4
-    for i in 1..4:
+    sA.beginFixedArray(4) # len=4
+    for i in 0 ..< 4:
       sA.writeStorageKind(skByte)
       sA.writeRawByte(byte(i))
 
@@ -311,7 +316,7 @@ suite "Structural API & Parser":
       seenLengths = newSeq[int]()
     for cand in candidates(sA.buffer):
       yieldsA.inc
-      if cand.len > 0 and cand[0] == byte(skArray8) and cand.len > 1:
+      if cand.len > 0 and cand[0] == byte(skArray) and cand.len > 1:
         seenLengths.add(int(cand[1]))
     # Expected Array element lengths yielded should include structural truncations
     check seenLengths.len > 0
@@ -1040,9 +1045,10 @@ suite "Public API & Properties":
             for c in item[1]:
               if c in {'A'..'Z'}: hasUpper = true
           if hasUpper: psFail else: psPass
-      result = runProperty(property, seed=4)
+      result = runProperty(property, seed=4, debug=true)
 
     checkpoint "shrunkBuffer: " & treeRepr(result.shrunkBuffer)
+    checkpoint "debugBuffer: " & treeRepr(result.debugBuffer)
     check result.status == psFail
     check result.shrunk == true
     # The smallest failing value should be a 1-item seq containing the smallest int (0)
