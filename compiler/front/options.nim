@@ -10,7 +10,7 @@
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
   compiler/utils/[prefixmatches, pathutils, platform, tracer],
-  compiler/ast/[lineinfos],
+  compiler/ast/[ast_query, lineinfos],
   compiler/modules/nimpaths
 
 import compiler/front/in_options
@@ -910,6 +910,18 @@ proc initConfigRefCommon(conf: ConfigRef) =
     if not conf.symbols.hasKey("nimDebugUtils"):
       conf.symbols["nimDebugUtils"] = ""
 
+const
+  commandLineDesc* = "command line"
+
+template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
+  if fileIdx.int32 < 0 or conf == nil:
+    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
+  else:
+    conf[fileIdx].shortName
+
+template toFilename*(conf: ConfigRef; info: TLineInfo): string =
+  toFilename(conf, info.fileIndex)
+
 proc newConfigRef*(hook: ReportHook): ConfigRef =
   result = ConfigRef(
     structuredReportHook: hook,
@@ -1395,25 +1407,10 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
         if result.isEmpty:
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
-
-proc getOwningPackageId*(conf: ConfigRef, currentModule: AbsoluteFile): string =
-  ## Finds the ID of the package that owns the current module.
-  result = "unknown"
-
-  let currentAbsPath = absolutePath($currentModule, $conf.projectPath)
-  var maxPathLen = -1
-  
-  for id, pkg in conf.packageIndex.packages.pairs:
-    let pkgAbsDir = absolutePath($pkg.path, $conf.packageDir)
-    if currentAbsPath.startsWith(pkgAbsDir):
-      if pkgAbsDir.len > maxPathLen:
-        maxPathLen = pkgAbsDir.len
-        result = id
-
 proc findPackage*(
   conf: ConfigRef,
   modulename, currentModulePackageId: string
-): (string, string) =
+): tuple[package, alias: string] =
   ## Looks for a package in the package index, respecting aliases
   result = ("", "")
 
@@ -1541,6 +1538,7 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
     if dir == "": break
   return ""
 
+# TODO: Make `canonicalImportAux` learn the package ID of the current module through `ConfigRef`
 proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
   ## canonical module import filename, e.g.: system.nim, std/tables.nim,
   ## system/assertions.nim, etc. Canonical module import filenames follow the
@@ -1550,7 +1548,7 @@ proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
   let
     desc = getPkgDesc(conf, file.string)
     (_, moduleName, ext) = file.splitFile
-  
+
   let projectPkgId = getPackageId(conf, $conf.projectFull)
   if desc.pkgKnown and desc.pkgRootName != projectPkgId:
     # we ignore the pkg root name for intra-package module imports, allows for
@@ -1563,7 +1561,7 @@ proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
   result = if result == "": moduleName else: result / moduleName
   result = result.changeFileExt(ext) # since we lost it above
 
-proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
+proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile, currentModule: PSym): string =
   ## Shows the canonical module import, e.g.: system, std/tables,
   ## fusion/pointers, system/assertions, std/private/asciitables
   ## 
@@ -1572,9 +1570,17 @@ proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
   ## - typically `pkgroot/pkgsubpath/module`
   ## - if a module is at the base of a package, then `pkgroot/module`
   ## - if a module is within the project's package, `pkgroot` is skipped like
-  ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
-  let ret = canonicalImportAux(conf, file)
-  result = ret.nativeToUnixPath.changeFileExt("")
+  ##   so `pkgsubpath/module` or `module` (if the module is at the package root)
+  let pkgId = conf.getPackageId(conf.toFilename(currentModule.info))
+  echo "canonicalImport: ", file.string, ", ", pkgId
+  if conf.getPackageId(conf.toFilename(currentModule.info)) == "unknown":
+    let ret = canonicalImportAux(conf, file)
+    return ret.nativeToUnixPath.changeFileExt("")
+  else:
+    result = conf.findPackage(file.string, pkgId).alias
+    let rest = file.string.split('/', 1)
+    if rest.len > 1:
+      result = result / rest[1]
 
 proc canonDynlibName*(s: string): string =
   ## Get 'canonical' dynamic library name - without optional `lib` prefix
@@ -1634,18 +1640,6 @@ proc floatInt64Align*(conf: ConfigRef): int16 =
       # to 4bytes (except with -malign-double)
       return 4
   return 8
-
-const
-  commandLineDesc* = "command line"
-
-template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
-  if fileIdx.int32 < 0 or conf == nil:
-    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
-  else:
-    conf[fileIdx].shortName
-
-template toFilename*(conf: ConfigRef; info: TLineInfo): string =
-  toFilename(conf, info.fileIndex)
 
 proc inFile*(
     conf: ConfigRef,

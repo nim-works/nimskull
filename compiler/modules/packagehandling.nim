@@ -10,7 +10,7 @@
 
 
 proc getPackageId(conf: ConfigRef; path: string): string =
-  ## returns id to of package, e.g.: `github.com/luyten-orion/faepkg`
+  ## returns id of a given package, e.g.: `github.com/luyten-orion/faepkg`
   var d = path
   if not d.dirExists(): d = d.parentDir
 
