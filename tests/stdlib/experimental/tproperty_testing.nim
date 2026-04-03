@@ -306,8 +306,9 @@ suite "Structural API & Parser":
 
     # 2. Array Deletion Validation
     var sA = newSource(seed = 2)
-    sA.beginFixedArray(4) # len=4
-    for i in 0 ..< 4:
+    let length = sA.beginArray(0, 4)
+    check length == 4
+    for i in 0 ..< length:
       sA.writeStorageKind(skByte)
       sA.writeRawByte(byte(i))
 
@@ -319,6 +320,7 @@ suite "Structural API & Parser":
       if cand.len > 0 and cand[0] == byte(skArray) and cand.len > 1:
         seenLengths.add(int(cand[1]))
     # Expected Array element lengths yielded should include structural truncations
+    checkpoint "seenLengths: " & $seenLengths
     check seenLengths.len > 0
     check 0 in seenLengths and 2 in seenLengths and 3 in seenLengths
 
@@ -585,6 +587,8 @@ suite "Shrinking Engine & Internals":
     for seed in 1'u32 .. 3'u32:
       let s = newSource(seed)
       discard complexGen(s)
+      checkpoint "buffer: " & $s.buffer
+      checkpoint "tree buffer: " & treeRepr(s.buffer)
       let buf = s.buffer
       for candidate in candidates(buf):
         var pos = 0
