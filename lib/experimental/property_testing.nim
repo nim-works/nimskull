@@ -836,15 +836,6 @@ template skipToRangeOffsetAndGetSizeAndMin(buffer: seq[byte], pos: var int): (ui
   (rangeSize, rMin)
 
 
-template getRangeSizeAndOffsetPos(buffer: seq[byte], pos: int): (uint64, int) =
-  ## Returns the range size (max - min) and the position at the range offset
-  ## for a range stored in the buffer at the given position where the skRange
-  ## byte has already been traversed.
-  var p = pos
-  let (rangeSize, _) = skipToRangeOffsetAndGetSizeAndMin(buffer, p)
-  (rangeSize, p)
-
-
 proc skipNode*(buffer: seq[byte], startPos: int): int =
   ## Parses the structural `StorageKind` at `startPos` and returns the index
   ## immediately *after* the fully encoded node (including all nested children).
@@ -963,27 +954,29 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
         minElem = decodeUint64(buffer, pos + 3, sBytes)
         maxElem = decodeUint64(buffer, pos + 3 + sBytes, sBytes)
         rangeSize = maxElem - minElem
-        lenBytes = bytesForRange(rangeSize)
+        offsetBytes = bytesForRange(rangeSize)
 
-      doAssert pos + lenBytes < buffer.len
-      let numElems = int(decodeUint64(buffer, pos + 3 + sBytes * 2, lenBytes))
+      doAssert pos + offsetBytes < buffer.len
+      let numElems = int(minElem + decodeUint64(buffer, pos + 3 + sBytes * 2, offsetBytes))
       if numElems > 0:
         var
           elemStarts: seq[int] = @[]
-          p = pos + 1 + lenBytes
+          p = pos + 1 + offsetBytes
         for _ in 0 ..< numElems:
           elemStarts.add(p)
           p = skipNode(buffer, p)
         elemStarts.add(p)
 
-        # element deletion must be within minElem and maxElem
+        # element deletion must not result in less than `minElem` elements
         var k = numElems
-        while k > int(minElem):
+        while k > 0:
           var i = 0
-          while i <= numElems - k:
+          while i <= numElems - k and (k - i + 1) >= int(minElem):
             var copy = buffer
-            let newElems = numElems - k
-            writeUint64(copy, pos + 1, lenBytes, cast[uint64](newElems))
+            let
+              newElems = numElems - k
+              newOffset = cast[uint64](newElems - int(minElem))
+            writeUint64(copy, pos + 1, offsetBytes, newOffset)
             let
               delStart = elemStarts[i]
               delEnd   = elemStarts[i + k] - 1
@@ -991,7 +984,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
               copy.delete(delStart .. delEnd)
             yield copy
             i.inc
-          k = max(int(minElem), k div 2)
+          k = k div 2
 
   template numberShrinker(val: uint64, p: int, vBytes: int, buffer: seq[byte]) =
     var tryVal = val
@@ -1028,8 +1021,8 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
       # skip min & max bytes
       let p = pos + 2 + 2 * sBytes
       doAssert p + vBytes <= buffer.len
-      let val = decodeUint64(buffer, p, vBytes)
-      numberShrinker(val, p, vBytes, buffer)
+      let offset = decodeUint64(buffer, p, vBytes)
+      numberShrinker(offset, p, vBytes, buffer)
 
   # Strategy 3: Unbounded Scalar Lowering
   for (pos, kind) in nodes:
@@ -1051,26 +1044,36 @@ proc treeRepr*(buffer: seq[byte]): string =
     indent = 0
 
   collectNodes(nodes, buffer, p)
-  result &= "nodes: " & $nodes & "\nbuffer: " & $buffer & "\nrepr: " # DELETEME debugging code
-  var counters: seq[int] = @[]
+  var
+    counters: seq[int] = @[]
+    onLast = false
+  
+  result = "collectedNodes: " & $nodes & "\n"
+
   for (pos, kind) in nodes:
     if counters.len > 0:
       counters[^1].dec
+      if counters[^1] == -1:
+        discard counters.pop()
+        indent.dec
+        result &= "  ".repeat(indent) & "}\n"
 
     p = pos + 1
     case kind:
       of skArray:
         inc p # skip skRange
         let
-          (rangeSize, rangeOffsetPos) = getRangeSizeAndOffsetPos(buffer, p)
+          (rangeSize, rangeMin) = skipToRangeOffsetAndGetSizeAndMin(buffer, p)
           lenBytes = bytesForRange(rangeSize)
 
         if p + lenBytes < buffer.len:
-          let n = int(decodeUint64(buffer, rangeOffsetPos, lenBytes))
+          let
+            nOffset = decodeUint64(buffer, p, lenBytes)
+            n = int(nOffset + rangeMin)
           result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
           if n > 0:
             indent.inc
-            counters.add(n)
+            counters.add(int(nOffset))
           else:
             result &= "}"
       of skRange:
@@ -1112,6 +1115,13 @@ proc treeRepr*(buffer: seq[byte]): string =
       discard counters.pop()
       indent.dec
       result &= "  ".repeat(indent) & "}\n"
+
+  while counters.len > 0:
+    assert counters[^1] == 0, "counters[^1] was not 0, counters[^1]: " &
+                              $counters[^1] & "\n" & result
+    discard counters.pop()
+    indent.dec
+    result &= "  ".repeat(indent) & "}\n"
 
   return result
 

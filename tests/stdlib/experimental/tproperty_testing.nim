@@ -587,8 +587,10 @@ suite "Shrinking Engine & Internals":
     for seed in 1'u32 .. 3'u32:
       let s = newSource(seed)
       discard complexGen(s)
+      checkpoint "seed: " & $seed
       checkpoint "buffer: " & $s.buffer
       checkpoint "tree buffer: " & treeRepr(s.buffer)
+      checkpoint "made it to the rest of the code"
       let buf = s.buffer
       for candidate in candidates(buf):
         var pos = 0
