@@ -955,13 +955,14 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
         maxElem = decodeUint64(buffer, pos + 3 + sBytes, sBytes)
         rangeSize = maxElem - minElem
         offsetBytes = bytesForRange(rangeSize)
+        offsetPos = pos + 3 + 2 * sBytes
 
-      doAssert pos + offsetBytes < buffer.len
-      let numElems = int(minElem + decodeUint64(buffer, pos + 3 + sBytes * 2, offsetBytes))
+      doAssert offsetPos + offsetBytes <= buffer.len
+      let numElems = int(minElem + decodeUint64(buffer, offsetPos, offsetBytes))
       if numElems > 0:
         var
           elemStarts: seq[int] = @[]
-          p = pos + 1 + offsetBytes
+          p = offsetPos + offsetBytes
         for _ in 0 ..< numElems:
           elemStarts.add(p)
           p = skipNode(buffer, p)
@@ -970,20 +971,21 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
         # element deletion must not result in less than `minElem` elements
         var k = numElems
         while k > 0:
-          var i = 0
-          while i <= numElems - k and (k - i + 1) >= int(minElem):
-            var copy = buffer
-            let
-              newElems = numElems - k
-              newOffset = cast[uint64](newElems - int(minElem))
-            writeUint64(copy, pos + 1, offsetBytes, newOffset)
-            let
-              delStart = elemStarts[i]
-              delEnd   = elemStarts[i + k] - 1
-            if delStart <= delEnd:
-              copy.delete(delStart .. delEnd)
-            yield copy
-            i.inc
+          if numElems - k >= int(minElem):
+            var i = 0
+            while i <= numElems - k:
+              var copy = buffer
+              let
+                newElems = numElems - k
+                newOffset = cast[uint64](newElems - int(minElem))
+              writeUint64(copy, offsetPos, offsetBytes, newOffset)
+              let
+                delStart = elemStarts[i]
+                delEnd   = elemStarts[i + k] - 1
+              if delStart <= delEnd:
+                copy.delete(delStart .. delEnd)
+              yield copy
+              i.inc
           k = k div 2
 
   template numberShrinker(val: uint64, p: int, vBytes: int, buffer: seq[byte]) =
@@ -1043,20 +1045,24 @@ proc treeRepr*(buffer: seq[byte]): string =
     p = 0
     indent = 0
 
-  collectNodes(nodes, buffer, p)
+  if buffer.len > 0:
+    while p < buffer.len:
+      collectNodes(nodes, buffer, p)
+      p = skipNode(buffer, p)
+
   var
     counters: seq[int] = @[]
-    onLast = false
-  
+
   result = "collectedNodes: " & $nodes & "\n"
 
   for (pos, kind) in nodes:
+    while counters.len > 0 and counters[^1] == 0:
+      discard counters.pop()
+      indent.dec
+      result &= "  ".repeat(indent) & "}\n"
+
     if counters.len > 0:
       counters[^1].dec
-      if counters[^1] == -1:
-        discard counters.pop()
-        indent.dec
-        result &= "  ".repeat(indent) & "}\n"
 
     p = pos + 1
     case kind:
@@ -1066,14 +1072,14 @@ proc treeRepr*(buffer: seq[byte]): string =
           (rangeSize, rangeMin) = skipToRangeOffsetAndGetSizeAndMin(buffer, p)
           lenBytes = bytesForRange(rangeSize)
 
-        if p + lenBytes < buffer.len:
+        if p + lenBytes <= buffer.len:
           let
             nOffset = decodeUint64(buffer, p, lenBytes)
             n = int(nOffset + rangeMin)
           result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
           if n > 0:
             indent.inc
-            counters.add(int(nOffset))
+            counters.add(n)
           else:
             result &= "}"
       of skRange:
@@ -1091,8 +1097,8 @@ proc treeRepr*(buffer: seq[byte]): string =
                   ", min: " & $minVal & ", max: " & $maxVal & ", offset: " &
                   $offset & ", value: " & $(minVal + offset) & ")"
       of skGroup:
-        result &= "  ".repeat(indent) & $kind & " {"
         let n = int(decodeUint64(buffer, p, 1))
+        result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
         if n > 0:
           indent.inc
           counters.add(n)
@@ -1102,23 +1108,13 @@ proc treeRepr*(buffer: seq[byte]): string =
         let val = decodeUint64(buffer, p, getScalarBytes(kind))
         result &= "  ".repeat(indent) & $kind & " (value: " & $val & ")"
       of skNBytes:
-        let lenBytes = 1
-        if pos + lenBytes < buffer.len:
-          let n = int(decodeUint64(buffer, p, lenBytes))
-          if n > 0:
-            indent.inc
-            result &= "  ".repeat(indent) & $kind & " (size: " & $n & ")"
-            indent.dec
+        let n = int(decodeUint64(buffer, p, 1))
+        result &= "  ".repeat(indent) & $kind & " (size: " & $n & ")"
     result &= "\n"
 
-    if counters.len > 0 and counters[^1] == 0:
-      discard counters.pop()
-      indent.dec
-      result &= "  ".repeat(indent) & "}\n"
-
   while counters.len > 0:
-    assert counters[^1] == 0, "counters[^1] was not 0, counters[^1]: " &
-                              $counters[^1] & "\n" & result
+    if counters[^1] != 0:
+      result &= "  ".repeat(indent - 1) & "# ERROR: counter was " & $counters[^1] & "\n"
     discard counters.pop()
     indent.dec
     result &= "  ".repeat(indent) & "}\n"

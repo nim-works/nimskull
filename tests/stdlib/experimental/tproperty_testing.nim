@@ -317,8 +317,8 @@ suite "Structural API & Parser":
       seenLengths = newSeq[int]()
     for cand in candidates(sA.buffer):
       yieldsA.inc
-      if cand.len > 0 and cand[0] == byte(skArray) and cand.len > 1:
-        seenLengths.add(int(cand[1]))
+      if cand.len > 5 and cand[0] == byte(skArray):
+        seenLengths.add(int(cand[5]))
     # Expected Array element lengths yielded should include structural truncations
     checkpoint "seenLengths: " & $seenLengths
     check seenLengths.len > 0
