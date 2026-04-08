@@ -1496,7 +1496,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchFilenames
     case arg.normalize
     of "abs": conf.filenameOption = foAbs
-    of "canonical": conf.filenameOption = foCanonical
     of "legacyrelproj": conf.filenameOption = foLegacyRelProj
     else:
       invalidArgValue(arg, switch)
@@ -1518,9 +1517,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "listfullpaths":
     setSwitchAndSrc cmdSwitchListfullpaths
     # xxx: this should probably get subsubed with filenames
-    conf.filenameOption =
-      if switchOn(switch.normalize, arg): foAbs
-      else:                               foCanonical
+    conf.filenameOption = foAbs
   of "spellsuggest":
     setSwitchAndSrc cmdSwitchSpellsuggest
     if arg.len == 0: conf.spellSuggestMax = spellSuggestSecretSauce
