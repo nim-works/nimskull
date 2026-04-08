@@ -241,12 +241,14 @@ proc loadPackageIndex*(conf: ConfigRef) =
       try:
         conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
         conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
+        conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
         for name, package in conf.packageIndex.packages.mpairs:
           package.dependencies.add DependencyLink(
             package: "stdlib", alias: "std"
           )
           package.path =
             if name == "stdlib": package.path
+            elif package.path.isAbsolute: package.path
             else: curDir / package.path
           package.srcDir = package.path / package.srcDir
           # Entrypoint is relative to the srcDir
