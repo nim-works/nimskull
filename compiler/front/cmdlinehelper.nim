@@ -229,70 +229,66 @@ proc loadConfigs*(
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
   loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
+proc resolvePackagePaths(package: var IndexedPackage, baseDir: string) =
+  ## Simple normalisation helper
+  if not package.path.isAbsolute:
+    package.path = baseDir / package.path
+  
+  package.srcDir = package.path / package.srcDir
+  package.entrypoint = package.srcDir / package.entrypoint
+
 proc loadPackageIndex*(conf: ConfigRef) =
-  ## Looks for the package index and, if found, loads it into `conf`.
-  var curDir = $conf.projectPath
+  ## Loads the package index if found.
+  var 
+    rootFound = false
+    curDir = $conf.projectPath
 
   while curDir.len > 0:
-    let path = curDir / ".skull"
-
-    if dirExists(path):
-      if not fileExists(path / "index.json"): break
-      try:
-        conf.packageIndex = parseFile(path / "index.json").to(PackageIndex)
-        conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
-        conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
-        for name, package in conf.packageIndex.packages.mpairs:
-          package.dependencies.add DependencyLink(
-            package: "stdlib", alias: "std"
-          )
-          package.path =
-            if name == "stdlib": package.path
-            elif package.path.isAbsolute: package.path
-            else: curDir / package.path
-          package.srcDir = package.path / package.srcDir
-          # Entrypoint is relative to the srcDir
-          package.entrypoint = package.srcDir / package.entrypoint
-      except IOError:
-        localReport(conf, InternalReport(
-          kind: rintCannotOpenFile,
-          file: path / "index.json",
-          msg: "Cannot open the package index file!"
-        ))
-      except JsonParsingError, JsonKindError, KeyError:
-        localReport(conf, PackageReport(
-          kind: rpkgIndexPresentButMalformed
-        ))
+    let indexPath = curDir / ".skull" / "index.json"
+    try:
+      conf.packageIndex = parseFile(indexPath).to(PackageIndex)
+      rootFound = true
       conf.packageDir = AbsoluteDir curDir
       break
-    let parDir = parentDir(curDir)
-    if parDir == curDir: break
-    curDir = parDir
+    except IOError:
+      discard 
+    except JsonParsingError, JsonKindError:
+      localReport(conf, PackageReport(kind: rpkgIndexPresentButMalformed))
+      conf.packageIndex = PackageIndex()
+      conf.packageDir = AbsoluteDir curDir
+      rootFound = true
+      break
+    
+    let parent = curDir.parentDir()
+    if parent == curDir: break
+    curDir = parent
+
+  if not rootFound:
+    curDir = $conf.projectPath
+    conf.packageDir = AbsoluteDir curDir
+
+  conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
+  conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
+
+  for name, package in conf.packageIndex.packages.mpairs:
+    package.dependencies.add DependencyLink(package: "stdlib", alias: "std")
+    
+    let base = if name == "stdlib": package.path else: curDir
+    resolvePackagePaths(package, base)
 
   for id, package in conf.packageIndex.packages.pairs:
-    var deps: Table[string, string]
-    for it in package.dependencies.items:
-      let alias = it.alias.nimIdentNormalize()
-      if alias in deps:
+    var seen: Table[string, string]
+    for dep in package.dependencies:
+      let alias = dep.alias.nimIdentNormalize()
+      if alias in seen:
         localReport(conf, PackageReport(
           kind: rpkgDuplicateAliasForPackageDependencies,
           parentPackage: package.path,
-          package: deps[alias],
+          package: seen[alias],
           alias: alias
         ))
       else:
-        deps[alias] = it.package
-
-  if conf.packageIndex.packages.len == 0:
-    conf.packageIndex.packages["unknown"] = IndexedPackage(path: $conf.projectPath)
-    conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
-
-    for package in conf.packageIndex.packages.mvalues:
-      package.srcDir = package.path / package.srcDir
-      package.entrypoint = package.path / package.entrypoint
-      package.dependencies.add DependencyLink(
-        package: "stdlib", alias: "std"
-      )
+        seen[alias] = dep.package
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =
