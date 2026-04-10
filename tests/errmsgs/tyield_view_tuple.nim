@@ -1,6 +1,6 @@
 discard """
   nimoutFormat: sexp
-  cmd: "nim check --msgFormat=sexp --filenames=canonical --hints:off $options $file"
+  cmd: "nim check --msgFormat=sexp --hints:off $options $file"
   action: reject
 """
 
