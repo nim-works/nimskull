@@ -610,7 +610,7 @@ func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
   of cmdSwitchVerbosity   : @["0", "1", "2", "3"]
   of cmdSwitchIncremental : @["on", "off", "writeonly", "readonly", "v2", "stress"]
   of cmdSwitchCc          : listCCnames()
-  of cmdSwitchFilenames   : @["abs", "canonical", "legacyRelProj"]
+  of cmdSwitchFilenames   : @["abs", "legacyRelProj"]
   of cmdSwitchProcessing  : @["dots", "filenames", "off"]
   of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
   of cmdSwitchExceptions  : @["native", "goto"]
