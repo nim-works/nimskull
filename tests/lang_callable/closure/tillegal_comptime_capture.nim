@@ -2,7 +2,7 @@ discard """
   description: '''
     Tests for detection of illegal captures across the compile-/run-time border
   '''
-  cmd: "nim check --msgFormat:sexp --filenames=canonical $options $file"
+  cmd: "nim check --msgFormat:sexp $options $file"
   nimoutformat: sexp
   action: reject
 """

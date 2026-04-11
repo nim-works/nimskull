@@ -1,7 +1,7 @@
 discard """
   description: "Symbols not matching the definition must be rejected"
   action: reject
-  cmd: "nim check --msgFormat:sexp --filenames:canonical $options $file"
+  cmd: "nim check --msgFormat:sexp $options $file"
   nimoutFormat: sexp
 """
 

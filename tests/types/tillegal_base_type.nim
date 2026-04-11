@@ -2,7 +2,7 @@ discard """
   labels: "generic inheritance"
   description: "Ensure that errors are reported for illegal inheritance"
   action: reject
-  cmd: "nim check --hints:off --filenames:canonical $file"
+  cmd: "nim check --hints:off $file"
   nimoutfull: true
 """
 

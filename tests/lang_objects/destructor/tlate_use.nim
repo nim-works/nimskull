@@ -4,7 +4,7 @@ discard """
     control-flow reaches the call, not when it reaches the argument expression
   '''
   action: reject
-  matrix: "--filenames=canonical --msgFormat=sexp"
+  matrix: "--msgFormat=sexp"
   targets: "c js vm"
   nimoutFormat: sexp
 """

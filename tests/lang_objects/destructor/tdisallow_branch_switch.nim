@@ -3,7 +3,7 @@ discard """
     Attempting to switch the branch of a variant object with an overridden
     destructor produces an error
   '''
-  cmd: "nim check --msgFormat=sexp --filenames=canonical $options $file"
+  cmd: "nim check --msgFormat=sexp $options $file"
   nimoutFormat: sexp
   action: reject
 """
