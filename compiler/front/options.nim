@@ -1538,30 +1538,11 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
     if dir == "": break
   return ""
 
-# TODO: Make `canonicalImportAux` learn the package ID of the current module through `ConfigRef`
-proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
-  ## canonical module import filename, e.g.: system.nim, std/tables.nim,
-  ## system/assertions.nim, etc. Canonical module import filenames follow the
-  ## same rules as canonical imports (see `canonicalImport`), except the module
-  ## name is followed by a `.nim` file extension, and the directory separators
-  ## are OS specific.
-  let
-    desc = getPkgDesc(conf, file.string)
-    (_, moduleName, ext) = file.splitFile
-
-  let projectPkgId = getPackageId(conf, $conf.projectFull)
-  if desc.pkgKnown and desc.pkgRootName != projectPkgId:
-    # we ignore the pkg root name for intra-package module imports, allows for
-    # easier pkg renames (without changing all files using canonical imports).
-    result = desc.pkgRootName
-    if desc.pkgSubpath != "":
-      result = result / desc.pkgSubpath
-  else:
-    result = desc.pkgSubpath
-  result = if result == "": moduleName else: result / moduleName
-  result = result.changeFileExt(ext) # since we lost it above
-
-proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile, currentModule: PSym): string =
+proc canonicalImport*(
+  conf: ConfigRef,
+  file: AbsoluteFile,
+  currentModule: PSym
+): string =
   ## Shows the canonical module import, e.g.: system, std/tables,
   ## fusion/pointers, system/assertions, std/private/asciitables
   ## 
@@ -1570,17 +1551,16 @@ proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile, currentModule: PSym):
   ## - typically `pkgroot/pkgsubpath/module`
   ## - if a module is at the base of a package, then `pkgroot/module`
   ## - if a module is within the project's package, `pkgroot` is skipped like
-  ##   so `pkgsubpath/module` or `module` (if the module is at the package root)
+  ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
   let pkgId = conf.getPackageId(conf.toFilename(currentModule.info))
-  echo "canonicalImport: ", file.string, ", ", pkgId
-  if conf.getPackageId(conf.toFilename(currentModule.info)) == "unknown":
-    let ret = canonicalImportAux(conf, file)
-    return ret.nativeToUnixPath.changeFileExt("")
+  
+  if pkgId == "unknown":
+    result = file.splitFile.name.nativeToUnixPath
   else:
     result = conf.findPackage(file.string, pkgId).alias
     let rest = file.string.split('/', 1)
-    if rest.len > 1:
-      result = result / rest[1]
+    if rest.len > 1: result = result / rest[1]
+    result = result.nativeToUnixPath
 
 proc canonDynlibName*(s: string): string =
   ## Get 'canonical' dynamic library name - without optional `lib` prefix

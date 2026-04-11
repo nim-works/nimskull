@@ -153,9 +153,6 @@ proc toFilenameOption*(conf: ConfigRef, fileIdx: FileIndex, opt: FilenameOption)
   case opt
   of foAbs: result = toFullPath(conf, fileIdx)
   of foRelProject: result = toProjPath(conf, fileIdx)
-  of foCanonical:
-    let absPath = toFullPath(conf, fileIdx)
-    result = canonicalImportAux(conf, absPath.AbsoluteFile)
   of foName: result = toProjPath(conf, fileIdx).lastPathPart
   of foLegacyRelProj:
     let
@@ -187,17 +184,7 @@ proc formatPath*(conf: ConfigRef, path: string): string =
   else:
     # Path not registered in the filename table - most likely an
     # instantiation info report location
-    when compileOption"excessiveStackTrace":
-      # instLoc(), when `--excessiveStackTrace` is used, generates full
-      # paths that /might/ need to be filtered if `--filenames:canonical`.
-      const compilerRoot = currentSourcePath().parentDir().parentDir()
-      if conf.filenameOption == foCanonical and
-         path.startsWith(compilerRoot):
-        result = path[(compilerRoot.len + 1) .. ^1]
-      else:
-        result = path
-    else:
-      result = path
+    result = path
 
 proc toMsgFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
   toFilenameOption(conf, fileIdx, conf.filenameOption)
