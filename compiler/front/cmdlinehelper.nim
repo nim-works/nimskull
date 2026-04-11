@@ -47,7 +47,6 @@ from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_packages import PackageReport
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
