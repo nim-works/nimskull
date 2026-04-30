@@ -210,14 +210,11 @@ when defined(windows):
 proc main() =
   when defined(windows):
     let nimDesiredPath = expand(getCurrentDir() / "bin")
-    let nimbleBin = getEnv("USERPROFILE") / ".nimble" / "bin"
-    let nimbleDesiredPath = expand(nimbleBin)
     let p = tryGetUnicodeValue(r"Environment", "Path",
       HKEY_CURRENT_USER) & ";" & tryGetUnicodeValue(
         r"System\CurrentControlSet\Control\Session Manager\Environment", "Path",
         HKEY_LOCAL_MACHINE)
     var nimAlreadyInPath = false
-    var nimbleAlreadyInPath = false
     var mingWchoices: seq[string] = @[]
     var incompat: seq[string] = @[]
     for x in p.split(';'):
@@ -229,8 +226,6 @@ proc main() =
               except: ""
       if y.cmpIgnoreCase(nimDesiredPath) == 0:
         nimAlreadyInPath = true
-      elif y.cmpIgnoreCase(nimbleDesiredPath) == 0:
-        nimbleAlreadyInPath = true
       elif y.toLowerAscii.contains("mingw"):
         if dirExists(y):
           if checkGccArch(y): mingWchoices.add y
@@ -242,13 +237,6 @@ proc main() =
       if askBool("nim.exe is not in your PATH environment variable.\n" &
           "Should it be added permanently? (y/n) "):
         addToPathEnv(nimDesiredPath)
-
-    if nimbleAlreadyInPath:
-      echo nimbleDesiredPath & " is already in your PATH [Skipping]"
-    else:
-      if askBool(nimbleDesiredPath & " is not in your PATH environment variable.\n" &
-          "Should it be added permanently? (y/n) "):
-        addToPathEnv(nimbleDesiredPath)
 
     if mingWchoices.len == 0:
       # No mingw in path, so try a few locations:

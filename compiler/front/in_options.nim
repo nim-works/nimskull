@@ -45,7 +45,6 @@ type
     optDocInternal            ## generate documentation for non-exported
                               ## symbols
     optDeclaredLocs           ## show declaration locations in messages
-    optNoNimblePath
     optDynlibOverrideAll
     optSeqDestructors         ## active if the implementation uses the new
                               ## string/seq implementation based on destructors
@@ -234,8 +233,6 @@ type
     ## files to.
 
     libpath*: AbsoluteDir ## Path to the standard library
-    nimblePaths*: seq[AbsoluteDir] ## List of provided `--nimblePath`
-    ## directories
     searchPaths*: seq[AbsoluteDir] ## Explicitly added list of the search
     ## paths for modules. Those are queried first.
     lazyPaths*: seq[AbsoluteDir] ## Implicitly constructed list of the

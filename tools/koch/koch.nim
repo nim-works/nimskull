@@ -136,7 +136,7 @@ proc csource(args: string) =
 proc bundleC2nim(args: string) =
   cloneDependency(distDir, "https://github.com/nim-lang/c2nim.git")
   nimCompile("dist/c2nim/c2nim",
-             options = "--noNimblePath --path:. " & args)
+             options = "--path:. " & args)
 
 proc bundleNimsuggest(args: string) =
   nimCompileFold("Compile nimsuggest", "nimsuggest/nimsuggest.nim",
@@ -160,7 +160,7 @@ proc bundleWinTools(args: string) =
   when false:
     # not yet a tool worth including
     nimCompile(r"tools\downloader.nim",
-               options = r"--cc:vcc --app:gui -d:ssl --noNimblePath --path:..\ui " & args)
+               options = r"--cc:vcc --app:gui -d:ssl --path:..\ui " & args)
 
 proc ensureCleanGit() =
   discard osproc.execCmdEx("git diff")

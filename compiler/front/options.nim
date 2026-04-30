@@ -408,7 +408,6 @@ passSeqField cLibs,             AbsoluteDir
 passSeqField cLinkedLibs,       string
 passSeqField linkOptionsCmd,    string
 passSeqField compileOptionsCmd, string
-passSeqField nimblePaths,       AbsoluteDir
 passSeqField searchPaths,       AbsoluteDir
 passSeqField lazyPaths,         AbsoluteDir
 
@@ -1229,15 +1228,6 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
 proc newLineInfo*(conf: ConfigRef; filename: AbsoluteFile, line, col: int): TLineInfo {.inline.} =
   result = newLineInfo(fileInfoIdx(conf, filename), line, col)
 
-proc disableNimblePath*(conf: ConfigRef) =
-  conf.incl optNoNimblePath
-  conf.lazyPaths = @[]
-  conf.nimblePaths = @[]
-
-proc clearNimblePath*(conf: ConfigRef) =
-  conf.lazyPaths = @[]
-  conf.nimblePaths = @[]
-
 include compiler/modules/packagehandling
 
 proc getOsCacheDir(): string =
@@ -1281,17 +1271,6 @@ proc pathSubs*(conf: ConfigRef; p, config: string): string =
     "projectpath", conf.projectPath.string,
     "projectdir", conf.projectPath.string,
     "nimcache", getNimcacheDir(conf).string]).expandTilde
-
-iterator nimbleSubs*(conf: ConfigRef; p: string): string =
-  ## Iterate over possible interpolations of the path string `p` and known
-  ## package directories.
-  let pl = p.toLowerAscii
-  if "$nimblepath" in pl or "$nimbledir" in pl:
-    for i in countdown(conf.nimblePaths.len-1, 0):
-      let nimblePath = removeTrailingDirSep(conf.nimblePaths[i].string)
-      yield p % ["nimblepath", nimblePath, "nimbledir", nimblePath]
-  else:
-    yield p
 
 proc toGeneratedFile*(
     conf: CurrentConf | ConfigRef,
@@ -1498,13 +1477,11 @@ proc findModule*(
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
-  const extensions = [".nims", ".cfg", ".nimble"]
-    # xxx: remove '.nimble' (and nimble files from compiler src)
+  const extensions = [".nims", ".cfg"]
   var
     candidates: seq[string] = @[]
     dir = pkg
     prev = dir
-    nimblepkg = ""
   let pkgname = pkg.lastPathPart()
   while true:
     for k, f in os.walkDir(dir, relative = true):
@@ -1514,21 +1491,7 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
           let x = changeFileExt(dir / name, ".nim")
           if fileExists(x):
             candidates.add x
-          if ext == ".nimble":
-            if nimblepkg.len == 0:
-              nimblepkg = name
-              # Since nimble packages can have their source in a subfolder,
-              # check the last folder we were in for a possible match.
-              if dir != prev:
-                let x = prev / x.extractFilename()
-                if fileExists(x):
-                  candidates.add x
-            else:
-              # If we found more than one nimble file, chances are that we
-              # missed the real project file, or this is an invalid nimble
-              # package. Either way, bailing is the better choice.
-              return ""
-    let pkgname = if nimblepkg.len > 0: nimblepkg else: pkgname
+    let pkgname = pkgname
     for c in candidates:
       if pkgname in c.extractFilename(): return c
     if candidates.len > 0:

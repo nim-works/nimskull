@@ -210,17 +210,13 @@ template detectOs*(d: untyped): bool =
   ## enum value.
   detectOsImpl(Distribution.d)
 
-when not defined(nimble):
-  var foreignDeps*: seq[string] = @[]  ## Registered foreign deps.
+var foreignDeps*: seq[string] = @[]  ## Registered foreign deps.
 
 proc foreignCmd*(cmd: string; requiresSudo = false) =
   ## Registers a foreign command to the internal list of commands
   ## that can be queried later.
   let c = (if requiresSudo: "sudo " else: "") & cmd
-  when defined(nimble):
-    nimscriptapi.foreignDeps.add(c)
-  else:
-    foreignDeps.add(c)
+  foreignDeps.add(c)
 
 proc foreignDepInstallCmd*(foreignPackageName: string): (string, bool) =
   ## Returns the distro's native command to install `foreignPackageName`

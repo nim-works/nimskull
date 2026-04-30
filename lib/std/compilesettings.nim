@@ -36,7 +36,6 @@ type
 
   MultipleValueSetting* {.pure.} = enum ## \
                       ## settings resulting in a seq of string values
-    nimblePaths,      ## the nimble path(s)
     searchPaths,      ## the search path for modules
     lazyPaths,        ## experimental: even more paths
     commandArgs,      ## the arguments passed to the Nim compiler
@@ -62,4 +61,4 @@ proc querySettingSeq*(setting: MultipleValueSetting): seq[string] {.
   ## * `compileOption <system.html#compileOption,string>`_ for `on|off` options
   ## * `compileOption <system.html#compileOption,string,string>`_ for enum options
   runnableExamples:
-    const nimblePaths = querySettingSeq(MultipleValueSetting.nimblePaths)
+    const commandArgs = querySettingSeq(MultipleValueSetting.commandArgs)

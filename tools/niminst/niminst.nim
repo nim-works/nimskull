@@ -53,7 +53,6 @@ type
     fcUnix,       # files only for Unix; must be after ``fcWindows``
     fcUnixBin,    # binaries for Unix
     fcDocStart,   # links to documentation for Windows installer
-    fcNimble      # nimble package files to copy to /opt/nimble/pkgs/pkg-ver
 
   ConfigData = object of RootObj
     actions: set[Action]
@@ -71,7 +70,6 @@ type
     nimExe: string
     nimArgs: string
     debOpts: TDebOptions
-    nimblePkgName: string
     binCat: set[FileCategory] ## Extra binary categories to pack into the archive
     format: ArchiveFormat
 
@@ -457,14 +455,6 @@ proc parseIniFile(c: var ConfigData) =
                 else: file.add(v[i])
               inc(i)
           else: quit(errorStr(p, "unknown variable: " & k.key))
-        of "nimble":
-          case normalize(k.key)
-          of "pkgname":
-            c.nimblePkgName = v
-          of "pkgfiles":
-            addFiles(c.cat[fcNimble], split(v, {';'}))
-          else:
-            quit(errorStr(p, "invalid key: " & k.key))
         else: quit(errorStr(p, "invalid section: " & section))
 
       of cfgOption: quit(errorStr(p, "syntax error"))
@@ -866,13 +856,9 @@ proc createArchiveDist(c: var ConfigData) =
     if fcUnixBin in c.binCat:
       extraCat.incl fcUnix
 
-  for cat in items({fcConfig..fcOther, fcNimble} + extraCat):
+  for cat in items({fcConfig..fcOther} + extraCat):
     echo("Current category: ", cat)
     for f in items(c.cat[cat]): processFile(proj / f, f)
-
-  # Copy the .nimble file over
-  let nimbleFile = c.nimblePkgName & ".nimble"
-  processFile(proj / nimbleFile, nimbleFile)
 
   # Store release metadata
   writeFile(tmpDir / releaseFile):

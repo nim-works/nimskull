@@ -96,7 +96,6 @@ type
     definedSymbols*: seq[string]
     libPaths*: seq[string]
     lazyPaths*: seq[string]
-    nimbleDir*: string
     outdir*: string
     `out`*: string
     nimcache*: string

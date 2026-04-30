@@ -193,19 +193,19 @@ proc presentationPath*(conf: ConfigRef, file: AbsoluteFile): RelativeFile =
   let file2 = $file
   template bail() =
     result = relativeTo(file, conf.projectPath)
-  proc nimbleDir(): AbsoluteDir =
+  proc packageDir(): AbsoluteDir =
     getPkgDesc(conf, file2).pkgRoot
   case conf.docRoot:
   of docRootDefault:
     result = getRelativePathFromConfigPath(conf, file)
-    let dir = nimbleDir()
+    let dir = packageDir()
     if not dir.isEmpty:
       let result2 = relativeTo(file, dir)
       if not result2.isEmpty and (result.isEmpty or result2.string.len < result.string.len):
         result = result2
     if result.isEmpty: bail()
   of "@pkg":
-    let dir = nimbleDir()
+    let dir = packageDir()
     if dir.isEmpty: bail()
     else: result = relativeTo(file, dir)
   of "@path":
@@ -1472,7 +1472,7 @@ proc writeOutputJson*(d: PDoc, useWarning = false) =
   for desc in d.modDescFinal:
     modDesc &= desc
   let content = %*{"orig": d.filename,
-    "nimble": if pkgDesc.pkgKnown: pkgDesc.pkgRootName else: "",
+    "package": if pkgDesc.pkgKnown: pkgDesc.pkgRootName else: "",
     "moduleDescription": modDesc,
     "entries": d.jEntriesFinal}
   if optStdout in d.conf.globalOptions:
