@@ -1,6 +1,6 @@
 ## VCC compiler discovery using vswhere (https://github.com/Microsoft/vswhere)
 
-import os, osproc, strformat, strutils
+import std/[os, osproc, strformat, strutils]
 
 const
   vswhereRelativePath = joinPath("Microsoft Visual Studio", "Installer", "vswhere.exe")

@@ -1,6 +1,6 @@
 
 include std/prelude
-import intsets
+import std/intsets
 
 type
   NodeKind = enum
