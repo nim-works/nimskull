@@ -33,7 +33,7 @@ import std/unicode
 when not defined(noUnidecodeTable):
   import std/strutils
 
-  const translationTable = splitLines(slurp"unidecode/unidecode.dat")
+  const translationTable = splitLines(slurp"pure/unidecode/unidecode.dat")
 else:
   # shared is fine for threading:
   var translationTable: seq[string]
