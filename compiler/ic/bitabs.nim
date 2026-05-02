@@ -1,7 +1,7 @@
 ## A BiTable is a table that can be seen as an optimized pair
 ## of (Table[LitId, Val], Table[Val, LitId]).
 
-import hashes, rodfiles
+import std/hashes, rodfiles
 
 type
   LitId* = distinct uint32

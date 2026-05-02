@@ -18,8 +18,8 @@ export in_options
 
 when not FileSystemCaseSensitive:
   from compiler/utils/strutils2 import toLowerAscii
-from terminal import isatty
-from times import utc, fromUnix, local, getTime, format, DateTime
+from std/terminal import isatty
+from std/times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
