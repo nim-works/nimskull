@@ -1336,7 +1336,7 @@ when not declared(isRelativeTo):
     result = path.len > 0 and not ret.startsWith ".."
 
 const stdlibDirs = [
-  "pure", "core", "arch",
+  "pure", "core", "arch", "std",
   "pure/collections",
   "pure/concurrency",
   "pure/unidecode", "impure",
