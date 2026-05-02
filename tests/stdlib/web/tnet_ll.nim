@@ -7,13 +7,13 @@ discard """
 """
 
 when defined(windows):
-  import winlean
+  import std/winlean
 elif defined(posix):
-  import posix
+  import std/posix
 else:
   {.error: "Unsupported OS".}
 
-import unittest, strutils
+import std/[unittest, strutils]
 
 suite "inet_ntop tests":
 

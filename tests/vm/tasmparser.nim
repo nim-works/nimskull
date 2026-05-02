@@ -1,7 +1,7 @@
 
 # bug #1513
 
-import os, parseutils, strutils, ropes, macros
+import std/[os, parseutils, strutils, ropes, macros]
 
 var
   code {.compileTime.} = ""

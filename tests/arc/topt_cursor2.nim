@@ -7,7 +7,7 @@ inner destroy
 
 # bug #15039
 
-import lists
+import std/lists
 
 type
   Token = ref object of RootObj
@@ -73,4 +73,3 @@ proc main() =
   t.contents = newOuter()
   
 main()
-

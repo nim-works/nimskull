@@ -2,7 +2,7 @@ discard """
 output: ""
 """
 
-import strutils
+import std/strutils
 
 const x  = [1'i32, -1, -10, 10, -10, 10, -20, 30, -40, 50, 7 shl 28, -(7 shl 28), 7 shl 28, -(7 shl 28)]
 const y  = [-1'i32, 1, -10, -10, 10, 10, -20, -30, 40, 50, 1 shl 30, 1 shl 30, -(1 shl 30), -(1 shl 30)]

@@ -101,7 +101,7 @@ echo a2 == b2
 
 
 # bug #2481
-import math
+import std/math
 
 template test(loopCount: int, extraI: int, testBody: untyped): typed =
   block:

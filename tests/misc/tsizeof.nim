@@ -30,7 +30,7 @@ doAssert mysize1 == 3
 doAssert mysize2 == 12
 doAssert mysize3 == 32
 
-import macros, typetraits
+import std/[macros, typetraits]
 
 proc wrapBlock(n: NimNode): NimNode =
   result = newTree(nnkBlockStmt, newEmptyNode(), n)
@@ -590,7 +590,7 @@ else:
 # sizeof macros API
 ##########################################
 
-import macros
+import std/macros
 
 type
   Vec2f = object

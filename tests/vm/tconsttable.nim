@@ -4,7 +4,7 @@ finally
 nice!'''
 """
 
-import tables
+import std/tables
 
 const
   foo = {"ah": "finally", "this": "is", "possible.": "nice!"}.toTable()

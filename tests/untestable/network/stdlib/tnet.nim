@@ -2,8 +2,8 @@ discard """
 outputsub: ""
 """
 
-import net, nativesockets
-import unittest
+import std/[net, nativesockets]
+import std/unittest
 
 suite "getPrimaryIPAddr":
   test "localhost v4":

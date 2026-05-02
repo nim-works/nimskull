@@ -8,7 +8,7 @@ Hello from thread
   cmd: "nim $target --hints:on --threads:on --tlsEmulation:off $options $file"
 """
 # Copied from stdlib
-import strutils
+import std/strutils
 
 const
   StackGuardSize = 4096
@@ -18,7 +18,7 @@ const
 type ThreadFunc = proc() {.thread.}
 
 when defined(posix):
-  import posix
+  import std/posix
 
   proc runInForeignThread(f: ThreadFunc) =
     proc wrapper(p: pointer): pointer {.noconv.} =
@@ -39,7 +39,7 @@ when defined(posix):
     doAssert pthread_join(tid, nil) == 0
 
 elif defined(windows):
-  import winlean
+  import std/winlean
   type
     WinThreadProc = proc (x: pointer): int32 {.stdcall.}
 

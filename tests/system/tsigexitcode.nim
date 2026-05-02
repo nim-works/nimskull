@@ -3,7 +3,7 @@ discard """
   disabled: windows
 """
 
-import os, osproc, posix, strutils
+import std/[os, osproc, posix, strutils]
 
 proc main() =
   if paramCount() > 0:

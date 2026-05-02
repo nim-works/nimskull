@@ -2,7 +2,7 @@ discard """
 description: "Tests for the experimental call operator `()` overloading"
 """
 
-import macros
+import std/macros
 
 {.experimental: "callOperator".}
 

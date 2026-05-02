@@ -5,7 +5,7 @@ discard """
 # Test the garbage collector.
 
 import
-  strutils
+  std/strutils
 
 type
   PNode = ref TNode

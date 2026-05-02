@@ -15,7 +15,7 @@ discard """
 #      exactly clear why. Once ``-gc:none`` is supported again, consider using
 #      it here again
 
-import hashes
+import std/hashes
 
 type
   TSlotEnum = enum seEmpty, seFilled, seDeleted

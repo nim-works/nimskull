@@ -197,7 +197,7 @@ doAssert inInt128Range(0.0) == true
 doAssert inInt128Range(1e100) == false
 doAssert inInt128Range(-1e100) == false
 
-from math import pow
+from std/math import pow
 
 proc nextafter(`from`,to: float64): float64 {.importc: "nextafter", header: "<math.h>".}
 

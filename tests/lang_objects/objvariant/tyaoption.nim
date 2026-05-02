@@ -5,7 +5,7 @@ some(10)
 34'''
 """
 
-import strutils
+import std/strutils
 
 type Option[A] = object
   case isDefined*: bool

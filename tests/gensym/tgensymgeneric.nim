@@ -37,7 +37,7 @@ doAssert y.x == "abc"
 
 # test symbol equality
 
-import macros
+import std/macros
 
 static:
   let sym1 = genSym()

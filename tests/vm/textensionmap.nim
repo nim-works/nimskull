@@ -1,9 +1,9 @@
 
 # bug #5237
 
-import tables
-import sets
-import sequtils
+import std/tables
+import std/sets
+import std/sequtils
 
 
 const EXTENSIONMAP = {

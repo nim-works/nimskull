@@ -5,7 +5,7 @@ joinable: false
 # Test the command line
 
 import
-  os, strutils
+  std/[os, strutils]
 
 var
   i: int

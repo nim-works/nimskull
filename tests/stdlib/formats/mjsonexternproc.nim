@@ -1,6 +1,6 @@
 # Test case for https://github.com/nim-lang/Nim/issues/6385
 
-import json
+import std/json
 # export json
 
 proc foo*[T](a: T) =

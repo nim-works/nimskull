@@ -5,7 +5,7 @@ discard """
 
 # see also: `tests/stdlib/tunittest_error.nim`
 
-import unittest
+import std/unittest
 
 proc ddd() =
   raise newException(IOError, "didn't do stuff")

@@ -36,7 +36,7 @@ block t2057:
 
 
 
-import sequtils, os
+import std/[sequtils, os]
 when not defined(js) and not defined(vm):
   block t2629:
     template glob_rst(basedir: string = ""): untyped =

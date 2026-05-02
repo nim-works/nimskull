@@ -4,7 +4,7 @@ discard """
   nimout: '''
 tunused_imports.nim(12, 10) Warning: BEGIN [User]
 tunused_imports.nim(37, 10) Warning: END [User]
-tunused_imports.nim(35, 8) Warning: imported and not used: 'strutils' [UnusedImport]
+tunused_imports.nim(35, 11) Warning: imported and not used: 'strutils' [UnusedImport]
 '''
   action: "compile"
 """
@@ -13,18 +13,18 @@ tunused_imports.nim(35, 8) Warning: imported and not used: 'strutils' [UnusedImp
 
 # bug #12885
 
-import tables, second
+import std/tables, second
 
 template test(key: int): untyped =
   `[]`(dataEx, key)
 
 echo test(1)
 
-import net, dontmentionme
+import std/net, dontmentionme
 
 echo AF_UNIX
 
-import macros
+import std/macros
 # bug #11809
 macro bar(): untyped =
   template baz() = discard
@@ -32,6 +32,6 @@ macro bar(): untyped =
 
 bar()
 
-import strutils
+import std/strutils
 
 {.warning: "END".}

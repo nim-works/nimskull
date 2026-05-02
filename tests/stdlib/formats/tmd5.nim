@@ -1,4 +1,4 @@
-import md5
+import std/md5
 
 doAssert(getMD5("Franz jagt im komplett verwahrlosten Taxi quer durch Bayern") ==
   "a3cca2b2aa1e3b5b3b5aad99a8529074")

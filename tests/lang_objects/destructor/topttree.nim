@@ -11,7 +11,7 @@ discard """
 joinable: false
 """
 
-import typetraits
+import std/typetraits
 
 type
   opt[T] = object

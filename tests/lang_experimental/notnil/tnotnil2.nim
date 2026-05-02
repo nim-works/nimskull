@@ -3,7 +3,7 @@ discard """
   line:20
 """
 
-import strutils
+import std/strutils
 {.experimental: "notnil".}
 
 type

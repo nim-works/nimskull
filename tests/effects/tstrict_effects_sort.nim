@@ -7,7 +7,7 @@ discard """
 
 {.experimental: "strictEffects".}
 
-import algorithm
+import std/algorithm
 
 type
   MyInt = distinct int

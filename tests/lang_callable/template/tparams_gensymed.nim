@@ -79,7 +79,7 @@ proc genericProc(x: auto) =
 concreteProc(7) # This works
 genericProc(7)  # This doesn't compile
 
-import tables
+import std/tables
 
 # bug #9476
 when not defined(js) and not defined(vm):

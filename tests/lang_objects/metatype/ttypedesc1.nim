@@ -1,4 +1,4 @@
-import unittest, typetraits
+import std/[unittest, typetraits]
 
 type
   TFoo[T, U] = object

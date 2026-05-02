@@ -14,7 +14,7 @@ loop 1d
 
 # bug #13596
 
-import tables, memfiles, strutils, os
+import std/[tables, memfiles, strutils, os]
 
 type Splitr* = tuple[ repeat: bool, chrDlm: char, setDlm: set[char], n: int ]
 

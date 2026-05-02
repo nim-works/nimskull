@@ -7,7 +7,7 @@ description: '''
 '''
 """
 
-import macros, strutils
+import std/[macros, strutils]
 
 
 proc macrobust0(input: string): string =

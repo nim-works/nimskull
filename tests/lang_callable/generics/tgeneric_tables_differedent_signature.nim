@@ -9,7 +9,7 @@ description: '''
 '''
 """
 
-import tables
+import std/tables
 
 type
   G[T] = object
@@ -18,4 +18,3 @@ type
 
 var g: G[string]
 echo g.rnodes["foo"]
-

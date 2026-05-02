@@ -2,7 +2,7 @@ discard """
     disabled: true
 """
 
-import os
+import std/os
 
 proc getDllName: string =
   result = "mylib.dll"

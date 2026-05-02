@@ -8,7 +8,7 @@ discard """
 -1'''
 """
 #import math
-import sequtils
+import std/sequtils
 
 proc optarg(x:int, y:int = 0):int = x + 3 * y
 proc singlearg(x:int):int = 20*x

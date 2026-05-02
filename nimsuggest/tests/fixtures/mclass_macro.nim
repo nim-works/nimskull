@@ -1,5 +1,5 @@
 
-import macros
+import std/macros
 
 macro class*(head, body: untyped): untyped =
   # The macro is immediate, since all its parameters are untyped.

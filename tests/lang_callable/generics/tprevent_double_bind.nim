@@ -4,7 +4,7 @@ discard """
 """
 
 # bug #6732
-import typetraits
+import std/typetraits
 
 type
   TT[T] = ref object of RootObj

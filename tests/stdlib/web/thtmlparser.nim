@@ -7,10 +7,10 @@ https://example.com/test?format=jpg&name=orig##text
 https://example.com/test?format=jpg##text
 '''
 """
-import htmlparser
-import xmltree
-import strutils
-from streams import newStringStream
+import std/htmlparser
+import std/xmltree
+import std/strutils
+from std/streams import newStringStream
 
 
 block t2813:

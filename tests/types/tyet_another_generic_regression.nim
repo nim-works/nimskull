@@ -18,7 +18,7 @@ discard Foo[Bar[int32]]()
 
 # bug #11479
 
-import tables
+import std/tables
 
 proc test() =
   discard readfile("temp.nim")

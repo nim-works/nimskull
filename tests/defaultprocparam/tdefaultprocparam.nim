@@ -42,7 +42,7 @@ echo p2 """topLevel2|"""
 
 testP2()
 
-import macros
+import std/macros
 macro dTT(a: typed) = echo a.treeRepr
 
 proc p3(s: string, count = len(s)): string = s & $count
@@ -87,4 +87,3 @@ proc foo(a = 0, b = a.high, c = high(typeof(a))) =
   discard
 
 foo()
-

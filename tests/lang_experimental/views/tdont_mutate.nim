@@ -2,7 +2,7 @@ discard """
   cmd: "nim check --hints:off $file"
 """
 
-import tables
+import std/tables
 
 {.experimental: "views".}
 

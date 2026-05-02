@@ -29,8 +29,8 @@ Hi Andreas! How do you feel, Rumpf?
 """
 
 import
-  critbits, sets, strutils, tables, random, algorithm, ropes,
-  lists, htmlgen, xmltree, strtabs
+  std/[critbits, sets, strutils, tables, random, algorithm, ropes],
+  std/[lists, htmlgen, xmltree, strtabs]
 
 
 block tcritbits:

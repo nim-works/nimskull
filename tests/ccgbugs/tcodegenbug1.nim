@@ -11,7 +11,7 @@ caught
 
 # bug #6960
 
-import sugar
+import std/sugar
 type
   Kind = enum None, Just, Huge
   Inner = object
@@ -33,7 +33,7 @@ dump obj.inner.id
 obj.inner = shouldDoNothing(obj.inner.id)
 dump obj
 
-import os
+import std/os
 
 type
   TStatusEnum* = enum
@@ -127,7 +127,7 @@ type
     val: array[0..1, string]
     vis: set[0..1]
 
-import macros
+import std/macros
 
 func myfunc(obj: MyObject): MyResult {.raises: [].} =
   template index: auto =

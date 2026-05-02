@@ -10,7 +10,7 @@ discard """
 """
 
 
-import typetraits, module_with_generics
+import std/typetraits, module_with_generics
 
 block:
 
@@ -35,5 +35,3 @@ block:
   # downcasting is required for generic types:
   var d = makeDerived(10)
   setBaseValue(d, 20)
-
-

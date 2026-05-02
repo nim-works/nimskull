@@ -70,7 +70,7 @@ block tseqcon:
 
 
 
-import os
+import std/os
 block tseqcon2:
   proc rec_dir(dir: string): seq[string] =
     result = @[]
@@ -104,7 +104,7 @@ block tseqtuple:
   echo ""
 
 
-import sequtils, marshal
+import std/[sequtils, marshal]
 block tsequtils:
   proc testFindWhere(item : int) : bool =
     if item != 1: return true
@@ -182,7 +182,7 @@ block tshallowemptyseq:
   test()
 
 
-import strutils
+import std/strutils
 block ttoseq:
   for x in toSeq(countup(2, 6)):
     stdout.write(x)

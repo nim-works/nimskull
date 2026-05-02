@@ -1,6 +1,6 @@
 # -*- nim -*-
 
-import os, strutils
+import std/os, strutils
 
 type
   PNode = ref TNode
@@ -51,4 +51,3 @@ proc main =
   echo GC_getstatistics()
 
 main()
-

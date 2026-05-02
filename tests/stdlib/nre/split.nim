@@ -1,5 +1,5 @@
-import unittest, strutils
-include nre
+import std/[unittest, strutils]
+include std/nre
 
 block: # string splitting
   block: # splitting strings

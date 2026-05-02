@@ -2,7 +2,7 @@ discard """
   output: '''ok'''
 """
 
-import typetraits
+import std/typetraits
 
 type
   TFoo = object

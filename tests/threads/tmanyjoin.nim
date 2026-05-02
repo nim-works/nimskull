@@ -2,7 +2,7 @@ discard """
   outputsub: "129"
 """
 
-import os, locks
+import std/[os, locks]
 
 type
   MarkerObj = object

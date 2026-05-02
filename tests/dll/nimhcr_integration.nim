@@ -92,7 +92,7 @@ After instrumenting code, the stacktrace actually points to the call to `check m
 ## executing:
 ##   <this_file>.exe nim c --hotCodeReloading:on --nimCache:<folder> <this_file>.nim
 
-import os, osproc, strutils, hotcodereloading
+import std/[os, osproc, strutils, hotcodereloading]
 
 import nimhcr_0 # getInt() - the only thing we continually call from the main module
 

@@ -10,7 +10,7 @@ description: '''
 '''
 """
 
-import typetraits # without this import the program compiles (and echos false)
+import std/typetraits # without this import the program compiles (and echos false)
 
 type
   SomeTestConcept = concept t

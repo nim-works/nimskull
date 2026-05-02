@@ -3,10 +3,10 @@ joinable: false
 """
 
 # not joinable because it executes itself with parameters
-import os
-import osproc
-import parseopt
-import sequtils
+import std/os
+import std/osproc
+import std/parseopt
+import std/sequtils
 
 let argv = commandLineParams()
 

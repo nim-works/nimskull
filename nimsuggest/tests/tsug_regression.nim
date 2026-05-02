@@ -1,6 +1,6 @@
 # test we only get suggestions, not error messages:
 
-import tables, sets, parsecfg
+import std/[tables, sets, parsecfg]
 
 type X = object
 

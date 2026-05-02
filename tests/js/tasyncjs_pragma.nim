@@ -7,7 +7,7 @@ t
 
 # xxx merge into tasyncjs.nim
 
-import asyncjs, macros
+import std/[asyncjs, macros]
 
 macro f*(a: untyped): untyped =
   assert a.kind == nnkProcDef
@@ -25,4 +25,3 @@ proc t0* {.async.} =
   await t()
 
 discard t0()
-

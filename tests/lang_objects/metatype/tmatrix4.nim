@@ -1,4 +1,4 @@
-import math
+import std/math
 
 type
   TMatrix*[T; R, C: static[int]] = array[R, array[C, T]] ## Row major matrix type.
@@ -36,4 +36,3 @@ proc rotatex*(angle: float): TMat4 =
 
 proc orbitxAround(point: TVec4, angle: float): TMat4 =
   result = translate(point)*rotatex(angle)*translate(point)
-

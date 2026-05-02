@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 block t9043: # issue #9043
   proc foo[N: static[int]](dims: array[N, int]): string =

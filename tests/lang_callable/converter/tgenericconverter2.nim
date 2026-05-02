@@ -1,6 +1,6 @@
 # bug #3799
 
-import strutils
+import std/strutils
 
 const output = splitLines("""
 00000000000000000000000000000000000000000

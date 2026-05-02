@@ -5,7 +5,7 @@ discard """
 
 # bug #1152
 
-import macros, typetraits
+import std/[macros, typetraits]
 proc printfImpl(formatstr: cstring) {.importc: "printf", varargs.}
 
 iterator tokenize(format: string): char =

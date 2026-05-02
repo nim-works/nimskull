@@ -4,9 +4,9 @@ discard """
   output: "done"
 """
 
-import tables
-import sets
-import net
+import std/tables
+import std/sets
+import std/net
 
 type
   BasicBlock = object

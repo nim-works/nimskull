@@ -2,9 +2,9 @@ discard """
   action: "run"
   exitcode: 0
 """
-import db_sqlite
-import random
-import os
+import std/db_sqlite
+import std/random
+import std/os
 from stdtest/specialpaths import buildDir
 
 block tsqlitebindatas: ## db_sqlite binary data

@@ -4,10 +4,10 @@ discard """
 
 # bug #3793
 
-import os
-import math
-import lists
-import strutils
+import std/os
+import std/math
+import std/lists
+import std/strutils
 
 proc mkleak() =
     # allocate 1 MB via linked lists

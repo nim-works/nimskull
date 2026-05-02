@@ -1,4 +1,4 @@
-import tables
+import std/tables
 
 type
   FFoo* = object

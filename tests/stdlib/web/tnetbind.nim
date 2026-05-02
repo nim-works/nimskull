@@ -8,7 +8,7 @@ otherwise:
 Error: unhandled exception: Address already in use [OSError]
 ]#
 
-import net
+import std/net
 
 ## Test for net.bindAddr
 

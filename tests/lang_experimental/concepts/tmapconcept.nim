@@ -10,7 +10,7 @@ K=int V=int
 '''
 """
 
-import tables, typetraits
+import std/[tables, typetraits]
 
 template ok(check) = assert check
 template no(check) = assert(not check)
@@ -99,4 +99,3 @@ static:
   ok Table[int, float] is Map
   ok Table[int, string] is Map[SomeNumber, string]
   no JudyArray is Map[string, int]
-

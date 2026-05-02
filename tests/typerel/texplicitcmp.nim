@@ -6,7 +6,7 @@ discard """
 
 # bug #297
 
-import json, tables, algorithm
+import std/[json, tables, algorithm]
 
 proc outp(a: openarray[int]) =
   stdout.write "["

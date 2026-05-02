@@ -1,6 +1,6 @@
 # tests to see if a symbol returned from macros.getType() can
 # be used as a type
-import macros
+import std/macros
 
 macro testTypesym (t:typed): untyped =
     var ty = t.getType

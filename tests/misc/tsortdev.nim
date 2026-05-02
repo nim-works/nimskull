@@ -2,7 +2,7 @@ discard """
   output: "done tsortdev"
 """
 
-import algorithm, strutils
+import std/[algorithm, strutils]
 
 proc cmpPlatforms(a, b: string): int =
   if a == b: return 0

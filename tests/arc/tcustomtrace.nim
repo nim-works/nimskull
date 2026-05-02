@@ -22,7 +22,7 @@ joinable: false
   valgrind: "true"
 """
 
-import typetraits
+import std/typetraits
 
 type
   myseq*[T] = object

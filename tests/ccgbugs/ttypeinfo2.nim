@@ -1,5 +1,5 @@
 discard """
 """
 # bug #2841
-import typeinfo
+import std/typeinfo
 var tt: Any

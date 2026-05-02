@@ -32,8 +32,8 @@ true
 """
 
 import
-  critbits, sets, strutils, tables, random, algorithm, re, ropes,
-  lists, parsesql, streams, os, htmlgen, xmltree, strtabs
+  std/[critbits, sets, strutils, tables, random, algorithm, re, ropes],
+  std/[lists, parsesql, streams, os, htmlgen, xmltree, strtabs]
 
 
 block tcritbits:

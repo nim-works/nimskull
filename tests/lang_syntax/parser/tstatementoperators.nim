@@ -7,6 +7,6 @@ Infix
 '''
 """
 
-from macros import dumpTree
+from std/macros import dumpTree
 
 dumpTree(a from b)

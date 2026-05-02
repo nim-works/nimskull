@@ -3,7 +3,7 @@ discard """
 fish'''
 """
 
-import macros
+import std/macros
 
 block:
   template init(initHook: proc(s: string)) =

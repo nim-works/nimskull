@@ -27,7 +27,7 @@ Can't access 6
 11'''
 """
 
-import tables
+import std/tables
 
 block:
   var x = initTable[int, int]()
@@ -101,7 +101,7 @@ block:
   var c = x[5]
   echo c
 
-import sets
+import std/sets
 
 block:
   var x = initHashSet[int]()
@@ -112,7 +112,7 @@ block:
     echo "Can't access 6"
   echo x[5]
 
-import critbits
+import std/critbits
 
 block:
   var x: CritBitTree[int]
@@ -126,7 +126,7 @@ block:
   var c = x["5"]
   echo c
 
-import strtabs
+import std/strtabs
 
 block:
   var x = newStringTable()

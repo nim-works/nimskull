@@ -3,7 +3,7 @@ errormsg: "invalid type: 'untyped' in this context: 'proc (a: varargs[untyped])'
 line: 8
 """
 
-import typetraits
+import std/typetraits
 
 proc foo(a:varargs[untyped]) =
   echo a[0].type.name

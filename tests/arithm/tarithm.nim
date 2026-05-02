@@ -23,7 +23,7 @@ description: '''
 '''
 """
 
-import typetraits
+import std/typetraits
 
 block tcast:
   template crossCheck(ty: untyped, exp: untyped) =

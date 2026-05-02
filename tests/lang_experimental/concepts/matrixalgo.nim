@@ -1,4 +1,4 @@
-import typetraits
+import std/typetraits
 
 type
   AnyMatrix*[R, C: static[int]; T] = concept m, var mvar, type M
@@ -25,4 +25,3 @@ proc determinant*(m: AnySquareMatrix): int =
 
 proc setPerspectiveProjection*(m: AnyTransform3D) =
   discard
-

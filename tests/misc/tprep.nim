@@ -9,7 +9,7 @@ outputsub: ""
 # Test the features that used to belong to the preprocessor
 
 import
-  times
+  std/times
 
 #{.warning: "This is only a test warning!".}
 

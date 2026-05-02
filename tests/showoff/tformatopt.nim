@@ -5,7 +5,7 @@ s: abc
 )'''
 """
 
-import macros
+import std/macros
 
 proc invalidFormatString() =
   echo "invalidFormatString"

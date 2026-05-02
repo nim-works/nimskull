@@ -12,7 +12,6 @@ description: '''
 """
 
 
-import mresolution_identifier_1, times
+import mresolution_identifier_1, std/times
 var
   v = mDec
-

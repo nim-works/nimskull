@@ -5,7 +5,7 @@ seq[int]
 '''
 """
 
-import typetraits
+import std/typetraits
 
 type
   Gen[T] = object
@@ -25,4 +25,3 @@ let
   y = Gen[seq[int]](x: @[10])
 
 f2 y
-

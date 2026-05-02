@@ -9,7 +9,7 @@ int
 '''
 """
 
-import typetraits
+import std/typetraits
 
 template reject(expr) = assert(not compiles(x))
 

@@ -2,7 +2,7 @@ discard """
   output: "<html><head><title>now look at this</title></head><body><ul><li>Nim is quite capable</li></ul></body></html>"
 """
 
-import strutils
+import std/strutils
 
 template html(name, matter: untyped) =
   proc name(): string =

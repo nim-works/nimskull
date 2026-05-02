@@ -2,7 +2,7 @@
 # bug #3794
 
 
-import options
+import std/options
 
 proc getRef*(): Option[int] =
   return none(int)

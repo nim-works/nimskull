@@ -10,7 +10,7 @@ perm: 6778800.0 det: 0.0
 """
 
 
-import sequtils, sugar
+import std/[sequtils, sugar]
 
 iterator permutations*[T](ys: openarray[T]): tuple[perm: seq[T], sign: int] =
   var

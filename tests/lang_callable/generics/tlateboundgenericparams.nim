@@ -6,7 +6,7 @@ bar instantiated with 10
 '''
 """
 
-import typetraits
+import std/typetraits
 
 type
   Foo = object

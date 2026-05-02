@@ -12,7 +12,7 @@ discard """
 when true:
   # bug #2604
 
-  import algorithm
+  import std/algorithm
 
   iterator byDistance*[int]( ints: openArray[int], base: int ): int =
       var sortable = @ints
@@ -32,7 +32,7 @@ when true:
 when true:
   # bug #1527
 
-  import sequtils
+  import std/sequtils
 
   let thread = @[@[0, 0],
                  @[0, 1],

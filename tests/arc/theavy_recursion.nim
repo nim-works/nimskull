@@ -5,7 +5,7 @@ discard """
 
 # bug #15122
 
-import tables
+import std/tables
 
 type
   BENodeKind* = enum

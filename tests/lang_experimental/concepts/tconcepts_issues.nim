@@ -32,7 +32,7 @@ disabled: windows
 joinable: false
 """
 
-import macros, typetraits, os, posix
+import std/[macros, typetraits, os, posix]
 
 
 block t5983:
@@ -188,7 +188,7 @@ block t5888:
 
 
 
-import json
+import std/json
 block t5968:
   type
     Enumerable[T] = concept e
@@ -206,7 +206,7 @@ block t5968:
 
 
 
-import sugar
+import std/sugar
 block t6462:
   type
     FilterMixin[T] = ref object
@@ -279,7 +279,7 @@ block t8280:
 
 
 
-import math
+import std/math
 block t3452:
   type
     Node = concept n
@@ -500,4 +500,3 @@ type
 var r, b: Fp2[6, uint64]
 
 prod(r, b)
-

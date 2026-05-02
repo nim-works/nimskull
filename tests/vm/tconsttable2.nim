@@ -4,7 +4,7 @@ discard """
 
 # bug #2297
 
-import tables
+import std/tables
 
 proc html5tags*(): TableRef[string, string] =
   var html5tagsCache: Table[string,string]

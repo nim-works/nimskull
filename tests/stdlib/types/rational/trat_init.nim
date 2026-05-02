@@ -1,7 +1,7 @@
 discard """
   output: '''true'''
 """
-import rationals
+import std/rationals
 var
   z = Rational[int](num: 0, den: 1)
   o = initRational(num=1, den=1)

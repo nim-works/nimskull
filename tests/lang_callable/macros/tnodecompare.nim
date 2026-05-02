@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 static:
   let nodeA = newCommentStmtNode("this is a comment")

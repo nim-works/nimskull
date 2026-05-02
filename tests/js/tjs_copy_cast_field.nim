@@ -8,7 +8,7 @@ description: '''
 '''
 """
 
-import jsconsole, jsffi
+import std/[jsconsole, jsffi]
 
 type
   A = ref object
@@ -23,4 +23,3 @@ var a = cast[A](obj)
 a.b = B(b: 2)
 
 doAssert a.b == B( b: 2)
-

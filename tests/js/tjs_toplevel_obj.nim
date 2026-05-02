@@ -13,7 +13,7 @@ description: '''
 '''
 """
 
-import jsffi
+import std/jsffi
 proc testInsideProc =
   var obj = JsAssoc[cstring, int]{a: 2}
   for key, value in obj:
@@ -27,7 +27,3 @@ var obj = JsAssoc[cstring, int]{a: 2}
 for key, value in obj:
     doAssert key == "a"
     doAssert value == 2
-
-
-
-

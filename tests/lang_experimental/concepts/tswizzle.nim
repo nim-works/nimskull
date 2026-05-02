@@ -8,7 +8,7 @@ discard """
 
 {.experimental: "dotOperators".}
 
-import macros, strutils
+import std/macros, strutils
 
 template accept(e: untyped) =
   static: assert(compiles(e))
@@ -78,4 +78,3 @@ var z = Vec([1, 2, 3])
 echo z.card
 echo z.xz
 echo z.yxy
-

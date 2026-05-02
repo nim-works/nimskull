@@ -4,7 +4,7 @@ discard """
   targets: "c"
 """
 
-import osproc, os, strtabs
+import std/[osproc, os, strtabs]
 
 # Checks that the environment is passed correctly in startProcess
 # To do that launches a copy of itself with a new environment.

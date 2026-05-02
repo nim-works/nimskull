@@ -6,7 +6,7 @@ outputsub: ""
 
 import ../../lib/packages/docutils/rstgen
 import ../../lib/packages/docutils/rst
-import unittest, strutils, strtabs
+import std/[unittest, strutils, strtabs]
 import std/private/miscdollars
 
 proc toHtml(input: string,

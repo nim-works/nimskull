@@ -6,7 +6,7 @@ discard """
 (x: 900.0, y: 900.0)'''
 """
 
-import strutils, sequtils
+import std/[strutils, sequtils]
 
 # bug #668
 

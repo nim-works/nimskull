@@ -28,8 +28,8 @@ proc testRoundtripVal[T](t: T, expected: string) =
   doAssert t2 == t
   doAssert $t2.toJson == j2 # still needed, because -0.0 = 0.0 but their json representation differs
 
-import tables, sets, algorithm, sequtils, options, strtabs
-from strutils import contains
+import std/[tables, sets, algorithm, sequtils, options, strtabs]
+from std/strutils import contains
 
 type Foo = ref object
   id: int

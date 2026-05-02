@@ -3,7 +3,7 @@ discard """
 nimout: "##"
 """
 
-import macros
+import std/macros
 
 proc testProc: string {.compileTime.} =
   result = ""

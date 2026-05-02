@@ -3,7 +3,7 @@ cmd: "nim check $file"
 action: "reject"
 """
 
-import tables
+import std/tables
 
 {.experimental: "strictNotNil".}
 
@@ -379,4 +379,3 @@ proc testItemDeref(a: var seq[Nilable]) =
 # # #     c_memset(globalA.addr, 0, globalA.sizeOf.csize_t)
 # # #     globalA = nil
 # # #     echo a.a # can't deref a: it might be nil
-

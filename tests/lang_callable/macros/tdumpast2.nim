@@ -1,6 +1,6 @@
 # Dump the contents of a NimNode
 
-import macros
+import std/macros
 
 proc dumpit(n: NimNode): string {.compileTime.} =
   if n == nil: return "nil"
@@ -31,5 +31,3 @@ dumpAST:
     return x + y
 
   proc sub(x, y: int): int = return x - y
-
-

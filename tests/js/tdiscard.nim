@@ -1,4 +1,4 @@
-import dom
+import std/dom
 
 discard Node()
 

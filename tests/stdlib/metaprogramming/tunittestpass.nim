@@ -3,7 +3,7 @@ discard """
 """
 
 
-import unittest
+import std/unittest
 
 block:
   check (type(1.0)) is float

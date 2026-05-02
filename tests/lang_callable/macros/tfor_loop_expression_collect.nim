@@ -5,7 +5,7 @@ discard """
 
 const data = [1,2,3,4,5,6]
 
-import macros
+import std/macros
 
 macro collect(body): untyped =
   # analyse the body, find the deepest expression 'it' and replace it via

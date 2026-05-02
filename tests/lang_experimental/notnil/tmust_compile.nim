@@ -28,7 +28,7 @@ echo "success"
 
 # bug #6555
 
-import tables
+import std/tables
 
 type
   TaskOrNil = ref object
@@ -39,7 +39,7 @@ table.del("task")
 
 # bug #6121
 
-import json
+import std/json
 
 type
 

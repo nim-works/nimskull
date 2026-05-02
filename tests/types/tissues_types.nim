@@ -13,7 +13,7 @@ false
 '''
 """
 
-import typetraits
+import std/typetraits
 
 block t1252:
   echo float32 isnot float64
