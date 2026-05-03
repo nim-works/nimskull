@@ -8,7 +8,7 @@ discard """
 
 {.experimental: "dotOperators".}
 
-import std/macros, strutils
+import std/[macros, strutils]
 
 template accept(e: untyped) =
   static: assert(compiles(e))
