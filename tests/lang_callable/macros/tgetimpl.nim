@@ -5,7 +5,7 @@ proc poo(x, y: int) =
   echo ["poo"]'''
 """
 
-import macros
+import std/macros
 
 const
   foo = "muhaha"

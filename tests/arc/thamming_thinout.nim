@@ -7,8 +7,8 @@ discard """
 # compile with "-d:release -d:danger" and test with various
 # memory managment GC's, allocators, threading, etc.
 
-from times import epochTime
-from math import log2
+from std/times import epochTime
+from std/math import log2
 
 # implement our own basic BigInt so the bigints library isn't necessary...
 type

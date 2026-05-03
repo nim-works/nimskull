@@ -24,7 +24,7 @@ R
 """
 
 # bug #5360
-import macros
+import std/macros
 
 type
   Order = enum
@@ -134,7 +134,7 @@ pstruct(oni.addr)
 
 # bug #4124
 
-import sequtils
+import std/sequtils
 
 type
     Foo = distinct string

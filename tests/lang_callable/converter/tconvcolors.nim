@@ -2,6 +2,6 @@ discard """
 output: "16777215A"
 """
 
-import colors
+import std/colors
 
 echo int32(colWhite), 'A'

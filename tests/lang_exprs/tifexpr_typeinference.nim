@@ -4,7 +4,7 @@ action: compile
 
 #bug #712
 
-import tables
+import std/tables
 
 proc test(): Table[string, string] =
   discard

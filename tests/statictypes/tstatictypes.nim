@@ -25,7 +25,7 @@ Val1
 matrix: "--hints:off"
 """
 
-import macros
+import std/macros
 
 template ok(x) = doAssert(x)
 template no(x) = doAssert(not x)
@@ -275,7 +275,7 @@ block:
   fails(foo)
 
 
-import tables
+import std/tables
 
 var foo{.compileTime.} = [
   "Foo",

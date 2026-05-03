@@ -14,10 +14,10 @@ List
   cmd: '''nim c --gc:arc $file'''
 """
 
-import os
-import math
-import lists
-import strutils
+import std/os
+import std/math
+import std/lists
+import std/strutils
 
 proc mkleak() =
   # allocate 1 MB via linked lists
@@ -122,7 +122,7 @@ proc bug12964*() =
 bug12964()
 
 # bug #13119
-import streams
+import std/streams
 
 proc bug13119 =
   var m = newStringStream("Hello world")
@@ -154,7 +154,7 @@ echo getOccupiedMem() - startMem
 #------------------------------------------------------------------------------
 # issue #14294
 
-import tables
+import std/tables
 
 type
   TagKind = enum

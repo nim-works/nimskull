@@ -73,7 +73,7 @@ block tn8vsint16:
 
 
 
-import strutils
+import std/strutils
 block tcolors:
   type TColor = distinct int32
 

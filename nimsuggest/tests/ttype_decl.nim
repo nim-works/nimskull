@@ -5,7 +5,7 @@ sug;;skType;;ttype_decl.Other;;Other;;$file;;10;;2;;"";;100;;None
 sug;;skType;;system.int;;int;;*/lib/system/basic_types.nim;;2;;2;;"";;100;;None
 sug;;skType;;system.string;;string;;*/lib/system.nim;;34;;2;;"";;100;;None
 """
-import strutils
+import std/strutils
 type
   Other = object ## My other object.
   Foo = #[!]#

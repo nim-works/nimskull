@@ -3,7 +3,7 @@ cmd: "nim check --warningAsError:StrictNotNil $file"
 action: "compile"
 """
 
-import tables
+import std/tables
 
 {.experimental: "strictNotNil".}
 

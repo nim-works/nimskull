@@ -1,4 +1,4 @@
-import typeinfo
+import std/typeinfo
 
 type
   TE = enum

@@ -2,8 +2,8 @@ discard """
 outputsub: ""
 """
 
-import algorithm
-import unittest
+import std/algorithm
+import std/unittest
 
 
 suite "test sort, sorted, and isSorted procs":

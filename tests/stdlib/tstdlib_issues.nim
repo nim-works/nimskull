@@ -17,7 +17,7 @@ Second readLine raised an exception
 '''
 """
 
-import terminal, colors, re, encodings, strutils, os
+import std/[terminal, colors, re, encodings, strutils, os]
 
 
 block t9394:

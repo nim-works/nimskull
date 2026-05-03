@@ -6,7 +6,7 @@ R=3 C=3 T=int
 '''
 """
 
-import typetraits
+import std/typetraits
 
 template ok(x) = assert x
 template no(x) = assert(not x)
@@ -78,4 +78,3 @@ static:
 echo x.myMatrixProc
 echo x.genericMatrixProc
 echo x.implicitMatrixProc
-

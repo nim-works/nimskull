@@ -6,7 +6,7 @@ disabled: "windows"
 # If your os is windows and this test fails for you locally, please
 # check what is going wrong.
 
-import os
+import std/os
 
 template getScriptDir(): string =
   parentDir(instantiationInfo(-1, true).filename)

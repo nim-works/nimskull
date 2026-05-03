@@ -1,7 +1,7 @@
 discard """
 """
 
-import macros
+import std/macros
 
 proc symToIdent(x: NimNode): NimNode =
   case x.kind:

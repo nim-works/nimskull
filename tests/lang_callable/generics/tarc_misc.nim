@@ -11,7 +11,7 @@ var unrelated: seq[proc() {.closure, gcsafe.}]
 unrelated.add proc () =
   echo "gcsafe"
 
-import tables, sequtils
+import std/[tables, sequtils]
 let t = newTable[int, proc()]()
 
 type

@@ -3,7 +3,7 @@ discard """
   outputsub: '''exception type is [ValueError]'''
 """
 
-import unittest
+import std/unittest
 
 suite "exception from test":
   test "show exception type":

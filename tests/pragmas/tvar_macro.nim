@@ -1,7 +1,7 @@
 discard """
 """
 
-import macros
+import std/macros
 
 block: # test usage
   macro modify(sec) =

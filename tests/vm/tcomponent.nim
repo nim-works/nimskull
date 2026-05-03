@@ -9,9 +9,9 @@ FOO: blah'''
 
 # bug #3729
 
-import macros, sequtils, tables
-import strutils
-import sugar, meta
+import std/[macros, sequtils, tables]
+import std/strutils
+import std/[sugar], meta
 
 type
   Component = object

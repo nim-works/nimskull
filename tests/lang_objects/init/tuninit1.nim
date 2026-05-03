@@ -3,7 +3,7 @@ discard """
   action: compile
 """
 
-import strutils
+import std/strutils
 
 {.warning[Uninit]:on.}
 

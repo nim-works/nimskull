@@ -1,6 +1,6 @@
 # Test a VM relative jump with an offset larger then 32767 instructions.
 
-import macros
+import std/macros
 
 static:
   var a = 0

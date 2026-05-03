@@ -8,9 +8,9 @@ discard """
 disabled: see https://github.com/timotheecour/Nim/issues/528
 ]#
 
-import strutils
+import std/strutils
 
-import nativesockets, os, httpclient
+import std/[nativesockets, os, httpclient]
 
 proc syncTest() =
   var client = newHttpClient()

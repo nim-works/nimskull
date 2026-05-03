@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 proc t1* = discard
 proc t2 = discard

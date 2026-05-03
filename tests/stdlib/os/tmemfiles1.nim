@@ -1,4 +1,4 @@
-import memfiles, os
+import std/[memfiles, os]
 var
   mm: MemFile
   fn = "test.mmap"

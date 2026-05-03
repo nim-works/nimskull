@@ -4,7 +4,7 @@ discard """
   cmd: "nim $target --hints:on --threads:on $options $file"
 """
 
-import os
+import std/os
 
 var
   thr: array[0..5, Thread[tuple[a, b: int]]]
@@ -49,4 +49,3 @@ proc main =
   joinThreads(thr)
 
 main()
-

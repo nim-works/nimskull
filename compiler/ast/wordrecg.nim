@@ -119,7 +119,7 @@ const
 const enumUtilsExist = compiles:
   import std/enumutils
 
-import strutils
+import std/strutils
 
 when enumUtilsExist:
   from std/enumutils import genEnumCaseStmt

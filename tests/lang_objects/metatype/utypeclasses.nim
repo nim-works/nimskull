@@ -1,4 +1,4 @@
-import unittest
+import std/unittest
 
 proc concat(a, b): string =
   result = $a & $b
@@ -10,4 +10,3 @@ block: # if proc param types are not supplied, the params are assumed to be gene
 
 block: # explicit param types can still be specified
   check concat[cstring, cstring]("x", "y") == "xy"
-

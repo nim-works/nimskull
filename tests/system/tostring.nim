@@ -42,7 +42,7 @@ const
 # ensure same result when on VM or when at program execution
 doAssert dataStr == $data
 
-import strutils
+import std/strutils
 # array test
 
 let arr = ['H','e','l','l','o',' ','W','o','r','l','d','!','\0']

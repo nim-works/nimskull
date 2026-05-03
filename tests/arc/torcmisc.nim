@@ -3,7 +3,7 @@ discard """
 """
 
 # bug #18240
-import tables
+import std/tables
 
 type
   TopicHandler* = proc(topic: string,

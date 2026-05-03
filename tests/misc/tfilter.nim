@@ -28,7 +28,7 @@ proc outer =
 
 outer()
 
-import math
+import std/math
 proc compose[T](f1, f2: proc (x: T): T {.closure.}): proc (x: T): T {.closure.} =
   result = (proc (x: T): T =
              result = f1(f2(x)))
@@ -38,4 +38,3 @@ proc add5(x: int): int = result = x + 5
 
 var test = compose(add5, add5)
 echo test(5)
-

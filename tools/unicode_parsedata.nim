@@ -1,4 +1,4 @@
-import strutils, algorithm
+import std/[strutils, algorithm]
 
 let
   # this file was obtained from:

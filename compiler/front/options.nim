@@ -18,8 +18,8 @@ export in_options
 
 when not FileSystemCaseSensitive:
   from compiler/utils/strutils2 import toLowerAscii
-from terminal import isatty
-from times import utc, fromUnix, local, getTime, format, DateTime
+from std/terminal import isatty
+from std/times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
@@ -1336,7 +1336,7 @@ when not declared(isRelativeTo):
     result = path.len > 0 and not ret.startsWith ".."
 
 const stdlibDirs = [
-  "pure", "core", "arch",
+  "pure", "core", "arch", "std",
   "pure/collections",
   "pure/concurrency",
   "pure/unidecode", "impure",
@@ -1380,33 +1380,28 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
-  ## Return absolute path to the imported module `modulename`. Imported
-  ## path can be relative to the `currentModule`, absolute one, `std/` or
-  ## `pkg/`-prefixed. In case of `pkg/` prefix it is dropped and search is
-  ## performed again, while ignoring stdlib.
-  ##
-  ## Search priority is
-  ##
-  ## 1. `pkg/` prefix
-  ## 2. Stdlib prefix
-  ## 3. Relative to the current file
-  ## 4. Search in the `--path` (see `findFile` and `rawFindFile`)
-  ##
-  ## If the module is found and exists module override, apply it last.
+  ## Returns the absolute path for the module addressed by import path
+  ## `modulename`, or an empty string when the import path cannot be resolved
+  ## to a module. The imported path may be:
+  ## 1. a relative path. If it's not relative to the directory of
+  ##    `currentModule`, it's searched for on the search paths
+  ## 2. an `std/`-prefixed path. The part past the prefix is treated as a
+  ##    path relative to one of the standard library directories
+  ## 3. a `pkg/`-prefixed path. The module is searched for on the search paths
+  ##   (except that of the standard library)
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
     result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
+  elif m.startsWith(stdPrefix):
+    let stripped = m.substr(stdPrefix.len)
+    for candidate in stdlibDirs:
+      let path = (conf.libpath.string / candidate / stripped)
+      if fileExists(path):
+        result = AbsoluteFile path
+        break
   else:
-    if m.startsWith(stdPrefix):
-      let stripped = m.substr(stdPrefix.len)
-      for candidate in stdlibDirs:
-        let path = (conf.libpath.string / candidate / stripped)
-        if fileExists(path):
-          result = AbsoluteFile path
-          break
-    else: # If prefixed with std/ why would we add the current module path!
-      let currentPath = currentModule.splitFile.dir
-      result = AbsoluteFile currentPath / m
+    # look in the current directory first, then try the search paths
+    result = AbsoluteFile(currentModule.splitFile.dir / m)
     if not fileExists(result):
       result = findFile(conf, m)
 

@@ -1,7 +1,7 @@
 discard """
   action: "compile"
 """
-import sugar
+import std/sugar
 
 
 block:

@@ -196,7 +196,7 @@
   * `monotimes module <monotimes.html>`_
 ]##
 
-import strutils, math, options
+import std/strutils, math, options
 
 import std/private/since
 include "system/inclrtl"

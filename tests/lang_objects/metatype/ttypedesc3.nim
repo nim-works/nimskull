@@ -11,7 +11,7 @@ yield Child
 '''
 """
 
-import typetraits
+import std/typetraits
 
 type
   Base = object of RootObj

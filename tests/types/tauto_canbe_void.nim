@@ -6,7 +6,7 @@ arg
 """
 
 
-import sugar
+import std/sugar
 
 template tempo(s) =
   s("arg")

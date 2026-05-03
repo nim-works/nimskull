@@ -4,8 +4,8 @@ discard """
 """
 
 # bug #4462
-import macros
-import os
+import std/macros
+import std/os
 
 block:
   proc foo(t: typedesc) {.compileTime.} =
@@ -22,7 +22,7 @@ block:
     var x = default(type(0))
 
 # #6379
-import algorithm
+import std/algorithm
 
 static:
   var numArray = [1, 2, 3, 4, -1]
@@ -34,7 +34,7 @@ static:
   doAssert str == "abc"
 
 # #6086
-import math, sequtils, sugar
+import std/[math, sequtils, sugar]
 
 block:
   proc f: int =
@@ -142,7 +142,7 @@ static:
   doAssert o.names == "FOOBARFOOBAR"
 
 # #8154
-import parseutils
+import std/parseutils
 
 static:
   type Obj = object
@@ -235,7 +235,7 @@ block: # bug #15595
   main()
 
 # bug #15363
-import sequtils
+import std/sequtils
 
 block:
   func identity(a: bool): bool = a
@@ -304,7 +304,7 @@ when defined osx: # xxx bug https://github.com/nim-lang/Nim/issues/10815#issueco
     const a = Charset(cs: {'a'..'z'})
     doAssert a.repr.len > 0
 
-import tables
+import std/tables
 
 block: # bug #8007
   type

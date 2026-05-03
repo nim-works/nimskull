@@ -4,9 +4,7 @@ disabled: true
 
 ## JSON tests based on https://github.com/nst/JSONTestSuite
 
-import unittest,
-  json,
-  strutils
+import std/[unittest, json, strutils]
 
 let parsing_testdata = {
   "i_number_neg_int_huge_exp": """[-1e+9999]""",

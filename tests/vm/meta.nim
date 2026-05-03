@@ -2,8 +2,8 @@
 # meta.nim
 #
 
-import tables
-import macros
+import std/tables
+import std/macros
 
 type
   NodeSeq* = seq[NimNode]

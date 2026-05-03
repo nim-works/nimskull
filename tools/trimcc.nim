@@ -1,6 +1,6 @@
 # Trim C compiler installation to a minimum
 
-import strutils, os, pegs, strtabs, math, times
+import std/[strutils, os, pegs, strtabs, math, times]
 
 const
   Essential = """gcc.exe g++.exe gdb.exe ld.exe as.exe c++.exe cpp.exe cc1.exe

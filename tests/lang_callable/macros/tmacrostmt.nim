@@ -1,4 +1,4 @@
-import macros
+import std/macros
 macro case_token(n: varargs[untyped]): untyped =
   # creates a lexical analyzer from regular expressions
   # ... (implementation is an exercise for the reader :-)

@@ -21,7 +21,7 @@ when compileOption("app", "lib"):
     exported_thr {.exportc, threadvar, dynlib.}: int
   proc exported_func() {.exportc, dynlib.} = discard
 elif isMainModule:
-  import dynlib
+  import std/dynlib
 
   let handle = loadLib(LibName)
 

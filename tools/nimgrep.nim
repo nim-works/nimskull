@@ -8,7 +8,7 @@
 #
 
 import
-  os, strutils, parseopt, pegs, re, terminal, osproc, tables, algorithm, times
+  std/[os, strutils, parseopt, pegs, re, terminal, osproc, tables, algorithm, times]
 
 const
   Version = "1.6.0"

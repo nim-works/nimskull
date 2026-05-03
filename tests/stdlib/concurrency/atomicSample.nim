@@ -1,4 +1,4 @@
-import atomics
+import std/atomics
 
 type
   AtomicWithGeneric*[T] = object
@@ -6,4 +6,3 @@ type
 
 proc initAtomicWithGeneric*[T](value: T): AtomicWithGeneric[T] =
   result.value.store(value)
-

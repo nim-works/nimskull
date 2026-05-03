@@ -13,8 +13,8 @@ destroy Foo
 
 # bug #15325
 
-import tables
-import strutils
+import std/tables
+import std/strutils
 
 const defaultSection = "***"
 
@@ -158,4 +158,3 @@ proc main2 =
   testMe2(b)
 
 main2()
-

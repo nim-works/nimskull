@@ -259,7 +259,7 @@ doAssert negativeOrNot(0) == "zero or positive"
 
 ########################################################
 # issue #13490
-import strutils
+import std/strutils
 func foo(input: string): int =
   try:
     parseInt(input)

@@ -4,7 +4,7 @@ discard """
 
 # bug #4432
 
-import strutils
+import std/strutils
 
 converter toInt(s: string): int =
   result = parseInt(s)

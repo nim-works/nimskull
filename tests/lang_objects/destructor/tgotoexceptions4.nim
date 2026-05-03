@@ -43,7 +43,7 @@ when true:
 
 # bug #13782
 
-import strutils
+import std/strutils
 var n = 123
 
 try: n = parseInt("xxx")

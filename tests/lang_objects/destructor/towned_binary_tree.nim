@@ -6,7 +6,7 @@ discard """
 
 #  bug #11053
 
-import random
+import std/random
 
 type Node = ref object
   x, y: int32

@@ -9,9 +9,9 @@ discard """
   '''
 """
 
-from sugar import `->`, `=>`
-from math import `^`, sum
-from sequtils import filter, map, toSeq
+from std/sugar import `->`, `=>`
+from std/math import `^`, sum
+from std/sequtils import filter, map, toSeq
 
 proc f: int =
   toSeq(10..<10_000).filter(a => a == ($a).map(d => (d.ord-'0'.ord).int^4).sum).sum
@@ -19,4 +19,3 @@ proc f: int =
 var a = f()
 
 doAssert a == 19316
-

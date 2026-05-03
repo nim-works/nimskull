@@ -65,7 +65,7 @@ type
     of fkLit: value: float
     of fkAdd, fkMul, fkExp: left, right: Formula
 
-from math import pow
+from std/math import pow
 
 proc evaluate(n: Formula, varToVal: proc (name: string): float): float =
   case n.kind
@@ -102,7 +102,7 @@ proc pat2kind(pattern: string): FormulaKind =
   of "c": fkLit
   else:   fkVar # no error reporting for reasons of simplicity
 
-import macros
+import std/macros
 
 proc matchAgainst(n, pattern: NimNode): NimNode {.compileTime.} =
   template `@`(current, field: untyped): untyped =

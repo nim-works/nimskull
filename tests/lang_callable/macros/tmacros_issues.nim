@@ -45,7 +45,7 @@ false
 """
 
 
-import macros, parseutils
+import std/[macros, parseutils]
 
 
 block t7723:
@@ -274,7 +274,7 @@ foobar()
 
 
 # bug #13253
-import macros
+import std/macros
 
 type
   FooBar = object

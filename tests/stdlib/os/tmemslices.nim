@@ -4,7 +4,7 @@ outputsub: "rlwuiadtrnzb"
 
 # chatever the sub pattern it will find itself
 
-import memfiles
+import std/memfiles
 var inp = memfiles.open("tests/stdlib/os/tmemslices.nim")
 for mem in memSlices(inp):
   if mem.size > 3:

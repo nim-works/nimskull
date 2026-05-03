@@ -5,9 +5,9 @@ true'''
   joinable: false
 """
 
-import os, osproc
+import std/[os, osproc]
 when not defined(windows):
-  import posix
+  import std/posix
 
 # Checks that the environment is passed correctly in startProcess
 # To do that launches a copy of itself with a new environment.

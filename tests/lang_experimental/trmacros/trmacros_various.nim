@@ -8,7 +8,7 @@ optimized
 '''
 """
 
-import macros, pegs
+import std/[macros, pegs]
 
 block constraints:
   block atoms:
@@ -116,4 +116,3 @@ block tstatic_t_bug:
     a += b * scaleval
 
   main()
-

@@ -29,7 +29,7 @@ foo(s)
 doAssert $s == """@[(x: "2", y: 4), (x: "4", y: 5), (x: "4", y: 5)]"""
 
 # bug  #5933
-import sequtils
+import std/sequtils
 
 type
   Test = object

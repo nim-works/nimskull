@@ -334,7 +334,7 @@ block troof:
 
 
 
-import strutils, sequtils, typetraits, os
+import std/[strutils, sequtils, typetraits, os]
 
 type
   MetadataArray* = object
@@ -479,7 +479,7 @@ when not defined(js):
 
 
 
-import macros
+import std/macros
 block issue_7818:
    #inconsistent internal representation of generic objects array construction
   type

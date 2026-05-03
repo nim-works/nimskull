@@ -144,7 +144,7 @@ seq4 = block:
 
 doAssert seq4[0] == 3.0
 
-import macros
+import std/macros
 
 seq4 =
   if i > 0: newMySeq(2, 5.0)
@@ -190,4 +190,3 @@ proc toTable(pairs: sink openArray[(string, MySeqNonCopyable)]): TableNonCopyabl
 
 
 let mytable = {"a": newMySeq(2, 5.0)}.toTable
-

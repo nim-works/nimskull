@@ -1,5 +1,5 @@
 import
-  macros, algorithm, strutils
+  std/[macros, algorithm, strutils]
 
 proc normalProc(x: int) =
   echo x
@@ -170,4 +170,3 @@ proc overloadedProc[T](x: T) =
   echo x
 
 """
-

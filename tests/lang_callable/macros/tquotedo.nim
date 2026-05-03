@@ -8,7 +8,7 @@ Hallo Welt
 '''
 """
 
-import macros
+import std/macros
 
 macro mac(): untyped =
   quote do:
@@ -27,7 +27,7 @@ foobar:
   echo "Hallo Welt"
 
 # bug #3744
-import macros
+import std/macros
 macro t(): untyped =
   return quote do:
     proc tp(): int =

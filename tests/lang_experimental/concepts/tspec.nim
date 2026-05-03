@@ -11,7 +11,7 @@ string int'''
   joinable: false
 """
 
-import hashes
+import std/hashes
 
 type
   Comparable = concept a, b
@@ -82,7 +82,7 @@ block:
   var x = @[1, 2, 3]
   indexOf(x, 4)
 
-import tables, typetraits
+import std/[tables, typetraits]
 
 type
   Dict[K, V] = concept s
@@ -103,4 +103,3 @@ type Monoid = concept x, y
 proc z(x: typedesc[int]): int = 0
 
 doAssert int is Monoid
-

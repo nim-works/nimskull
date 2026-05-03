@@ -8,7 +8,7 @@ let
   file2 = "tests/testdata/doc1.xml"
 
 import
-  os, times, strutils
+  std/[os, times, strutils]
 
 proc main() =
   var

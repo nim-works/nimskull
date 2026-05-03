@@ -5,7 +5,7 @@ description: '''
 '''
 """
 
-import typetraits
+import std/typetraits
 
 type
   S[N: static[int]] = object
@@ -18,5 +18,3 @@ var
   y: T[C.N, C.N]
 
 doAssert y.type.name == "T[1, 1]"
-
-

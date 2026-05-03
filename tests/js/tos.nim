@@ -2,7 +2,7 @@
 
 static: doAssert defined(nodejs)
 
-import os
+import std/os
 
 block:
   doAssert "./foo//./bar/".normalizedPath == "foo/bar"

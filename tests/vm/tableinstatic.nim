@@ -5,7 +5,7 @@ discard """
 '''
 """
 
-import tables
+import std/tables
 
 # bug #5327
 

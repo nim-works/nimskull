@@ -21,7 +21,7 @@ var (a, b) = (1, 2)
 '''
 """
 
-import macros
+import std/macros
 
 macro echoTypedRepr(arg: typed) =
   result = newCall(ident"echo", newLit(arg.repr))

@@ -2,7 +2,7 @@ discard """
   action: "run"
 """
 
-import jsffi
+import std/jsffi
 
 proc throwError() {.importjs: "throw new Error('a new error')".}
 

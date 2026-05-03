@@ -4,7 +4,7 @@ discard """
 
 # bug #5402
 
-import lists
+import std/lists
 
 type
   Container[T] = ref object

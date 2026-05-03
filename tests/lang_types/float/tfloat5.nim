@@ -7,7 +7,7 @@ output: '''
 '''
 """
 
-import parseutils
+import std/parseutils
 
 var f: float
 echo "*".parseFloat(f), " : ", f

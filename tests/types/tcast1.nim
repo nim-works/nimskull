@@ -7,7 +7,7 @@ output: '''
 
 # bug #6406
 
-import sequtils
+import std/sequtils
 
 proc remap1(s: seq[int], T: typedesc): seq[T] =
   s.map do (x: int) -> T:
@@ -60,4 +60,3 @@ static:
   doAssert(bool(-0.0) == false)
   test_conv_to_bool()
 test_conv_to_bool()
-

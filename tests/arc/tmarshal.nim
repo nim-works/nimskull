@@ -9,7 +9,7 @@ omega 200
 0'''
 """
 
-import marshal
+import std/marshal
 
 template testit(x) = discard $$to[typeof(x)]($$x)
 

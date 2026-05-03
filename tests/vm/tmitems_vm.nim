@@ -18,7 +18,7 @@ macro calc*(): void =
 calc()
 
 # bug #3859
-import macros
+import std/macros
 macro m: void =
   var s = newseq[NimNode](3)
   # var s: array[3,NimNode]                 # not working either

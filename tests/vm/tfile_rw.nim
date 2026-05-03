@@ -5,7 +5,7 @@ discard """
 
 # test file read write in vm
 
-import os, strutils
+import std/[os, strutils]
 
 const filename  = splitFile(currentSourcePath).dir / "tfile_rw.txt"
 

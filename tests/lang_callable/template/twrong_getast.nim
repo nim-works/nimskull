@@ -3,7 +3,7 @@ discard """
   line: 16
 """
 
-import macros
+import std/macros
 
 template grainBlock(proxyTypeName: untyped, proxyProcs: untyped): typed =
   discard
@@ -16,4 +16,3 @@ macro foo(): untyped =
   let x = getAst grainBlock(proxyTypeName, proxyProcs, proxyTypeName)
 
 foo()
-
