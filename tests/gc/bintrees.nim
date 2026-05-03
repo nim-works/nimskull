@@ -1,6 +1,6 @@
 # -*- nim -*-
 
-import std/os, strutils
+import std/[os, strutils]
 
 type
   PNode = ref TNode
