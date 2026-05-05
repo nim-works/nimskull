@@ -870,30 +870,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
                                 srcCodeOrigin: instLoc())
       return
 
-  template argProcessCfgPath(conf: ConfigRef, arg, s: string): AbsoluteDir =
-    let
-      path = if arg.len > 0 and arg[0] == '"': strutils.unescape(arg)
-             else: arg
-      info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
-      # xxx: we hack commandLineSrcIdx at callers like `nimconf` to get different
-      #      info here; rework so it's all handled via returns and remove the
-      #      need for info.
-      basedir = toFullPath(conf, info).splitFile().dir
-      p = if os.isAbsolute(path) or '$' in path:
-              path
-            else:
-              basedir / path
-    try:
-      AbsoluteDir pathSubs(conf, p, basedir)
-    except ValueError:
-      result = ProcSwitchResult(kind: procSwitchErrArgPathInvalid,
-                                switch: result.switch,
-                                givenSwitch: s,
-                                givenArg: arg,
-                                pathAttempted: p,
-                                srcCodeOrigin: instLoc())
-      return
-
   template argSplit(s, arg: string; key, val: var string) =
     if not splitSwitch(arg, key, val):
       result = ProcSwitchResult(kind: procSwitchErrArgMalformedKeyValPair,
