@@ -9,8 +9,8 @@
 ## Source code for this module can be found at
 ## https://github.com/gradha/argument_parser.
 
-import os, strutils, tables, math, parseutils, sequtils, sets, algorithm,
-  unicode
+import std/[os, strutils, tables, math, parseutils, sequtils, sets, algorithm,
+  unicode]
 
 const
   VERSION_STR* = "0.1.2" ## Module version as a string.

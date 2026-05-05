@@ -1,4 +1,4 @@
-import osproc, streams, os, strutils, re
+import std/[osproc, streams, os, strutils, re]
 {.experimental.}
 
 ## Compiler as a service tester.

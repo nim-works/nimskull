@@ -3,8 +3,8 @@
 # Heavily modified to provide more subjectively useful results
 # for on the Nim manual.
 #
-import strutils
-import math
+import std/strutils
+import std/math
 
 
 const

@@ -2,8 +2,8 @@ discard """
 outputsub: ""
 """
 
-import net, nativesockets
-import unittest
+import std/[net, nativesockets]
+import std/unittest
 
 block: # isIpAddress tests
   block: # 127.0.0.1 is valid

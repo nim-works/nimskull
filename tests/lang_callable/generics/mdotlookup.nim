@@ -7,7 +7,7 @@ proc foo*(b: auto) =
   var o: MyObj
   echo b.baz, " ", o.x.baz, " ", b.baz()
 
-import sets
+import std/sets
 
 var intset = initHashSet[int]()
 

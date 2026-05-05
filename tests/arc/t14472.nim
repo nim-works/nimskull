@@ -26,7 +26,7 @@ var s = bork()
 #------------------------------------------------------------------------
 # issue #15543
 
-import tables
+import std/tables
 
 type
   cdbl {.importc: "double".} = object
@@ -39,5 +39,3 @@ proc test =
   var x = new(MyObject)
 
 test()
-
-

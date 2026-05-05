@@ -7,7 +7,7 @@ description: '''
 '''
 """
 
-import atomics
+import std/atomics
 
 type
   Pledge* {.exportc.} = object

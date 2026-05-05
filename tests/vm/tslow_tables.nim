@@ -8,7 +8,7 @@ done'''
 
 # bug #12195
 
-import tables
+import std/tables
 
 type Flop = object
   a: array[128, int]  # <-- compile time is proportional to array size
@@ -27,4 +27,3 @@ proc hop(): bool =
   echo "done"
 
 const r {.used.} = hop()
-

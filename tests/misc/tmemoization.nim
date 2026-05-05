@@ -3,7 +3,7 @@ discard """
   output: "TEST 1\nTEST 2\nTEST 3"
 """
 
-import strutils
+import std/strutils
 
 proc foo(s: static[string]): string =
   static: echo s
@@ -14,4 +14,3 @@ proc foo(s: static[string]): string =
 echo foo("test 1")
 echo foo("test 2")
 echo foo("test " & $3)
-

@@ -1,5 +1,5 @@
 # bug #1679
-import macros, tables, hashes
+import std/[macros, tables, hashes]
 proc hash(v: NimNode): Hash = 4  # performance is for suckers
 macro test(body: untyped) =
   var a = initCountTable[NimNode]()

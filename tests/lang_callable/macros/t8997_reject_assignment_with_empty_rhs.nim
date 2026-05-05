@@ -4,7 +4,7 @@ discard """
   line: 25
 """
 
-import macros
+import std/macros
 
 type
   Node* = ref object

@@ -10,7 +10,7 @@ description: '''
 '''
 """
 
-import jsffi
+import std/jsffi
 
 type
   C = object
@@ -26,4 +26,3 @@ when not compiles(c.props):
 when compiles(thisObjectDefDoesntExist.props):
   # Should Not compile.
   doAssert false
-

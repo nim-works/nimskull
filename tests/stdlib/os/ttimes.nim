@@ -2,10 +2,10 @@ discard """
   targets: "c js"
 """
 
-import times, strutils, unittest
+import std/[times, strutils, unittest]
 
 when not defined(js):
-  import os
+  import std/os
 
 proc staticTz(hours, minutes, seconds: int = 0): Timezone {.noSideEffect.} =
   let offset = hours * 3600 + minutes * 60 + seconds

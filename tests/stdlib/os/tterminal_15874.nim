@@ -3,6 +3,6 @@ discard """
   action: "compile"
 """
 
-import terminal
+import std/terminal
 
 writeStyled("hello", {styleBright})

@@ -5,7 +5,7 @@ discard """
 
 # bug #950
 
-import macros
+import std/macros
 
 proc blah(x: proc (a, b: int): int) =
   echo x(5, 5)

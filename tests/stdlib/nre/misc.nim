@@ -1,4 +1,4 @@
-import unittest, nre, strutils, optional_nonstrict
+import std/[unittest, nre, strutils], optional_nonstrict
 
 block: # Misc tests
   block: # unicode

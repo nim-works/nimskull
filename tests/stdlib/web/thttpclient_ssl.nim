@@ -16,7 +16,7 @@ discard """
 when not defined(windows):
   # Disabled on Windows due to old OpenSSL version
 
-  import
+  import std/[
     httpclient,
     net,
     openssl,
@@ -25,6 +25,7 @@ when not defined(windows):
     threadpool,
     times,
     unittest
+  ]
 
   # bogus self-signed certificate
   const

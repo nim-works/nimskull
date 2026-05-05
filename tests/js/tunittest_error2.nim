@@ -10,7 +10,7 @@ discard """
 """
 
 # bug #16978
-import unittest
+import std/unittest
 test "Bad test":
   var x: cstring = nil
   let y = x[0]

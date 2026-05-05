@@ -23,7 +23,7 @@ description: '''
   '''
 """
 
-import parsecfg, streams, tables
+import std/[parsecfg, streams, tables]
 
 const cfg = """[Package]
 name=hello

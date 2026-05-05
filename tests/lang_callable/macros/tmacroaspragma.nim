@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 macro foo(x: untyped): untyped =
   echo treerepr(callsite())

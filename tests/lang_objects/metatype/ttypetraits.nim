@@ -1,5 +1,5 @@
-import typetraits
-import macros
+import std/typetraits
+import std/macros
 
 block: # isNamedTuple
   type Foo1 = (a:1,).type

@@ -2,7 +2,7 @@ discard """
   output: '''100'''
 """
 
-import typeinfo
+import std/typeinfo
 
 #bug #6016
 type

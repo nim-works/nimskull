@@ -2,9 +2,7 @@ discard """
   cmd: "nim $target --hints:on -d:embedUnidecodeTable $options $file"
 """
 
-import unidecode
-
-import std/unidecode # #14112
+import std/unidecode
 
 loadUnidecodeTable("lib/pure/unidecode/unidecode.dat")
 

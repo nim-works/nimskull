@@ -52,7 +52,7 @@ block: # #14117
   a.sons.add(1)
   doAssert a.sons.len == 1
 
-import tables
+import std/tables
 
 block: # #13966
   var t: Table[int8, array[int8, seq[tuple[]]]]

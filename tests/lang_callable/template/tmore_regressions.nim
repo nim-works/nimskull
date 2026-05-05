@@ -5,7 +5,7 @@ output: '''0
 """
 
 # bug #11494
-import macros
+import std/macros
 
 macro staticForEach(arr: untyped, body: untyped): untyped =
     result = newNimNode(nnkStmtList)
@@ -41,4 +41,3 @@ proc main =
     second = 6
 
 main()
-

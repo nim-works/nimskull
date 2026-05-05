@@ -5,6 +5,6 @@ discard """
   ccodecheck: "!@'function'"
 """
 
-import jsconsole
+import std/jsconsole
 
 console.log "Hello World"

@@ -7,7 +7,7 @@ Hello, console
 
 # This file tests the JavaScript console
 
-import jsconsole
+import std/jsconsole
 
 console.log("Hello, console")
 console.log(1, 2, 3)

@@ -57,7 +57,7 @@ doAssert delta(Obj2()) == 2
 
 
 # tsimmeth
-import strutils
+import std/strutils
 var x = "hello world!".toLowerAscii.toUpperAscii
 x.echo()
 

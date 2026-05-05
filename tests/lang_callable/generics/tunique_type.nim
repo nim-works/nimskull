@@ -11,9 +11,9 @@ discard """
 ## because it's more efficient than using procedure pointers and less
 ## verbose than defining a new callable type for every invocation of `map`.
 
-import sugar
-import macros
-import strutils
+import std/sugar
+import std/macros
+import std/strutils
 
 #===============================================================================
 # Define a system for storing copies of ASTs as static strings.

@@ -7,7 +7,7 @@ tmsginfo.nim(19, 7) Hint: foo4 [User]
 '''
 """
 
-import macros
+import std/macros
 
 macro foo1(y: untyped): untyped =
   warning("foo1", y)

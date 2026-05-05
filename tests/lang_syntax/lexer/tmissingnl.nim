@@ -4,6 +4,6 @@ discard """
   line: 7
 """
 
-import strutils let s: seq[int] = @[0, 1, 2, 3, 4, 5, 6]
+import std/strutils let s: seq[int] = @[0, 1, 2, 3, 4, 5, 6]
 
 #s[1..3] = @[]

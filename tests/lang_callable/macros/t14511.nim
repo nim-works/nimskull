@@ -2,7 +2,7 @@ discard """
   output: "true\n(y: XInt, a: 5)\n(y: XString, b: \"abc\")"
 """
 
-import macros
+import std/macros
 
 block TEST_1:
   # https://github.com/nim-lang/Nim/issues/14511

@@ -3,7 +3,7 @@ discard """
 """
 # bug #5131
 
-import macros
+import std/macros
 
 type
     vecBase[I: static[int], T] = distinct array[I, T]

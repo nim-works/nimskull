@@ -1,4 +1,4 @@
-import macros, parseutils
+import std/[macros, parseutils]
 
 # Generate tags
 macro make(names: untyped{nkBracket}): untyped =

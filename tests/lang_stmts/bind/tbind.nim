@@ -30,7 +30,7 @@ import mbind3
 echo genId() #OUT 1
 
 
-import strtabs
+import std/strtabs
 block tbinoverload:
   template t() =
     block:

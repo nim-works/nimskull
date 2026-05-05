@@ -14,7 +14,7 @@ StmtList
 
 # disabled; can't work as the output is done by the compiler
 
-import macros
+import std/macros
 
 #emit("type\n  TFoo = object\n    bar: int")
 
@@ -24,4 +24,3 @@ import macros
 
 dumpTree:
   var x = foo.create(56)
-

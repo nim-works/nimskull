@@ -2,7 +2,7 @@ discard """
   output: "all ok"
 """
 
-import net
+import std/net
 
 const
   positives = [

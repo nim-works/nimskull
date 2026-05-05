@@ -1,4 +1,4 @@
-import nre, unittest
+import std/[nre, unittest]
 
 block: # escape strings
   block: # escape strings

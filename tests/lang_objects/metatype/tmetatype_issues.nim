@@ -12,7 +12,7 @@ Bar
 joinable: false
 """
 
-import typetraits, macros
+import std/[typetraits, macros]
 
 
 block t898:

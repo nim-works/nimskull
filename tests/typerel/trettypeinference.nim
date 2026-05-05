@@ -3,7 +3,7 @@ discard """
   output: "int\nseq[string]\nA\nB\n100\ntrue"
 """
 
-import typetraits
+import std/typetraits
 
 proc plus(a, b: auto): auto = a + b
 proc makePair(a, b: auto): auto = (first: a, second: b)
@@ -30,4 +30,3 @@ echo inst(true)
 
 # XXX: [string, tyGenericParam] is cached instead of [string, string]
 # echo inst[string, string]("C")
-

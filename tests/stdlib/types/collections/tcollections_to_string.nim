@@ -2,11 +2,11 @@ discard """
   exitcode: 0
   output: ""
 """
-import sets
-import tables
-import deques
-import lists
-import critbits
+import std/sets
+import std/tables
+import std/deques
+import std/lists
+import std/critbits
 
 # Tests for tuples
 doAssert $(1, 2, 3) == "(1, 2, 3)"
@@ -112,4 +112,3 @@ proc addQuoted(s: var string, x: CustomString) =
 block:
   let s = @[CustomString()]
   doAssert $s == "@[<CustomString>]"
-

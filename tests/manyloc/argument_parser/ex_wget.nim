@@ -1,4 +1,4 @@
-import argument_parser, tables, strutils, parseutils
+import argument_parser, std/[tables, strutils, parseutils]
 
 ## Example defining a subset of wget's functionality
 

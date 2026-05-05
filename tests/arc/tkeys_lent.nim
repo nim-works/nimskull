@@ -3,7 +3,7 @@ discard """
   cmd: "nim c --gc:orc $file"
 """
 
-import tables
+import std/tables
 
 proc use(x: int) = echo x
 

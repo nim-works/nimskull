@@ -208,7 +208,7 @@ proc pickNext[M, D: Dim; RT, LT](t: RTree[M, D, RT, LT]; n0, n1, n2: Node[M, D, 
       result = i
       d = (d1 - d2) * (d1 - d2)
 
-from algorithm import SortOrder, sort
+from std/algorithm import SortOrder, sort
 proc sortPlus[T](a: var openArray[T], ax: var T, cmp: proc (x, y: T): int {.closure.}, order = algorithm.SortOrder.Ascending) =
   var j = 0
   let sign = if order == algorithm.SortOrder.Ascending: 1 else: -1
@@ -599,7 +599,7 @@ proc rseq_delete(rs: var RSeq; rse: RSE): bool =
       rs.setLen(rs.len - 1)
       return true
 
-import random, algorithm
+import std/[random, algorithm]
 
 proc test(n: int) =
   var b: Box[2, int]

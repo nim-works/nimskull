@@ -3,7 +3,7 @@ discard """
   joinable: false
 """
 
-import macros
+import std/macros
 
 type
   MyType[T] = object

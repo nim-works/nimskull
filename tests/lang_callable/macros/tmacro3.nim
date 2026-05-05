@@ -2,7 +2,7 @@ discard """
   output: ""
 """
 
-import  macros
+import std/macros
 
 type
     TA = tuple[a: int]

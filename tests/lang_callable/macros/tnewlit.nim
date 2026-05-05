@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 type
   MyType = object
@@ -191,4 +191,3 @@ macro test_newLit_object_ref_alias: untyped =
 block:
   let x = test_newLit_object_ref_alias()
   doAssert $(x[]) == "(x: 10)"
-

@@ -1,5 +1,5 @@
 import std/sums
-from math import pow
+from std/math import pow
 
 var epsilon = 1.0
 while 1.0 + epsilon != 1.0:

@@ -8,7 +8,7 @@ discard """
   '''
 """
 
-import os
+import std/os
 
 proc another_proc: string =
   ## trigger many GC allocations

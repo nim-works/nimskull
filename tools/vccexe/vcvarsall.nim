@@ -5,7 +5,7 @@
 ## For that purpose the VCC compiler ships with the vcvarsall utility which is an executable
 ## batch script that can be used to properly set up an Command Prompt environment.
 
-import strtabs, strutils, os, osproc
+import std/[strtabs, strutils, os, osproc]
 
 const
   comSpecEnvKey = "ComSpec" ## Environment Variable that specifies the command-line application path in Windows

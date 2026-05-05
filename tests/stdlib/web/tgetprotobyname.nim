@@ -1,4 +1,4 @@
-import nativesockets
+import std/nativesockets
 
 doAssert getProtoByName("ipv6") == 41
 doAssert getProtoByName("tcp") == 6

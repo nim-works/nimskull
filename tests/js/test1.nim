@@ -4,7 +4,7 @@ discard """
 
 # This file tests the JavaScript generator
 
-import strutils
+import std/strutils
 
 var
   inputElement = "1123"

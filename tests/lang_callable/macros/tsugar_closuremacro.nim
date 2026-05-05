@@ -8,7 +8,7 @@ yes
 '''
 """
 
-import sugar, macros
+import std/[sugar, macros]
 
 proc twoParams(x: (int, int) -> int): int =
   result = x(5, 5)

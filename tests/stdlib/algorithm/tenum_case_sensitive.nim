@@ -9,7 +9,7 @@ description: '''
 '''
 """
 
-import strutils
+import std/strutils
 
 type
   MyEnum = enum
@@ -18,4 +18,3 @@ type
 
 doAssert parseEnum[MyEnum]("A") == A
 doAssert parseEnum[MyEnum]("a") == a
-

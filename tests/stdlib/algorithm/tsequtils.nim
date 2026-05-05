@@ -4,7 +4,7 @@ discard """
 
 # xxx move all tests under `main`
 import std/[sequtils, strutils]
-from algorithm import sorted
+from std/algorithm import sorted
 
 {.experimental: "strictEffects".}
 {.push warningAsError[Effect]: on.}

@@ -1,5 +1,5 @@
-import unittest
-include nre
+import std/unittest
+include std/nre
 
 block: # Test NRE initialization
   block: # correct initialization

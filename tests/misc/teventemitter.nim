@@ -2,7 +2,7 @@ discard """
   output: "pie"
 """
 
-import tables, lists
+import std/[tables, lists]
 
 type
   EventArgs = object of RootObj

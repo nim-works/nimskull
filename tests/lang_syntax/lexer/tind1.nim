@@ -3,7 +3,7 @@ discard """
   line: 24
 """
 
-import macros
+import std/macros
 
 # finally optional indentation in 'if' expressions :-):
 var x = if 4 != 5:

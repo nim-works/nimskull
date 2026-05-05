@@ -10,7 +10,7 @@ Got Hey
 
 # bug #404
 
-import macros, tables, strtabs
+import std/[macros, tables, strtabs]
 
 var ZOOT{.compileTime.} = initTable[int, int](2)
 var iii {.compiletime.} = 1

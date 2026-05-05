@@ -1,4 +1,4 @@
-import tables, hashes
+import std/[tables, hashes]
 
 type
   Person = object

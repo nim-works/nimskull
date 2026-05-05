@@ -196,7 +196,7 @@ tbug13314()
 #-------------------------------------------------------------------------
 # bug #13368
 
-import strutils
+import std/strutils
 proc procStat() =
   for line in @["a b", "c d", "e f"]:
     let cols = line.splitWhitespace(maxSplit=1)
@@ -207,7 +207,7 @@ procStat()
 
 # bug #14269
 
-import sugar, strutils
+import std/[sugar, strutils]
 
 type
   Cursor = object
@@ -360,7 +360,7 @@ proc shouldNotSink() =
 shouldNotSink()
 
 # bug #14568
-import os
+import std/os
 
 type O2 = object
   s: seq[int]

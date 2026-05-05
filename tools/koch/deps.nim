@@ -1,4 +1,4 @@
-import os, uri, strformat, strutils
+import std/[os, uri, strformat, strutils]
 import std/private/gitutils
 
 proc exec(cmd: string) =

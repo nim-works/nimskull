@@ -3,7 +3,7 @@ errormsg: "cannot evaluate at compile time: BUILTIN_NAMES"
 line: 11
 """
 
-import sets
+import std/sets
 
 let BUILTIN_NAMES = toHashSet(["int8", "int16", "int32", "int64"])
 

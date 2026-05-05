@@ -16,7 +16,7 @@
 when not (defined(windows) or defined(nimdoc)):
   {.error: "Platform is not supported.".}
 
-import os
+import std/os
 
 type
   DownloadOptions* = enum

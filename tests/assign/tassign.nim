@@ -62,7 +62,7 @@ block tassign:
 
 
 
-import strutils
+import std/strutils
 block tcopy:
   proc main() =
     const

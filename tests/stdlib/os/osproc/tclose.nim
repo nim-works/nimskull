@@ -4,7 +4,7 @@ discard """
 """
 
 when defined(linux):
-  import osproc, os
+  import std/[osproc, os]
 
   proc countFds(): int =
     result = 0

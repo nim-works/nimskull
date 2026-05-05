@@ -2,7 +2,7 @@ discard """
   output: "true"
 """
 
-import intsets
+import std/intsets
 
 type
   TMyObject = object

@@ -9,8 +9,6 @@ discard """
   '''
 """
 
-import times
+import std/times
 
 func testEpo(x: float): float = epochTime() + x
-
-

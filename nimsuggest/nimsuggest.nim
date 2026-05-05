@@ -60,9 +60,9 @@ from compiler/front/main import customizeForBackend
 from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym
 
 when defined(windows):
-  import winlean
+  import std/winlean
 else:
-  import posix
+  import std/posix
 
 const sep = '\t'
 const DummyEof = "!EOF!"

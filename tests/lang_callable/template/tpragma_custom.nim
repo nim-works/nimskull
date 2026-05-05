@@ -16,7 +16,7 @@ description: '''
 '''
 """
 
-import sequtils
+import std/sequtils
 
 {.push raises: [Defect].}
 
@@ -24,4 +24,3 @@ var a = toSeq([1, 2, 3, 5, 10]).filterIt(it > 5)
 
 doAssert a.len == 1
 doAssert a[0] == 10
-

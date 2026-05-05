@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 # bug #5034
 

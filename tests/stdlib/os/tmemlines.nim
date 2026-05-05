@@ -2,7 +2,7 @@ discard """
 outputsub: ""
 """
 
-import memfiles
+import std/memfiles
 var inp = memfiles.open("tests/stdlib/os/tmemlines.nim")
 for line in lines(inp):
   echo("#" & line & "#")

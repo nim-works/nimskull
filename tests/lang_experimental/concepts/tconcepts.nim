@@ -35,7 +35,7 @@ e
 """
 
 
-import typetraits, strutils
+import std/[typetraits, strutils]
 
 
 block tcomparable:

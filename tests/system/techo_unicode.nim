@@ -9,7 +9,7 @@ A你好
   joinable: "false"
 """
 
-import winlean
+import std/winlean
 
 echo "ÄhmÖÜ"
 echo "abasdfdsmÄhmaИ"
@@ -26,7 +26,7 @@ var ac = 0'i32
 discard writeFile(handle, addr a[0], int32(len(a)), addr ac, nil)
 stdout.flushFile()
 
-import os
+import std/os
 
 let str = "some nulls: \0\0\0 (three of them)"
 

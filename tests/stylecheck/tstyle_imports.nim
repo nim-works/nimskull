@@ -6,12 +6,11 @@ discard """
 {.warning[UnusedImport]: off.}
 
 when defined(linux):
-  import linenoise
+  import std/linenoise
 elif defined(windows):
   import std/winlean
 
-import
-  algorithm,
+import std/[
   atomics,
   base64,
   bitops,
@@ -113,6 +112,7 @@ import
   volatile,
   xmlparser,
   xmltree
+]
 
 import experimental/[
   colordiff,

@@ -1,7 +1,7 @@
 
 
 when defined(windows):
-  import os, urldownloader
+  import std/os, urldownloader
 
   proc syncDownload(url, file: string) =
     proc progress(status: DownloadStatus, progress: uint, total: uint,
@@ -17,7 +17,7 @@ when defined(windows):
     echo "100%"
 
 else:
-  import os, asyncdispatch, httpclient
+  import std/[os, asyncdispatch, httpclient]
 
   proc syncDownload(url, file: string) =
     var client = newHttpClient()

@@ -8,7 +8,7 @@ discard """
 
 # TODO: move this test elsewhere, it's not specific to the VM
 
-import macros
+import std/macros
 from stdtest/testutils import disableVM
 type
   Dollar = distinct int

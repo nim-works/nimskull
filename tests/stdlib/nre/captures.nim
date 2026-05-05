@@ -1,5 +1,5 @@
-import unittest, optional_nonstrict
-include nre
+import std/unittest, optional_nonstrict
+include std/nre
 
 block: # captures
   block: # map capture names to numbers
@@ -61,4 +61,3 @@ block: # captures
 
     let ex2 = "foobar".find(re("(?<foo>foo)(?<bar>bar)?"))
     check(ex2.captures.toSeq == @[some("foo"), some("bar")])
-

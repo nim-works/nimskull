@@ -56,7 +56,7 @@ discard getFileInfo(".")
 # Issue #15910
 #------------------------------------------------------------------------------
 
-import options
+import std/options
 
 type
   Thing = object

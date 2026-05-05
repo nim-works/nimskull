@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 proc assertEq(arg0,arg1: string): void =
   if arg0 != arg1:

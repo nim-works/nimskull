@@ -1,7 +1,7 @@
 discard """
   targets: "c js"
 """
-import parsesql
+import std/parsesql
 
 doAssert treeRepr(parseSql("INSERT INTO STATS VALUES (10, 5.5); ")
 ) == """

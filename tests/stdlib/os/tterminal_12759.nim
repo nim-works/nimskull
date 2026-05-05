@@ -2,7 +2,7 @@ discard """
   action: "compile"
 """
 
-import terminal
+import std/terminal
 
 proc test() {.raises:[IOError, ValueError].} =
   setBackgroundColor(stdout, bgRed)

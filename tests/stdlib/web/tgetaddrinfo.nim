@@ -5,7 +5,7 @@ discard """
 
 # bug: https://github.com/nim-lang/Nim/issues/10198
 
-import nativesockets
+import std/nativesockets
 
 block DGRAM_UDP:
   let aiList = getAddrInfo("127.0.0.1", 999.Port, AF_INET, SOCK_DGRAM, IPPROTO_UDP)

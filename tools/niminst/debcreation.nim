@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-import osproc, times, os, strutils
+import std/[osproc, times, os, strutils]
 
 # http://www.debian.org/doc/manuals/maint-guide/
 
@@ -232,4 +232,3 @@ when isMainModule:
     @[("bin/nim", "MIT"), ("lib/*", "MIT")],
     @["bin/nim"], @["config/*"], @["doc/*"], @["lib/*"],
     "gcc (>= 4:4.3.2)", "gcc (>= 4:4.3.2)")
-

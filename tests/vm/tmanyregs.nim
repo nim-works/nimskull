@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 # Generate a proc with more then 255 registers. Should not generate an error at
 # compile time

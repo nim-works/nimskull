@@ -4,7 +4,7 @@ bye'''
 target: "js"
 """
 
-import asyncjs, times
+import std/[asyncjs, times]
 
 proc sleepAsync(t: int): Future[void] =
   var promise = newPromise() do(resolve: proc()):

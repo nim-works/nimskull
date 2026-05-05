@@ -18,8 +18,8 @@ export in_options
 
 when not FileSystemCaseSensitive:
   from compiler/utils/strutils2 import toLowerAscii
-from terminal import isatty
-from times import utc, fromUnix, local, getTime, format, DateTime
+from std/terminal import isatty
+from std/times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
@@ -1343,7 +1343,7 @@ when not declared(isRelativeTo):
     result = path.len > 0 and not ret.startsWith ".."
 
 const stdlibDirs = [
-  "pure", "core", "arch",
+  "pure", "core", "arch", "std",
   "pure/collections",
   "pure/concurrency",
   "pure/unidecode", "impure",

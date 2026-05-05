@@ -8,7 +8,7 @@
 #
 
 when defined(nimdoc) and isMainModule:
-  from std/compileSettings import nil
+  from std/compilesettings import nil
   when compileSettings.querySetting(compileSettings.SingleValueSetting.projectFull) == currentSourcePath:
     ## This is an include file that simply imports common modules for your convenience.
     runnableExamples:

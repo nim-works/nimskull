@@ -78,7 +78,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DEVEL: ${{ steps.versions.outputs.devel }}
 
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: built-docs/
 

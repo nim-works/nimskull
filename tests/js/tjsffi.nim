@@ -8,7 +8,7 @@ Event { name: 'updates: test' }
 '''
 """
 
-import jsffi, jsconsole
+import std/[jsffi, jsconsole]
 
 # Tests for JsObject
 block: # Test JsObject []= and []

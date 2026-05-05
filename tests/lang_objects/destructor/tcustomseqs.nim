@@ -19,7 +19,7 @@ after 6 6'''
 joinable: false
 """
 
-import typetraits
+import std/typetraits
 
 type
   myseq*[T] = object

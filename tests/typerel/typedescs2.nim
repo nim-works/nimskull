@@ -6,8 +6,8 @@ discard """
 
 # bug #9961
 
-import typetraits
-import tables
+import std/typetraits
+import std/tables
 
 proc test(v: typedesc) =
   echo v.type.name

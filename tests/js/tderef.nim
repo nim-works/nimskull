@@ -3,7 +3,7 @@ discard """
 '''
 """
 
-import tables
+import std/tables
 
 type EventStore = Table[string, seq[proc ()]]
 

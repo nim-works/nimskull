@@ -3,7 +3,7 @@ discard """
   file: "tnamedparams.nim"
   line: 8
 """
-import pegs
+import std/pegs
 
 discard parsePeg(
       input = "input",

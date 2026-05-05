@@ -33,7 +33,7 @@ block: # 18838
 
   let link = newDoublyLinkedNode(Item[Box]())
 
-import lists
+import std/lists
 block:
   type
     Box = object

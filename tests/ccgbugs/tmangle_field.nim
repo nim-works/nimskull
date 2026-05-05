@@ -3,7 +3,7 @@ discard """
 
 # bug #5404
 
-import parseopt
+import std/parseopt
 
 {.emit: """typedef struct {
     int key;

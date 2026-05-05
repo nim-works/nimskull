@@ -20,7 +20,7 @@ foo1
 """
 
 
-import strutils, sequtils
+import std/[strutils, sequtils]
 
 
 block overl2:

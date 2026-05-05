@@ -4,7 +4,7 @@ Ensure that `isNil` works in the typed macro context when passed procs.
 '''
 """
 
-import macros
+import std/macros
 
 type
   O = object

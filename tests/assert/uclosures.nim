@@ -1,5 +1,5 @@
 # This test is included from within tunittests
-import unittest
+import std/unittest
 
 test "loop variables are captured by ref":
   var funcs: seq[proc (): int {.closure.}] = @[]

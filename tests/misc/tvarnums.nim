@@ -4,7 +4,7 @@ discard """
 # Test variable length binary integers
 
 import
-  strutils
+  std/strutils
 
 type
   TBuffer = array[0..10, int8]

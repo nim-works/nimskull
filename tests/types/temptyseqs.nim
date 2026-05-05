@@ -19,7 +19,7 @@ let foo = {
 # bug #871
 
 when true:
-  import os
+  import std/os
 
   type
     In_out = tuple[src, dest: string, options: ref int]

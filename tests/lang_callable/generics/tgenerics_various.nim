@@ -8,7 +8,7 @@ generic
 joinable: false
 """
 
-import algorithm, sugar, sequtils, typetraits
+import std/[algorithm, sugar, sequtils, typetraits]
 
 block tconfusing_arrow:
   type Deck = object
