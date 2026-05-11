@@ -52,7 +52,7 @@ from compiler/ast/reports_sem import reportAst
 from compiler/ast/reports_backend import BackendReport
 from compiler/ast/reports_cmd import CmdReport
 from compiler/ast/reports_internal import InternalReport
-from compiler/ast/report_enums import ReportKind
+from compiler/ast/report_enums import ReportKind, rbackErrorKinds
 
 
 import
@@ -253,27 +253,35 @@ template declareClosures =
       msgKind: rst.MsgKind, arg: string
     ) {.gcsafe, used.} =
     # translate msg kind:
-    {.gcsafe.}:
-      globalReport(conf, newLineInfo(
-        conf, AbsoluteFile filename, line, col), BackendReport(
-          msg: arg,
-          kind: case msgKind:
-            of meCannotOpenFile:          rbackRstCannotOpenFile
-            of meExpected:                rbackRstExpected
-            of meGridTableNotImplemented: rbackRstGridTableNotImplemented
-            of meMarkdownIllformedTable:  rbackRstMarkdownIllformedTable
-            of meNewSectionExpected:      rbackRstNewSectionExpected
-            of meGeneralParseError:       rbackRstGeneralParseError
-            of meInvalidDirective:        rbackRstInvalidDirective
-            of meInvalidField:            rbackRstInvalidField
-            of meFootnoteMismatch:        rbackRstFootnoteMismatch
-            of mwRedefinitionOfLabel:     rbackRstRedefinitionOfLabel
-            of mwUnknownSubstitution:     rbackRstUnknownSubstitution
-            of mwBrokenLink:              rbackRstBrokenLink
-            of mwUnsupportedLanguage:     rbackRstUnsupportedLanguage
-            of mwUnsupportedField:        rbackRstUnsupportedField
-            of mwRstStyle:                rbackRstRstStyle
-      ))
+    let kind =
+      case msgKind:
+      of meCannotOpenFile:          rbackRstCannotOpenFile
+      of meExpected:                rbackRstExpected
+      of meGridTableNotImplemented: rbackRstGridTableNotImplemented
+      of meMarkdownIllformedTable:  rbackRstMarkdownIllformedTable
+      of meNewSectionExpected:      rbackRstNewSectionExpected
+      of meGeneralParseError:       rbackRstGeneralParseError
+      of meInvalidDirective:        rbackRstInvalidDirective
+      of meInvalidField:            rbackRstInvalidField
+      of meFootnoteMismatch:        rbackRstFootnoteMismatch
+      of mwRedefinitionOfLabel:     rbackRstRedefinitionOfLabel
+      of mwUnknownSubstitution:     rbackRstUnknownSubstitution
+      of mwBrokenLink:              rbackRstBrokenLink
+      of mwUnsupportedLanguage:     rbackRstUnsupportedLanguage
+      of mwUnsupportedField:        rbackRstUnsupportedField
+      of mwRstStyle:                rbackRstRstStyle
+    if kind in rbackErrorKinds:
+      # TODO: errors/events that are locally fatal have to handle aborting
+      #       where the event is emitted, not here via `globalReport`
+      {.gcsafe.}:
+        globalReport(conf,
+          newLineInfo(conf, AbsoluteFile filename, line, col),
+          BackendReport(msg: arg, kind: kind))
+    else:
+      {.gcsafe.}:
+        localReport(conf,
+          newLineInfo(conf, AbsoluteFile filename, line, col),
+          BackendReport(msg: arg, kind: kind))
 
   proc docgenFindFile(s: string): string {.gcsafe, used.} =
     result = options.findFile(conf, s).string

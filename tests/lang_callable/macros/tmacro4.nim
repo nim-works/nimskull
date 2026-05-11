@@ -2,7 +2,7 @@ discard """
   output: "after"
 """
 
-import macros
+import std/macros
 
 macro test_macro*(s: string, n: untyped): untyped =
   result = newNimNode(nnkStmtList)

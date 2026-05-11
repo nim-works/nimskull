@@ -9,7 +9,7 @@ A'''
 
 # bug https://github.com/nim-lang/nim/issues/1742
 
-import strutils
+import std/strutils
 let x = try: parseInt("133a")
         except: -1
         finally: echo "hi"

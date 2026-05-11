@@ -136,7 +136,7 @@ type
 
 proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType
 proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym
-proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode
+proc replaceTypeVarsN*(cl: var TReplTypeVars, n: PNode): PNode
 proc replaceTypeVarsInBody*(c: PContext, pt: TIdTable, n: PNode): PNode
 
 proc initLayeredTypeMap*(pt: TIdTable): LayeredIdTable =
@@ -287,14 +287,14 @@ proc reResolveCallsWithTypedescParams(c: PContext, n: PNode): PNode =
       if isTypeParam(n[i]): needsFixing = true
     if needsFixing:
       n[0] = newSymNode(n[0].sym.owner)
-      return c.semOverloadedCall(c, n, n, {skProc, skFunc}, {})
+      return c.semOverloadedCall(c, n, {skProc, skFunc}, {})
 
   for i in 0..<n.safeLen:
     n[i] = reResolveCallsWithTypedescParams(c, n[i])
 
   return n
 
-proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
+proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode): PNode =
   ## Replaces references to unresolved types in AST associated with types (i.e.:
   ## the AST that is stored in the ``TType.n`` field).
   ##
@@ -325,9 +325,7 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
   else:
     if n.len > 0:
       newSons(result, n.len)
-      if start > 0:
-        result[0] = n[0]
-      for i in start..<n.len:
+      for i in 0..<n.len:
         result[i] = replaceTypeVarsN(cl, n[i])
 
 proc replaceTypeVarsS(cl: var TReplTypeVars, s: PSym): PSym =
@@ -829,13 +827,24 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
         eraseVoidTypes(result)
 
       of tyProc:
-        # bug #4677: Do not instantiate effect lists
-        result.n = replaceTypeVarsN(cl, result.n, 1)
+        let orig = result.n
+        result.n = shallowCopy(result.n)
+        # the effects list is ignored
+        result.n[0] = copyTree(orig[0])
+        if orig[0].len > effectListLen:
+          # instantiate the hidden ``Continuation`` type
+          result.n[0][effectListLen] =
+            replaceTypeVarsN(cl, orig[0][effectListLen])
+
+        # instantiate types in the parameter symbol list:
+        for i in 1..<orig.len:
+          result.n[i] = replaceTypeVarsN(cl, orig[i])
+
         eraseVoidParams(result)
         skipIntLiteralParams(result, cl.c.idgen)
 
       of tyRange:
-        result.n = replaceTypeVarsN(cl, result.n, 0)
+        result.n = replaceTypeVarsN(cl, result.n)
         result[0] = result[0].skipTypes({tyStatic, tyDistinct})
 
       else: discard

@@ -20,10 +20,7 @@ proc `$`(info: InstantiationInfo): string =
 
 # ---------------------------------------------------------------------------
 
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
-
-proc raiseAssert*(msg: string) {.noinline, noreturn, nosinks.} =
+proc raiseAssert*(msg: string) {.noinline, noreturn.} =
   ## Raises an `AssertionDefect` with `msg`.
   sysFatal(AssertionDefect, msg)
 

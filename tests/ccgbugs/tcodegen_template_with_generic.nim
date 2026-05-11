@@ -9,7 +9,7 @@ description: '''
 '''
 """
 
-import typetraits
+import std/typetraits
 type
   A[T] = ref object
     v: T

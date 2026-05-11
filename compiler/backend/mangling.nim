@@ -71,7 +71,7 @@ proc mangleStruct(g: ModuleGraph, env: TypeEnv, prefix: string,
                   desc: TypeHeader): string =
   result = prefix
   result.addInt desc.numFields
-  # bitsize, offset, custom alignment, etc. can only be used in records that
+  # bitsize, offset, custom alignment, etc. can only be used in structs that
   # don't use structure-basd mangling, and can thus be ignored here
   for (_, f) in fields(env, desc):
     result.add mangle(g, env, f.typ)
@@ -97,13 +97,13 @@ proc mangle(g: ModuleGraph, env: TypeEnv, desc: TypeHeader): string =
     mangle(g, env, id)
 
   case desc.kind
-  of tkRecord:
+  of tkStruct:
     # no name specified, derive one from the structure
     result = mangleStruct(g, env, "T", desc)
   of tkUnion:
     # no name specified, derive one from the structure
     result = mangleStruct(g, env, "U", desc)
-  of tkImported, tkTaggedUnion:
+  of tkImported:
     # requires the original type name
     unreachable()
   of tkInt:
@@ -162,8 +162,6 @@ proc mangle(g: ModuleGraph, env: TypeEnv, desc: TypeHeader): string =
   of tkSet:
     result = "e"
     result.addInt desc.count
-  of tkIndirect:
-    unreachable("cannot mangle")
 
 proc mangle(g: ModuleGraph, env: TypeEnv, id: TypeId): string =
   result = mangle(g, env[id])
@@ -179,7 +177,7 @@ proc computeTypeName*(g: ModuleGraph, env: TypeEnv, typ: TypeId): string =
   let n = env.get(env.canonical(typ)).desc[Canonical]
 
   case env[n].kind
-  of tkRecord, tkUnion:
+  of tkStruct, tkUnion:
     let inst = env.get(typ).inst
     if inst != nil and inst.sym != nil and sfExportc in inst.sym.flags:
       # the type has an external name, use that verbatim
@@ -188,8 +186,7 @@ proc computeTypeName*(g: ModuleGraph, env: TypeEnv, typ: TypeId): string =
       # use the mangled/decorated name
       "_" & mangle(g, env, typ)
   of tkImported:
-    # use the specified external name as-is
-    env.get(typ).inst.sym.extname
+    mangle(g, env.get(typ).inst)
   of tkString:
     "NimStringV2"
   else:

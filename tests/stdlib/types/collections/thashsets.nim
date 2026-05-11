@@ -1,4 +1,4 @@
-import sets, hashes, algorithm
+import std/[sets, hashes, algorithm]
 
 
 block setEquality:

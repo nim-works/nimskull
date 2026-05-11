@@ -48,6 +48,9 @@ type
     CoDistinct
     CoHashTypeInsideNode
 
+const
+  considerAll = {ConsiderFlag.low .. ConsiderFlag.high}
+
 proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag])
 
 proc hashSym(c: var MD5Context, s: PSym) =
@@ -103,6 +106,15 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
   of nkWithSons:
     for i in 0..<n.len: hashTree(c, n[i], flags)
 
+
+proc hashTree*(n: PNode; flags: set[ConsiderFlag] = considerAll): SigHash =
+  ## Computes the hash of an AST node (`n`) using the given flags.
+  var c: MD5Context
+  md5Init c
+  hashTree(c, n, flags)
+  md5Final(c, result.MD5Digest)
+
+
 proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
   if t == nil:
     c &= "\254"
@@ -132,7 +144,7 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
         c.hashType t[i], flags
     else:
       c.hashType t.lastSon, flags
-  of tyAlias, tySink, tyUserTypeClasses, tyInferred:
+  of tyAlias, tyUserTypeClasses, tyInferred:
     c.hashType t.lastSon, flags
   of tyBool, tyChar, tyInt..tyUInt64:
     # no canonicalization for integral types, so that e.g. ``pid_t`` is
@@ -179,7 +191,7 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
       c &= t.id
     if t.len > 0 and t[0] != nil:
       hashType c, t[0], flags
-  of tyRef, tyPtr, tyGenericBody, tyVar:
+  of tyRef, tyPtr, tyGenericBody, tyVar, tySink:
     c &= char(t.kind)
     c.hashType t.lastSon, flags
   of tyFromExpr:

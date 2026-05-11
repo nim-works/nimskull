@@ -19,7 +19,7 @@ runs:
 
   steps:
     - name: Clone vcpkg
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         repository: microsoft/vcpkg
         ref: ${{ inputs.revision }}
@@ -27,7 +27,7 @@ runs:
         path: vcpkg
 
     - name: Setup environment variables
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           // Configuration for GitHub Actions cache

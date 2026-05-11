@@ -1,5 +1,5 @@
 #? stdtmpl(subsChar = '%', metaChar = '#', emit = "outfile.write")
-#import strutils
+#import std/strutils
 #
 #proc htmlQuote*(raw: string): string =
 #  result = raw.multiReplace(

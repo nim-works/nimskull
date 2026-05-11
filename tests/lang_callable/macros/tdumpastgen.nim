@@ -35,7 +35,7 @@ nimout: '''nnkStmtList.newTree(
 
 # disabled; can't work as the output is done by the compiler
 
-import macros
+import std/macros
 
 dumpAstGen:
   var x = baz.create(56)

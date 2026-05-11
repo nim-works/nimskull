@@ -28,7 +28,8 @@ import
     condsyms,
     options,
     scripting,
-    cli_reporter
+    cli_reporter,
+    msgs
   ],
   compiler/utils/[
     pathutils
@@ -149,6 +150,7 @@ proc createInterpreter*(
   ): Interpreter =
 
   var conf = newConfigRef(hook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
@@ -196,6 +198,7 @@ proc runRepl*(
   ) =
   ## deadcode but please don't remove... might be revived
   var conf = newConfigRef(reportHook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
 
   var cache = newIdentCache()

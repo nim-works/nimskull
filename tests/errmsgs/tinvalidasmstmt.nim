@@ -14,7 +14,7 @@ proc emptyAsmStmt =
   asm ""
 emptyAsmStmt()
 
-import macros
+import std/macros
 macro defA =
   result = newNimNode(nnkAsmStmt)
   result.add(

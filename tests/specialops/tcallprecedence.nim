@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 {.experimental: "dotOperators".}
 {.experimental: "callOperator".}

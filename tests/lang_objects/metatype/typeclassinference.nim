@@ -3,7 +3,7 @@ discard """
   line: 20
 """
 
-import typetraits
+import std/typetraits
 
 type
   Vec[N: static[int]; T] = distinct array[N, T]

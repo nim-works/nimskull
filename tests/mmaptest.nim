@@ -1,7 +1,7 @@
 # Small test program to test for mmap() weirdnesses
 
 import system/ansi_c
-import posix
+import std/posix
 
 proc osAllocPages(size: int): pointer {.inline.} =
   result = mmap(nil, size, PROT_READ or PROT_WRITE,

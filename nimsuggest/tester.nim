@@ -7,7 +7,7 @@
 
 import std/[os, osproc, strutils, streams, re, net, strformat]
 import experimental/sexp
-from sequtils import toSeq
+from std/sequtils import toSeq
 
 type
   Test = object

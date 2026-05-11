@@ -1,4 +1,4 @@
-import  macros
+import std/macros
 
 macro test*(a: untyped): untyped =
   var nodes: tuple[a, b: int]

@@ -5,8 +5,8 @@ discard """
 import .. / modules / [definitions as foo]
 import .. / modules / definitions as foo
 import std / times as bar
-from times as bar2 import nil
-import times as bar3 except convert
+from std/times as bar2 import nil
+import std/times as bar3 except convert
 import definitions as baz
 
 discard foo.v

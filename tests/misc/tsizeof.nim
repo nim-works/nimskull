@@ -8,6 +8,9 @@ macros api OK
 '''
 """
 
+# TODO: replace this test with one that tests the C code generator directly,
+#       without going through the source language first
+
 type
   TMyEnum = enum
     tmOne, tmTwo, tmThree, tmFour
@@ -27,7 +30,7 @@ doAssert mysize1 == 3
 doAssert mysize2 == 12
 doAssert mysize3 == 32
 
-import macros, typetraits
+import std/[macros, typetraits]
 
 proc wrapBlock(n: NimNode): NimNode =
   result = newTree(nnkBlockStmt, newEmptyNode(), n)
@@ -52,6 +55,8 @@ macro testSizeAlignOf(args: varargs[untyped]): untyped =
         failed = true
     )
 
+{.checks: off.}
+# disable checks as otherwise the offsetof hack won't work
 
 macro testOffsetOf(a, b: untyped): untyped =
   let typeName = newLit(a.repr)
@@ -79,10 +84,15 @@ macro c_offsetof(fieldAccess: typed): int32 =
           else: fieldAccess
   let a = s[0].getTypeInst
   let b = s[1]
+  # HACK: there's no way to get access to just the field's name, so `.emit`
+  #       shenanigans are used to emulate C's offsetof
   result = wrapBlock(quote do:
-    var res: int32
-    {.emit: [res, " = offsetof(", `a`, ", ", `b`, ");"] .}
-    res
+    var tmp: `a`
+    var p: pointer
+    # need to use emit because `addr` is not available for all fields.
+    # This also only works when checks are disabled
+    {.emit: [p, " = &", tmp.`b`, ";"].}
+    int32(cast[csize_t](p) - cast[csize_t](addr tmp))
   )
 
 template c_offsetof(t: typedesc, a: untyped): int32 =
@@ -392,6 +402,7 @@ testinstance:
     var issue15516: MyObject
     var issue12636_1: Stack[5, MyObject]
     var issue12636_2: Stack2[MyObject]
+    var seLarge: set[0..64] # only needs more than 64 elements
 
     var
       e1: Enum1
@@ -410,7 +421,8 @@ testinstance:
     else:
       doAssert sizeof(SimpleAlignment) > 10
 
-    testSizeAlignOf(t,a,b,c,d,e,f,g,ro,go,po, e1, e2, e4, e8, eoa, eob, capo, issue15516, issue12636_1, issue12636_2)
+    testSizeAlignOf(t,a,b,c,d,e,f,g,ro,go,po, e1, e2, e4, e8, eoa, eob, capo,
+                    issue15516, issue12636_1, issue12636_2, seLarge)
 
     type
       WithBitsize {.objectconfig.} = object
@@ -578,7 +590,7 @@ else:
 # sizeof macros API
 ##########################################
 
-import macros
+import std/macros
 
 type
   Vec2f = object

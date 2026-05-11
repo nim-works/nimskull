@@ -1,7 +1,7 @@
 discard """
   action: "compile"
 """
-import options, mregression
+import std/options, mregression
 
 type
   MyEnum = enum

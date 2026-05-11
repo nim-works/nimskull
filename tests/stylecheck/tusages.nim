@@ -6,7 +6,7 @@ discard """
 
 
 
-import strutils
+import std/strutils
 
 proc BADSTYLE(c: char) = discard
 

@@ -105,7 +105,6 @@ type
                       ## evaluation
     optTrMacros       ## en/disable pattern matching
     optMemTracker
-    optSinkInference  ## 'sink T' inference
     optCursorInference
     optImportHidden
 
@@ -119,7 +118,6 @@ type
     cmdCompileToJS
     cmdCompileToVM
     cmdCrun        ## compile and run in nimache
-    cmdTcc         ## run the project via TCC backend
     cmdCheck       ## semantic checking for whole project
     cmdParse       ## parse a single file (for debugging)
     cmdScan        ## scan/lexically analyse a single file (for debugging)
@@ -145,7 +143,6 @@ type
     ## Filename formatting option
     foAbs           ## absolute path, e.g.: /pathto/bar/foo.nim
     foRelProject    ## relative to project path, e.g.: ../foo.nim
-    foCanonical     ## canonical module name
     foLegacyRelProj ## legacy, shortest of (foAbs, foRelProject)
     foName          ## lastPathPart, e.g.: foo.nim
     foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName

@@ -55,5 +55,6 @@ proc checkGrammarFileImpl(cache: IdentCache, config: ConfigRef) =
 
 proc checkGrammarFile*() =
   let conf = newConfigRef(reportHook)
+  conf.diagHandler = msgs.diagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   checkGrammarFileImpl(newIdentCache(), conf)

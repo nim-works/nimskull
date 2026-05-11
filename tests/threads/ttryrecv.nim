@@ -4,8 +4,8 @@ discard """
 
 # bug #1816
 
-from random import rand
-from os import sleep
+from std/random import rand
+from std/os import sleep
 
 type PComm = ptr Channel[int]
 

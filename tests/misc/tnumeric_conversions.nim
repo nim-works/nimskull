@@ -1,10 +1,9 @@
 discard """
   targets: "c js vm"
   description: "Tests for conversion between the primitive numeric types"
-  knownIssue.js: "full-range integers aren't supported yet"
 """
 
-when defined(amd64) or defined(i386) or defined(js) or defined(vm):
+when defined(amd64) or defined(i386) or defined(vm):
   # FIXME: This test right now depends on architecture-specific behavior on x86
   #
   # This bug is tracked at https://github.com/nim-works/nimskull/issues/1155

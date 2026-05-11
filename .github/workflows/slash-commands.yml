@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.CHORE_APP_ID }}
           private-key: ${{ secrets.CHORE_APP_KEY }}
 
-      - uses: peter-evans/slash-command-dispatch@v4
+      - uses: peter-evans/slash-command-dispatch@v5
         with:
           token: ${{ steps.token.outputs.token }}
           reaction-token: ${{ steps.token.outputs.token }}

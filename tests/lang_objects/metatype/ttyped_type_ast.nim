@@ -7,7 +7,7 @@ only returns a PType and thus the AST passed to isTyped stays untyped.
   '''
 """
 
-import macros
+import std/macros
 
 template elementType*(a: untyped): typedesc =
   typeof(block: (for ai in a: ai))

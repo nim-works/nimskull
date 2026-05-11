@@ -4,7 +4,7 @@ discard """
 
 # Just check that we can parse 'somesql' and render it without crashes.
 
-import parsesql, streams, os
+import std/[parsesql, streams, os]
 
 var tree = parseSql(newFileStream(parentDir(currentSourcePath) / "somesql.sql"), "somesql")
 discard renderSql(tree)

@@ -24,11 +24,16 @@ import
     mirtrees,
     mirtypes,
     rtchecks,
-    sourcemaps
+    rtti_queries,
+    sourcemaps,
+    tailcall_elim
   ],
   compiler/modules/[
     modulegraphs,
     magicsys
+  ],
+  compiler/utils/[
+    int128
   ],
   compiler/sem/[
     aliasanalysis,
@@ -392,6 +397,17 @@ proc extractStringLiterals(tree: MirTree, env: var MirEnv,
     changes.replaceMulti(tree, i, bu):
       bu.use toValue(c, tree[i].typ)
 
+proc extractStringLiterals2(tree: MirTree, env: var MirEnv,
+                            changes: var Changeset) =
+  ## Promotes all inline string literals representing string constructions to
+  ## anonymous constants.
+  for i in search(tree, {mnkStrLit}):
+    if env.types.canonical(tree[i].typ) == StringType:
+      let c = toConstId env.data.getOrPut(@[tree[i]])
+      # replace the usage of the literal with the anonymous constant:
+      changes.replaceMulti(tree, i, bu):
+        bu.use toValue(c, tree[i].typ)
+
 proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) =
   ## Injects a default-initialization for the result variable, if deemed
   ## necessary by data-flow analysis.
@@ -430,11 +446,9 @@ proc injectResultInit(tree: MirTree, resultTyp: TypeId, changes: var Changeset) 
       of opMutateGlobal:
         discard "not relevant"
 
-    # the exit flag indicates that traversal reached the end of the body
-    # (without ``result`` being an initialized). The a > b check makes sure
-    # an empty procedure body also requires initialization of the result
-    # var
-    result = s.exit or all.a > all.b
+    # the result variable is not used before its value is set -> no default
+    # initialization is required
+    result = false
 
   if requiresInit(tree):
     assert tree[0].kind == mnkScope
@@ -806,7 +820,7 @@ proc splitAssignments(tree: MirTree, changes: var Changeset) =
       # * if the destination is a local, does the exceptional path enter a
       #   local exception handler?
       if tree[tree.getRoot(tree.operand(p, 0))].kind notin Locals or
-         tree[target].kind != mnkResume:
+         tree[target].kind != mnkUnwind:
         # future direction: this can be optimized. The assignment only needs to
         # be split if the assignment destination's value is observed on the
         # exceptional control-flow path
@@ -818,6 +832,194 @@ proc splitAssignments(tree: MirTree, changes: var Changeset) =
           bu.subTree mnkMove:
             bu.use tmp
 
+proc injectTypeHeaderInit(tree: MirTree; env: var MirEnv,
+                          changes: var Changeset) =
+  ## Makes RTTI/type header initialization explicit, by injecting the
+  ## necessary initialization logic for construction expressions.
+  # TODO: move emitting the type header initialization into mirgen, maybe
+  #       even into transf
+
+  # very complex, both because it happens at the wrong place/time and because
+  # the MIR type IR doesn't store the discriminator information required here,
+  # necessitating intermixing MIR tree traversal with pnodes traversal
+
+  proc findBranch(n: PNode, val: Int128): int =
+    ## Returns the 0-based index of the 'of'/'else' branch covering `val`.
+    for (i, b) in branches(n):
+      if b.kind == nkOfBranch:
+        for (_, bval) in branchLabels(b):
+          if bval.kind == nkRange:
+            if getOrdValue(bval[0]) <= val and
+                getOrdValue(bval[1]) >= val:
+              return i
+          elif val == getOrdValue(bval):
+            return i
+      else:
+        return i
+
+  proc initField(tree: MirTree, env: TypeEnv, parent, n: NodePosition,
+                 typ: TypeId, pos: int32, bu: var MirBuilder) =
+    ## Emits all RTTI header initialization for a single field.
+    if hasEmbeddedRttiHeaders(env, typ):
+      # just assign the default value, letting the 'default' lowering handle
+      # the RTTI header initialization
+      bu.subTree mnkAsgn:
+        bu.pathNamed typ, pos:
+          bu.emitFrom(tree, tree.child(parent, 0))
+        bu.buildMagicCall mDefault, typ: discard
+    else:
+      # just set the field's header
+      let rttiTyp = env[env.lookupField(typ, -1)].typ
+      bu.subTree mnkAsgn:
+        bu.pathNamed rttiTyp, -1:
+          bu.pathNamed typ, pos:
+            bu.emitFrom(tree, tree.child(parent, 0))
+        bu.buildMagicCall mGetTypeInfoV2, rttiTyp:
+          bu.emitByVal typeLit(typ)
+
+  proc walk(tree: MirTree, env: var MirEnv, parent, n: NodePosition, rn: PNode,
+            bu: var MirBuilder) =
+    ## Goes over the record AST `rn`, emitting the RTTI header initialization
+    ## for every field that needs it.
+    case rn.kind
+    of nkSym:
+      let pos = rn.sym.position.int32
+      let typ = env.types[env.types.lookupField(tree[n].typ, pos)].typ
+      if containsTypeHeaders(env.types, typ):
+        # does the constructor supply a value?
+        for it in tree.subNodes(n):
+          if tree[it, 0].field == pos:
+            return # it does
+
+        initField(tree, env.types, parent, n, typ, pos, bu)
+    of nkRecList:
+      for it in rn.items:
+        walk(tree, env, parent, n, it, bu)
+    of nkRecCase:
+      # does the constructor supply a discriminator value?
+      var val = Zero # the default value is 0
+      for it in tree.subNodes(n):
+        if tree[it, 0].field == rn[0].sym.position:
+          # it does
+          if tree[tree.child(it, 1), 0].kind in {mnkIntLit, mnkUIntLit}:
+            val = toInt128 env.getInt(tree[tree.child(it, 1), 0].number)
+          else:
+            val = toInt128 -1
+
+      if val >= Zero:
+        # the selected variant is known statically
+        walk(tree, env, parent, n, rn[findBranch(rn, val) + 1][^1], bu)
+      else:
+        # the selected variant is known only at run-time -> emit a case
+        # statement
+        proc intLit(env: var MirEnv, val: Int128, typ: TypeId): Value =
+          literal(mnkIntLit, env.getOrIncl(castToInt64(val)), typ)
+
+        let pos = rn[0].sym.position.int32
+        let typ = env.types[env.types.lookupField(tree[n].typ, pos)].typ
+        var labels: seq[LabelId]
+        let exit = bu.allocLabel()
+        # emit the dispatcher over the discriminator:
+        bu.subTree mnkCase:
+          bu.pathNamed typ, pos:
+            bu.emitFrom(tree, tree.child(parent, 0))
+          # emit a handler for every variant, even if the variant doesn't
+          # contain anything requiring initialization. The implementation is
+          # simpler this way
+          for (_, b) in branches(rn):
+            bu.subTree mnkBranch:
+              if b.kind == nkOfBranch:
+                for (_, bval) in branchLabels(b):
+                  if bval.kind == nkRange:
+                    bu.subTree mnkRange:
+                      bu.use env.intLit(getOrdValue(bval[0]), typ)
+                      bu.use env.intLit(getOrdValue(bval[1]), typ)
+                  else:
+                    bu.use env.intLit(getOrdValue(bval), typ)
+
+              let label = bu.allocLabel()
+              labels.add label
+              bu.add MirNode(kind: mnkLabel, label: label)
+
+        # emit the destinations:
+        for (i, branch) in branches(rn):
+          bu.join(labels[i])
+          # note: even when the discriminator's value is dynamic, some
+          # variant's fields may still be statically initialized!
+          walk(tree, env, parent, n, branch[^1], bu)
+          bu.goto(exit)
+        bu.join(exit)
+    else:
+      unreachable()
+
+  for it in search(tree, {mnkObjConstr}):
+    if hasRttiHeader(env.types, tree[it].typ):
+      # the header field needs to be initialized
+      let parent = tree.parent(it)
+      let typ = env.types[env.types.lookupField(tree[it].typ, -1)].typ
+      changes.insert(tree, tree.sibling(parent), it, bu):
+        bu.subTree mnkAsgn:
+          bu.pathNamed typ, -1:
+            bu.emitFrom(tree, tree.child(parent, 0))
+          bu.buildMagicCall mGetTypeInfoV2, typ:
+            bu.emitByVal typeLit(tree[it].typ)
+
+    if hasEmbeddedRttiHeaders(env.types, tree[it].typ):
+      # the complex traversal is required
+      let parent = tree.parent(it)
+      var typ = tree[it].typ
+      changes.insert(tree, tree.sibling(parent), it, bu):
+        while typ != VoidType:
+          let ptype = env.types[typ].skipTypes(abstractInst)
+          walk(tree, env, parent, it, ptype.n, bu)
+          typ = env.types.headerFor(typ, Lowered).base(env.types)
+
+proc moveUnscoped(tree: MirTree, changes: var Changeset) =
+  ## Moves defs within `mnkIf` sections without an explicit scope to
+  ## before the if, so that the def is guaranteed to dominate all usages.
+  # TODO: don't emit "mis-scoped" defs in the first place (happens for and/or
+  #       translation) and then remove this pass again
+  var
+    stack: seq[(int, NodePosition, LabelId)]
+    depth = 0
+    it = NodePosition(0)
+  while it < tree.len.NodePosition:
+    case tree[it].kind
+    of mnkIf:
+      stack.add (depth, it, tree[it, 1].label)
+    of mnkDef, mnkDefCursor:
+      if stack.len > 0 and stack[^1][0] == depth:
+        # the def is part of an 'if' and there's no (unclosed) scope start
+        # in-between them -> move the def, but make sure to move to the start
+        # of the *outermost* unscoped 'if':
+        #   if ...:         # <- move to before here
+        #     if ...:       # <- not before here
+        #       def x = ...
+        var i = stack.len - 2
+        while i >= 0 and stack[i][0] == depth:
+          dec i
+
+        changes.insert(tree, stack[i + 1][1], it, bu):
+          bu.subTree tree[it].kind:
+            bu.add tree[it, 0]
+            bu.add MirNode(kind: mnkNone)
+        # the initialization (if any) needs to stay where it is
+        if tree[it, 1].kind == mnkNone:
+          changes.remove(tree, it)
+        else:
+          changes.changeTree(tree, it, MirNode(kind: mnkInit))
+    of mnkScope:
+      inc depth
+    of mnkEndScope:
+      dec depth
+    of mnkEndStruct:
+      if stack.len > 0 and stack[^1][2] == tree[it, 0].label:
+        stack.shrink(stack.len - 1)
+    else:
+      discard
+
+    it = tree.sibling(it)
+
 proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
                   graph: ModuleGraph, target: TargetBackend) =
   ## Applies all applicable MIR passes to the body (`tree` and `source`) of
@@ -828,6 +1030,17 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       var c {.inject.} = initChangeset(body)
       b
       apply(body, c)
+
+  if target in {targetC, targetJs} and sfGeneratedOp notin prc.flags:
+    # portable tail-call elimination
+    batch:
+      lowerProcvals(body.code, env, c)
+    batch:
+      insertTrampolines(body.code, graph, prc, env, c)
+    if prc.typ.callConv == ccTailcall:
+      insertNewResult(body, graph, prc, env)
+      batch:
+        lowerTailcallBody(body, graph, prc, env, c)
 
   if target == targetC:
     batch:
@@ -857,12 +1070,23 @@ proc applyPasses*(body: var MirBody, prc: PSym, env: var MirEnv,
       injectStrPreparation(body.code, graph, env, c)
       lowerCase(body.code, graph, env, c)
 
+  if target == targetC:
+    batch:
+      injectTypeHeaderInit(body.code, env, c)
+      extractStringLiterals2(body.code, env, c)
+
   # instrument the body with profiler calls after all lowerings, but before
   # optimization
   if (sfPure notin prc.flags) and (optProfiler in prc.options):
     batch:
       injectProfilerCalls(body.code, graph, env, c)
 
-  # eliminate temporaries after all other passes
+  # eliminate temporaries after all other main passes
   batch:
     eliminateTemporaries(body.code, env.types, c)
+
+  # apply the structural fix-ups and passes needed for the CGIR-based code
+  # generators:
+  if target == targetC:
+    batch:
+      moveUnscoped(body.code, c)

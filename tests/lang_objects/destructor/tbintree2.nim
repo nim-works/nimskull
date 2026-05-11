@@ -6,7 +6,7 @@ discard """
 
 import system / ansi_c
 
-import random
+import std/random
 
 type Node = ref object
   x, y: int32
@@ -98,4 +98,3 @@ proc main() =
 
 dumpAllocStats:
   main()
-

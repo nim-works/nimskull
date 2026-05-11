@@ -7,7 +7,7 @@ discard """
 # new parseopt module. Therefore it is disabled.
 
 import
-  parseopt
+  std/parseopt
 
 proc writeHelp() =
   writeLine(stdout, "Usage: tparsopt [options] filename [options]")

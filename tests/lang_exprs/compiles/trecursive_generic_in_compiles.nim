@@ -3,7 +3,7 @@ action: compile
 """
 
 # bug #3313
-import unittest, sugar
+import std/[unittest, sugar]
 {.experimental: "notnil".}
 type
   ListNodeKind = enum

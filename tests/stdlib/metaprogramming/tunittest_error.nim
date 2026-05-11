@@ -7,14 +7,14 @@ discard """
 """
 
 when defined case1:
-  import unittest
+  import std/unittest
   suite "Test":
     test "test require":
       check 1==2
       check 1==3
 
 when defined case2:
-  import unittest
+  import std/unittest
   suite "Test":
     test "test require":
       require 1 == 3

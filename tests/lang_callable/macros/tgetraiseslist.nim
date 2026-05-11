@@ -4,7 +4,7 @@ discard """
 true true'''
 """
 
-import macros
+import std/macros
 import std / effecttraits
 
 type

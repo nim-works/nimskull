@@ -563,7 +563,7 @@ StmtList
 '''
 """
 
-import macros
+import std/macros
 
 dumpTree:
   # simple calls

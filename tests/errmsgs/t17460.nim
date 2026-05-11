@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim check --msgFormat=sexp --filenames=canonical $options $file"
+  cmd: "nim check --msgFormat=sexp $options $file"
   nimoutFormat: sexp
   action: reject
 """

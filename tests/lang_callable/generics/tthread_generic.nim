@@ -27,7 +27,7 @@ proc `@||->`*[T](fn: proc(): T {.thread.},
 proc `||->`*[T](fn: proc(): T{.thread.}, callback: proc(val: T){.thread.}) =
   discard fn @||-> callback
 
-import os
+import std/os
 proc testFunc(): int {.thread.} =
   return 1
 proc callbackFunc(val: int) {.thread.} =

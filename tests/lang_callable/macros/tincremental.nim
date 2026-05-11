@@ -10,8 +10,8 @@ sub_calc2_impl is called'''
 
 # sample incremental
 
-import tables
-import macros
+import std/tables
+import std/macros
 
 var inputs = initTable[string, float]() 
 var cache = initTable[string, float]()

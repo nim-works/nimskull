@@ -4,7 +4,7 @@ discard """
 
 # bug #3230
 
-import sequtils
+import std/sequtils
 
 const
   test_strings = ["a", "b", "c"]

@@ -2,11 +2,11 @@ discard """
   targets: "c js"
 """
 
-import parsecfg, streams, sequtils
+import std/[parsecfg, streams, sequtils]
 
 when not defined(js):
   from stdtest/specialpaths import buildDir
-  import os
+  import std/os
   # bug #6046
   block:
     var config = newConfig()

@@ -7,7 +7,7 @@ description: '''
   . Mentions https://github.com/nim-lang/Nim/issues/7165
 '''
 """
-import tables
+import std/tables
 
 type MyTab[A,B] = distinct TableRef[A,B]
 
@@ -18,4 +18,3 @@ proc create[A,B](): MyTab[A,B] = MyTab(newTable[A,B]())
 
 var a = create[int,int]()
 doAssert $a == "My special table {:}"
-

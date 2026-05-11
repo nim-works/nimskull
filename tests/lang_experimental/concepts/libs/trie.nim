@@ -1,5 +1,5 @@
 import
-  hashes, tables, trie_database
+  std/[hashes, tables], trie_database
 
 type
   MemDBTable = Table[KeccakHash, string]
@@ -23,4 +23,3 @@ proc del*(db: var MemDB, key: KeccakHash): bool =
 proc put*(db: var MemDB, key: KeccakHash, value: string): bool =
   db.tbl[key] = value
   return true
-

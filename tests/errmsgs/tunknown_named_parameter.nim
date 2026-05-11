@@ -23,5 +23,5 @@ expression: rsplit("abc:def", {':'}, maxsplits = 1)
 # bug #8043
 
 
-import strutils
+import std/strutils
 "abc:def".rsplit({':'}, maxsplits = 1)

@@ -2,7 +2,7 @@ discard """
   action: compile
 """
 
-import terminal, colors
+import std/[terminal, colors]
 
 styledEcho fgColor, colRed, "Test"
 styledEcho bgColor, colBlue, "Test"

@@ -45,7 +45,6 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimHasIsNamedTuple")
   defineSymbol("nimHashOrdinalFixed")
 
-  defineSymbol("nimHasSinkInference")
   defineSymbol("nimNewIntegerOps")
   defineSymbol("nimHasInvariant")
   defineSymbol("nimHasStacktraceMsgs")
@@ -78,3 +77,6 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimskullNoNkStmtListTypeAndNkBlockType")
   defineSymbol("nimskullNoNkNone")
   defineSymbol("nimskullHasSupportsZeroMem")
+  defineSymbol("nimskullHasNoParseFloatMagic")
+  defineSymbol("nimskullHasUnaryGenSym")
+  defineSymbol("systemHasMainDef") # csource compiler compatiblity symbol

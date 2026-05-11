@@ -31,7 +31,7 @@ H:1:0.1
 joinable: false
 """
 
-import macros, sequtils, sets, sugar, tables, typetraits
+import std/[macros, sequtils, sets, sugar, tables, typetraits]
 
 block t88:
   type
@@ -298,7 +298,7 @@ block t9130:
     # stack overflow
     template baz1(iter: untyped): untyped =
       runnableExamples:
-        import sugar
+        import std/algorithm
         proc fun(a: proc(x:int): int) = discard
         baz1(fun(x:int => x))
       discard
@@ -310,7 +310,7 @@ block t9130:
     # ok
     template baz2(iter: untyped): untyped =
       runnableExamples:
-        import sugar
+        import std/algorithm
         proc fun(a: proc(x:int): int) = discard
         baz2(fun(x:int => x))
       discard
@@ -800,7 +800,7 @@ type
 
 
 # bug #10396
-import options, strutils
+import std/[options, strutils]
 
 type
   Foo {.acyclic.} = object

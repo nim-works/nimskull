@@ -1,6 +1,6 @@
 # Dump the contents of a NimNode
 
-import macros
+import std/macros
 
 block:
   template plus(a, b: untyped): untyped {.dirty} =

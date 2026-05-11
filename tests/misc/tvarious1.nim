@@ -18,7 +18,7 @@ echo v[2]
 
 # bug #569
 
-import deques
+import std/deques
 
 type
   TWidget = object

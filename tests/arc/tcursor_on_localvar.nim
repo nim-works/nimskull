@@ -13,8 +13,8 @@ destroy Foo
 
 # bug #15325
 
-import tables
-import strutils
+import std/tables
+import std/strutils
 
 const defaultSection = "***"
 
@@ -28,7 +28,7 @@ proc newConfig*(): Config =
     result.table = newOrderedTable[string, OrderedTable[string, string]]()
 
 # ----------------------------------------------------------------------------------------------------------------------
-proc add*(self: Config, param, value, section: string) {.nosinks.} =
+proc add*(self: Config, param, value, section: string) =
     let s = if section == "": defaultSection else: section
 
     if not self.table.contains(s):
@@ -158,4 +158,3 @@ proc main2 =
   testMe2(b)
 
 main2()
-

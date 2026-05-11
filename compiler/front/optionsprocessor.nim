@@ -161,7 +161,6 @@ type
     cmdSwitchExpandarc
     cmdSwitchBenchmarkvm
     cmdSwitchProfilevm
-    cmdSwitchSinkinference
     cmdSwitchCursorinference
     cmdSwitchPanics
     cmdSwitchSourcemap
@@ -291,7 +290,6 @@ type
     fullSwitchTxtExpandarc           = "expandarc"
     fullSwitchTxtBenchmarkvm         = "benchmarkvm"
     fullSwitchTxtProfilevm           = "profilevm"
-    fullSwitchTxtSinkinference       = "sinkinference"
     fullSwitchTxtCursorinference     = "cursorinference"
     fullSwitchTxtPanics              = "panics"
     fullSwitchTxtSourcemap           = "sourcemap"
@@ -419,7 +417,6 @@ const
       cmdSwitchExpandarc          : {fullSwitchTxtExpandarc},
       cmdSwitchBenchmarkvm        : {fullSwitchTxtBenchmarkvm},
       cmdSwitchProfilevm          : {fullSwitchTxtProfilevm},
-      cmdSwitchSinkinference      : {fullSwitchTxtSinkinference},
       cmdSwitchCursorinference    : {fullSwitchTxtCursorinference},
       cmdSwitchPanics             : {fullSwitchTxtPanics},
       cmdSwitchSourcemap          : {fullSwitchTxtSourcemap},
@@ -613,7 +610,7 @@ func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
   of cmdSwitchVerbosity   : @["0", "1", "2", "3"]
   of cmdSwitchIncremental : @["on", "off", "writeonly", "readonly", "v2", "stress"]
   of cmdSwitchCc          : listCCnames()
-  of cmdSwitchFilenames   : @["abs", "canonical", "legacyRelProj"]
+  of cmdSwitchFilenames   : @["abs", "legacyRelProj"]
   of cmdSwitchProcessing  : @["dots", "filenames", "off"]
   of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
   of cmdSwitchExceptions  : @["native", "goto"]
@@ -1499,7 +1496,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchFilenames
     case arg.normalize
     of "abs": conf.filenameOption = foAbs
-    of "canonical": conf.filenameOption = foCanonical
     of "legacyrelproj": conf.filenameOption = foLegacyRelProj
     else:
       invalidArgValue(arg, switch)
@@ -1521,9 +1517,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "listfullpaths":
     setSwitchAndSrc cmdSwitchListfullpaths
     # xxx: this should probably get subsubed with filenames
-    conf.filenameOption =
-      if switchOn(switch.normalize, arg): foAbs
-      else:                               foCanonical
+    conf.filenameOption = foAbs
   of "spellsuggest":
     setSwitchAndSrc cmdSwitchSpellsuggest
     if arg.len == 0: conf.spellSuggestMax = spellSuggestSecretSauce
@@ -1604,9 +1598,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "profilevm":
     setSwitchAndSrc cmdSwitchProfilevm
     processOnOffSwitchG(conf, {optProfileVM}, arg, switch)
-  of "sinkinference":
-    setSwitchAndSrc cmdSwitchSinkinference
-    processOnOffSwitch(conf, {optSinkInference}, arg, switch)
   of "cursorinference":
     setSwitchAndSrc cmdSwitchCursorinference
     # undocumented, for debugging purposes only:
@@ -1757,7 +1748,7 @@ proc setCmd*(conf: ConfigRef, cmd: Command) =
   # Note that `--backend` can override the backend, so the logic here must remain reversible.
   conf.cmd = cmd
   case cmd
-  of cmdCompileToC, cmdCrun, cmdTcc: conf.backend = backendC
+  of cmdCompileToC, cmdCrun: conf.backend = backendC
   of cmdCompileToJS: conf.backend = backendJs
   of cmdCompileToVM: conf.backend = backendNimVm
   else: discard
@@ -1770,7 +1761,6 @@ proc parseCommand(command: string): Command =
   of "js", "compiletojs": cmdCompileToJS
   of "vm", "compiletovm": cmdCompileToVM
   of "r": cmdCrun
-  of "run": cmdTcc
   of "check": cmdCheck
   of "e": cmdNimscript
   of "doc2", "doc": cmdDoc

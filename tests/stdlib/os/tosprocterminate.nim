@@ -4,7 +4,7 @@ discard """
   matrix: "--threads:on; "
 """
 
-import os, osproc, times, std / monotimes
+import std/[os, osproc, times, monotimes]
 
 when defined(windows):
   const ProgramWhichDoesNotEnd = "notepad"

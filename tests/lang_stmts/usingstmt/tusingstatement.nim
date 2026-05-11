@@ -3,7 +3,7 @@ discard """
 """
 
 import
-  macros
+  std/macros
 
 # This macro mimics the using statement from C#
 #

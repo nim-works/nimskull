@@ -63,7 +63,7 @@ const
   
   PersistentNodeFlags*: TNodeFlags = {nfDotSetter, nfDotField, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam,
-                                      nfWasGensym}
+                                      nfWasGensym, nfExplicitCall}
   
   namePos*          = 0 ## Name of the type/proc-like node
   patternPos*       = 1 ## empty except for term rewriting macros
@@ -600,12 +600,6 @@ func hasDestructor*(t: PType): bool {.inline.} =
   ## Returns whether the underlying concrete type of `t` has attached lifetime
   ## tracking hooks (that is, is resource-like).
   result = tfHasAsgn in t.skipTypes(skipForHooks).flags
-
-template incompleteType*(t: PType): bool =
-  t.sym != nil and {sfForward, sfNoForward} * t.sym.flags == {sfForward}
-
-template typeCompleted*(s: PSym) =
-  incl s.flags, sfNoForward
 
 template detailedInfo*(sym: PSym): string =
   sym.name.s

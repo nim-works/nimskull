@@ -35,7 +35,7 @@ x: some string
 """
 
 
-import macros, sugar, macrocache
+import std/[macros, sugar, macrocache]
 
 
 block tdump:
@@ -210,7 +210,7 @@ block tupleNewLitTests:
     # between named vs unnamed tuples
   doAssert t() == (1, "foo", (), (1, ), (a1: 'x', a2: @["ba"]))
 
-from strutils import contains
+from std/strutils import contains
 block getImplTransformed:
   macro bar(a: typed): string =
     # newLit a.getImpl.repr # this would be before code transformation

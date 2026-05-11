@@ -5,7 +5,7 @@ int
 int'''
 """
 
-import typetraits
+import std/typetraits
 
 # bug #1805
 

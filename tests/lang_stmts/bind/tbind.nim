@@ -3,7 +3,7 @@ output: '''
 3
 1
 1
-1
+2
 5
 '''
 """
@@ -30,7 +30,7 @@ import mbind3
 echo genId() #OUT 1
 
 
-import strtabs
+import std/strtabs
 block tbinoverload:
   template t() =
     block:

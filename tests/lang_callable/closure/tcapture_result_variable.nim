@@ -8,7 +8,7 @@ discard """
   '''
 """
 
-import sugar
+import std/sugar
 
 proc begin(): int =
   capture result:

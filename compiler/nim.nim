@@ -44,9 +44,6 @@ from std/osproc import execCmd
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
 
-when hasTinyCBackend:
-  import compiler/backend/tccgen
-
 when defined(profiler) or defined(memProfiler):
   {.hint: "Profiling support is turned on!".}
   import sdt/nimprof
@@ -93,13 +90,10 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
     conf.logGcStats(GC_getStatistics())
   if conf.errorCounter != 0: return
 
-  when hasTinyCBackend:
-    if conf.cmd == cmdTcc:
-      tccgen.run(conf, conf.arguments)
   if optRun in conf.globalOptions:
     let output = conf.absOutFile
     case conf.cmd
-    of cmdBackends, cmdTcc:
+    of cmdBackends:
       let nimRunExe = getNimRunExe(conf)
       var cmdPrefix: string
       if nimRunExe.len > 0: cmdPrefix.add nimRunExe.quoteShell
@@ -146,6 +140,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef, argv: openArray[string]):
 
 when not defined(selftest):
   var conf = newConfigRef(cli_reporter.reportHook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   conf.writeHook = msgs.msgWrite
   conf.writelnHook =

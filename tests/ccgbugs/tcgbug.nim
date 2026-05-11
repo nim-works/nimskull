@@ -42,7 +42,7 @@ var k = PFuture[void]()
 
 ##bug #9297 and #13281
 
-import strutils
+import std/strutils
 
 type
   MyKind = enum

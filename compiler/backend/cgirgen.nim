@@ -65,6 +65,9 @@ type
       ## the list of all locals in the body, taken from the ``MirBody``.
       ## Only needed for updating the type for alias locals
 
+    returns: seq[CgNode]
+      ## goto statements to which the return label needs to be added
+
     inUnscoped: int
       ## whether the currently proceesed statement/expression is part of an
       ## unscoped control-flow context. Used to move definitions to the start
@@ -190,9 +193,10 @@ proc handleSpecialConv(c: ConfigRef, n: CgNode, info: TLineInfo,
   ## between the source type (i.e. that of `n`) and the destination type.
   ## If it is, generates the conversion operation IR and returns it -- nil
   ## otherwise
-  if dest.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject:
-    # if the destination is an object (or ptr/ref object), it must be an
-    # object conversion
+  if dest.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject and
+     n.typ.skipTypes(skipPtrs - {tyDistinct}).kind == tyObject:
+    # if the destination and source are an object (or ptr/ref object), it must
+    # be an object conversion
     genObjConv(n, dest, info)
   else:
     nil
@@ -348,7 +352,7 @@ proc targetToIr(tree: MirBody, cr: var TreeCursor): CgNode =
   case n.kind
   of mnkLabel:
     result = newLabelNode(n.label)
-  of mnkResume:
+  of mnkUnwind:
     result = CgNode(kind: cnkResume, info: cr.info)
   else:
     unreachable(n.kind)
@@ -569,6 +573,12 @@ proc stmtToIr(tree: MirBody, env: MirEnv, cl: var TranslateCl,
     to cnkGotoStmt, targetToIr(tree, cr)
   of mnkLoop:
     to cnkLoopStmt, targetToIr(tree, cr)
+  of mnkReturn:
+    if n.len == 1:
+      skip(tree, cr) # skip the operand
+    let goto = newStmt(cnkGotoStmt, info)
+    cl.returns.add goto
+    stmts.add goto
   of mnkLoopJoin:
     to cnkLoopJoinStmt, targetToIr(tree, cr)
   of mnkJoin:
@@ -778,6 +788,24 @@ proc tb(tree: MirBody, env: MirEnv, cl: var TranslateCl,
   var stmts: seq[CgNode]
   scopeToIr(tree, env, cl, cr, stmts)
 
+  # remove all trailing return gotos:
+  while stmts.len > 0 and stmts[^1].kind == cnkGotoStmt:
+    assert stmts[^1].len == 0
+    cl.returns.del(cl.returns.find(stmts[^1]))
+    stmts.shrink(stmts.len - 1)
+
+  # complete all return goto's such that they jump to the end of the body
+  if cl.returns.len > 0:
+    if stmts[^1].kind == cnkJoinStmt:
+      # re-use the trailing join's label
+      for it in cl.returns.items:
+        it.add newLabelNode(LabelId(stmts[^1][0].label))
+    else:
+      for it in cl.returns.items:
+        it.add newLabelNode(tree.nextLabel)
+      stmts.add newTree(cnkJoinStmt, unknownLineInfo,
+                        newLabelNode(tree.nextLabel))
+
   # XXX: the list of statements is still wrapped in a node for now, but
   #      this needs to change once all code generators use the new CGIR
   result = newStmt(cnkStmtList, unknownLineInfo)
@@ -794,3 +822,15 @@ proc generateIR*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
   result = Body()
   result.code = tb(body, env, cl, NodePosition 0)
   result.locals = cl.locals
+
+proc topLevelEmitToIr*(graph: ModuleGraph, idgen: IdGenerator, env: var MirEnv,
+                       owner: PSym, stmt: sink MirBody): CgNode =
+  ## Translates a MIR top-level emit/asm statement to its CGIR analogue.
+  assert stmt.code.len > 0 and stmt.code[0].kind in {mnkEmit, mnkAsm}
+  var
+    cl = TranslateCl(graph: graph, idgen: idgen, env: addr env, owner: owner)
+    cr = TreeCursor(pos: 0)
+  var tmp: seq[CgNode]
+  stmtToIr(stmt, env, cl, cr, tmp)
+  assert tmp.len == 1
+  result = tmp[0]

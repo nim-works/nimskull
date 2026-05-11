@@ -690,7 +690,7 @@ proc checkForInlineErrors(run: TestRun, given: CompilerOutput): TestResult =
       if j notin covered:
         var e: string
         let exp = run.expected.inlineErrors[j]
-        e = run.test.name
+        e = extractFilename run.test.name
         e.add '('
         e.addInt exp.line
         if exp.col > 0:
@@ -727,7 +727,7 @@ proc sexpCheck(test: TTest, expected: TSpec, nimout: string): TOutCompare =
 
   for exp in expected.inlineErrors:
     var parsed = parseSexp(exp.msg)
-    var loc = convertSexp([sexp(test.name), sexp(exp.line)])
+    var loc = convertSexp([sexp(extractFilename test.name), sexp(exp.line)])
     if exp.col > 0:
       loc.add sexp(exp.col)
 

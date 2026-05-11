@@ -43,7 +43,7 @@ block: # issue #12704
   fun()
 
 # https://github.com/nim-lang/Nim/issues/7516
-import typetraits
+import std/typetraits
 
 block: #issue #12704
   const a = $("a", "b")
@@ -89,5 +89,5 @@ discard testObj(X)
 
 
 #bug 12804
-import typetraits
+import std/typetraits
 discard int.name[0]

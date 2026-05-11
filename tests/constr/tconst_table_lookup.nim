@@ -13,7 +13,7 @@ discard """
 
 
 import
-  tables, deques, sequtils
+  std/[tables, deques, sequtils]
 
 const
   lookupTable = {'(': ')', '{': '}', '[': ']'}.toTable

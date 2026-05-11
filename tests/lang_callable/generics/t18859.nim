@@ -6,7 +6,7 @@ description: '''
 '''
 """
 
-import macros
+import std/macros
 
 macro symFromDesc(T: typedesc): untyped =
   let typ = getType(T)
@@ -23,4 +23,3 @@ type
   X[T] = produceType(T)
 
 var x: X[int]
-

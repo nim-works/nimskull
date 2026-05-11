@@ -13,6 +13,18 @@
 ## compile nim files.
 
 import
+  std/[
+    jsonutils,
+    sequtils,
+    strutils,
+    strtabs,
+    osproc,
+    sugar,
+    times,
+    json,
+    sha1,
+    os,
+  ],
   compiler/utils/[
     ropes,
     platform,
@@ -26,18 +38,8 @@ import
     options,
     msgs
   ],
-  std/[
-    os,
-    strutils,
-    osproc,
-    sha1,
-    streams,
-    sequtils,
-    times,
-    strtabs,
-    json,
-    jsonutils,
-    sugar
+  compiler/backend/[
+    build_insts
   ]
 
 # TODO: does it really make sense that this module should produce all these
@@ -296,10 +298,10 @@ const
 
   hExt* = ".h"
 
-template writePrettyCmdsStderr(cmd) =
-  if cmd.len > 0:
-    flushDot(conf)
-    stderr.writeLine(cmd)
+template writePrettyCmds(cmd: CmdReport) =
+  if cmd.msg.len > 0:
+    # TODO: don't use `localReport`. Log the message/diagnostic directly
+    conf.localReport(cmd)
 
 proc nameToCC*(name: string): TSystemCC =
   ## Returns the kind of compiler referred to by `name`, or ccNone
@@ -813,12 +815,19 @@ proc linkViaResponseFile(conf: ConfigRef; cmd: string) =
   finally:
     removeFile(linkerArgs)
 
-proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): string =
+proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): CmdReport =
   if conf.hasHint(rcmdCompiling):
-    conf.localReport CmdReport(
+    CmdReport(
       kind: rcmdCompiling,
-      cmd: compileCmd,
-      msg: demanglePackageName(path.splitFile.name))
+      msg: demanglePackageName(path.splitFile.name),
+      cmd:
+        (if optListCmd in conf.globalOptions or
+            conf.verbosity > compVerbosityDefault:
+          compileCmd
+        else:
+          ""))
+  else:
+    CmdReport(kind: rcmdCompiling) # empty report
 
 proc callCCompiler*(conf: ConfigRef) =
   var
@@ -830,8 +839,8 @@ proc callCCompiler*(conf: ConfigRef) =
   #var c = cCompiler
   var script = ""
   var cmds: TStringSeq
-  var prettyCmds: TStringSeq
-  let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
+  var prettyCmds: seq[CmdReport]
+  let prettyCb = proc (idx: int) = writePrettyCmds(prettyCmds[idx])
 
   for idx, it in conf.toCompile:
     # call the C compiler for the .c file:
@@ -886,75 +895,27 @@ proc callCCompiler*(conf: ConfigRef) =
     script.add("\n")
     generateScript(conf, script)
 
-template hashNimExe(): string = $secureHashFile(os.getAppFilename())
-
-proc jsonBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
-  # `outFile` is better than `projectName`, as it allows having different json
-  # files for a given source file compiled with different options; it also
-  # works out of the box with `hashMainCompilationParams`.
-  result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
-
-const cacheVersion = "D20230310T000000" # update when `BuildCache` spec changes
-type BuildCache = object
-  cacheVersion: string
-  outputFile: string
-  compile: seq[(string, string)]
-  link: seq[string]
-  linkcmd: string
-  extraCmds: seq[string]
-  configFiles: seq[string] # the hash shouldn't be needed
-  inputMode: ProjectInputMode
-  currentDir: string
-  cmdline: string
-  depfiles: seq[(string, string)]
-  nimexe: string
-
-proc writeJsonBuildInstructions*(conf: ConfigRef) =
+proc writeBuildInstructions*(conf: ConfigRef) =
+  ## Gathers C-compiler-specific information and orchestrates writing the
+  ## build instructions.
   var linkFiles = collect(for it in conf.externalToLink:
     var it = it
     if conf.noAbsolutePaths: it = it.extractFilename
     it.addFileExt(CC[conf.cCompiler].objExt))
   for it in conf.toCompile: linkFiles.add it.obj.string
+
   var bcache = BuildCache(
-    cacheVersion: cacheVersion,
-    outputFile: conf.absOutFile.string,
     compile: collect(for i, it in conf.toCompile:
       if CfileFlag.Cached notin it.flags: (it.cname.string, getCompileCFileCmd(conf, it))),
     link: linkFiles,
     linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
-    extraCmds: getExtraCmds(conf, conf.absOutFile),
-    inputMode: conf.inputMode,
-    configFiles: conf.configFiles.mapIt(it.string),
-    currentDir: getCurrentDir())
-  if optRun in conf.globalOptions or isDefined(conf, "nimBetterRun"):
-    bcache.cmdline = conf.commandLine
-    bcache.depfiles = collect(for it in conf.m.fileInfos:
-      let path = it.fullPath.string
-      if isAbsolute(path): # TODO: else?
-        (path, $secureHashFile(path)))
-    bcache.nimexe = hashNimExe()
-  conf.jsonBuildFile = conf.jsonBuildInstructionsFile
-  conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
+    extraCmds: getExtraCmds(conf, conf.absOutFile)
+  )
 
-proc changeDetectedViaJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile): bool =
-  if not fileExists(jsonFile) or not fileExists(conf.absOutFile): return true
-  var bcache: BuildCache
-  try: bcache.fromJson(jsonFile.string.parseFile)
-  except IOError, OSError, ValueError:
-    echo getCurrentException().msg
-    stderr.write "Warning: JSON processing failed for: $#\n" % jsonFile.string
-    return true
-  if bcache.currentDir != getCurrentDir() or # fixes bug #16271
-     bcache.configFiles != conf.configFiles.mapIt(it.string) or
-     bcache.cacheVersion != cacheVersion or bcache.outputFile != conf.absOutFile.string or
-     bcache.cmdline != conf.commandLine or bcache.nimexe != hashNimExe() or
-     bcache.inputMode != conf.inputMode: return true
-  if bcache.inputMode != pimFile: return true
-    # xxx optimize by returning false if stdin input was the same
-  for (file, hash) in bcache.depfiles:
-    if $secureHashFile(file) != hash: return true
+  build_insts.writeBuildInstructions(conf, bcache)
 
-proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
+proc runBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
+  ## Runs the build instructions.
   var bcache: BuildCache
   try: bcache.fromJson(jsonFile.string.parseFile)
   except:
@@ -969,8 +930,9 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
       kind: rbackJsonScriptMismatch,
       jsonScriptParams: (outputCurrent, output, jsonFile.string))
 
-  var cmds, prettyCmds: TStringSeq
-  let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
+  var cmds: TStringSeq
+  var prettyCmds: seq[CmdReport]
+  let prettyCb = proc (idx: int) = writePrettyCmds(prettyCmds[idx])
   for (name, cmd) in bcache.compile:
     cmds.add cmd
     prettyCmds.add displayProgressCC(conf, name, cmd)

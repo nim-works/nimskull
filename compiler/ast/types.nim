@@ -764,6 +764,31 @@ proc skipGenericAlias*(t: PType): PType =
 proc sameFlags*(a, b: PType): bool {.inline.} =
   result = eqTypeFlags*a.flags == eqTypeFlags*b.flags
 
+proc sameProcEffects(a, b: PNode, c: var TSameTypeClosure): bool =
+  ## Whether the two effect lists are equal.
+  if a.isNil:
+    result = b.isNil
+  elif b.isNil:
+    result = false
+  else: # both a and b are not nil
+    # for every unique type in `a`, the same needs to exist in `b` and
+    # vice versa. Duplicate types are fine
+    for it in a.items:
+      block search:
+        for other in b.items:
+          if sameTypeAux(it.typ, other.typ, c):
+            break search
+        return false
+
+    for it in b.items:
+      block search:
+        for other in a.items:
+          if sameTypeAux(it.typ, other.typ, c):
+            break search
+        return false
+
+    result = true
+
 proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
   template cycleCheck() =
     # believe it or not, the direct check for ``containsOrIncl(c, a, b)``
@@ -878,6 +903,11 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     if result and a.kind == tyProc:
       result = ((IgnoreCC in c.flags) or a.callConv == b.callConv) and
                ((ExactConstraints notin c.flags) or sameConstraints(a.n, b.n))
+      if result and IgnoreTupleFields notin c.flags:
+        result = sameProcEffects(a.n[0][exceptionEffects],
+                                 b.n[0][exceptionEffects], c)
+        if result:
+          result = sameProcEffects(a.n[0][tagEffects], b.n[0][tagEffects], c)
   of tyRange:
     cycleCheck()
     result = sameTypeOrNilAux(a[0], b[0], c) and
@@ -1027,15 +1057,31 @@ proc safeInheritanceDiff*(a, b: PType): int =
   else:
     result = inheritanceDiff(a.skipTypes(skipPtrs), b.skipTypes(skipPtrs))
 
-proc compatibleEffectsAux(se, re: PNode): bool =
-  if re.isNil: return false
-  for r in items(re):
-    block search:
-      for s in items(se):
-        if safeInheritanceDiff(s.typ, r.typ) <= 0:
-          break search
-      return false
-  result = true
+proc compatibleEffectsAux(se, re: PNode, unknown, differ: EffectsCompat
+                         ): EffectsCompat =
+  ## Computes whether effect lists `se` and `re` are compatible; they are when
+  ## `se` is a superset of `re`. If compatible returns `efCompat`, otherwise `differ`
+  ## or `unknown` if incompatible or cannot be determined, respectively.
+  if se.isNil:
+    # assume that it means "any effect"
+    # FIXME: ^^ this is not always true! 'nil' can also mean
+    #        "not computed yet", in which case types will be considered
+    #        compatible that in reality are not
+    result = efCompat
+  elif re.isNil:
+    # actual effects are either "any effect" or "not computed yet"
+    # FIXME: when `se` is computed but `re` is not, both are still compatible
+    #        when `se` contains the top type
+    result = unknown
+  else:
+    # every type in `re` must be equal to or a subtype of a type in `se`
+    for r in items(re):
+      block search:
+        for s in items(se):
+          if safeInheritanceDiff(s.typ, r.typ) <= 0:
+            break search
+        return differ
+    result = efCompat
 
 
 proc compatibleEffects*(formal, actual: PType): EffectsCompat =
@@ -1044,32 +1090,26 @@ proc compatibleEffects*(formal, actual: PType): EffectsCompat =
   #if tfEffectSystemWorkaround in actual.flags:
   #  return efCompat
 
-  if formal.n[0].kind != nkEffectList or
-     actual.n[0].kind != nkEffectList:
+  let
+    spec = formal.n[0]
+    real = actual.n[0]
+
+  if spec.kind != nkEffectList or
+     real.kind != nkEffectList:
     return efTagsUnknown
 
-  var spec = formal.n[0]
-  if spec.len != 0:
-    var real = actual.n[0]
+  result = compatibleEffectsAux(
+    spec[exceptionEffects], real[exceptionEffects],
+    efRaisesUnknown, efRaisesDiffer)
+  if result != efCompat:
+    return
 
-    let se = spec[exceptionEffects]
-    # if 'se.kind == nkArgList' it is no formal type really, but a
-    # computed effect and as such no spec:
-    # 'r.msgHandler = if isNil(msgHandler): defaultMsgHandler else: msgHandler'
-    if not isNil(se) and se.kind != nkArgList:
-      # spec requires some exception or tag, but we don't know anything:
-      if real.len == 0: return efRaisesUnknown
-      let res = compatibleEffectsAux(se, real[exceptionEffects])
-      if not res: return efRaisesDiffer
+  result = compatibleEffectsAux(
+    spec[tagEffects], real[tagEffects],
+    efTagsUnknown, efTagsDiffer)
+  if result != efCompat:
+    return
 
-    let st = spec[tagEffects]
-    if not isNil(st) and st.kind != nkArgList:
-      # spec requires some exception or tag, but we don't know anything:
-      if real.len == 0: return efTagsUnknown
-      let res = compatibleEffectsAux(st, real[tagEffects])
-      if not res:
-        #if tfEffectSystemWorkaround notin actual.flags:
-        return efTagsDiffer
   if formal.lockLevel.ord < 0 or
       actual.lockLevel.ord <= formal.lockLevel.ord:
 
@@ -1081,6 +1121,16 @@ proc compatibleEffects*(formal, actual: PType): EffectsCompat =
     result = efCompat
   else:
     result = efLockLevelsDiffer
+
+proc initNoEffects*(t: PType) =
+  ## Sets the tag or exception effect specification to an empty list (meaning
+  ## "no effects")
+  let eff = t.n[0]
+  assert eff.kind == nkEffectList and eff.len == 0
+  eff.sons.newSeq(effectListLen)
+  eff[exceptionEffects] = newNode(nkBracket)
+  eff[tagEffects] = newNode(nkBracket)
+  eff[pragmasEffects] = newNode(nkEmpty)
 
 proc isCompileTimeOnly*(t: PType): bool {.inline.} =
   result = t.kind in {tyTypeDesc, tyStatic}
@@ -1506,7 +1556,10 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
   of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
      tyString, tyCstring, tyVoid:
     result = false
-  of tyDistinct, tyGenericInst, tyAlias, tyUserTypeClassInst, tyInferred:
+  of tyDistinct, tyGenericInst, tyAlias, tyInferred:
+    result = productReachable(marker, g, t.lastSon, search, isInd)
+  of tyUserTypeClasses:
+    assert t.isResolvedUserTypeClass
     result = productReachable(marker, g, t.lastSon, search, isInd)
   of tyError:
     # ``productReachable`` returning true usually means more work for the
@@ -1517,7 +1570,7 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
     unreachable("handled by check")
   of tyNone, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
      tyGenericParam, tyForward, tySink, tyBuiltInTypeClass,
-     tyCompositeTypeClass, tyUserTypeClass, tyAnd, tyOr, tyNot, tyAnything,
+     tyCompositeTypeClass, tyAnd, tyOr, tyNot, tyAnything,
      tyStatic, tyFromExpr:
     unreachable("not a concrete type")
 
@@ -1636,10 +1689,7 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
   elif tfByCopy in pt.flags: return false
   case pt.kind
   of tyObject:
-    if s.typ.sym != nil and sfForward in s.typ.sym.flags:
-      # forwarded objects are *always* passed by pointers for consistency!
-      result = true
-    elif (optByRef in s.options) or (getSize(conf, pt) > conf.target.floatSize * 3):
+    if (optByRef in s.options) or (getSize(conf, pt) > conf.target.floatSize * 3):
       result = true           # requested anyway
     elif (tfFinal in pt.flags) and (pt[0] == nil):
       result = false          # no need, because no subtyping possible
@@ -1653,6 +1703,10 @@ proc isPassByRef*(conf: ConfigRef; s: PSym, retType: PType): bool =
     # XXX: this is a C code generator implementation detail leaking into the
     #      language semantics
     result = true
+  of tySet:
+    # XXX: also a C code generator implementation detail
+    # passed by reference when its a large set (which is an array underneath)
+    result = lengthOrd(conf, pt) > 64
   else:
     result = false
 

@@ -165,8 +165,8 @@ proc effectSpec*(n: PNode, effectType: TSpecialWord): PNode =
   for it in n:
     if it.kind == nkExprColonExpr and whichPragma(it) == effectType:
       result = it[1]
-      if result.kind notin {nkCurly, nkBracket}:
-        result = newNodeI(nkCurly, result.info)
+      if result.kind != nkBracket:
+        result = newNodeI(nkBracket, result.info)
         result.add(it[1])
       return
 

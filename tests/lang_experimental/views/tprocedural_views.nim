@@ -30,3 +30,14 @@ block complex_view_callee:
 
   doAssert o.x(2) == 2
   doAssert (o.x)(3) == 3
+
+block callee_expression_is_tuple_access:
+  proc test() =
+    # wrap the test in a procedure to make sure that local variables are used
+    let
+      p = proc (x: int): int = x
+      tup: (lent Proc,) = (p,)
+
+    doAssert tup[0](2) == 2
+
+  test()

@@ -11,7 +11,7 @@ numbers
 '''
 """
 
-import macros
+import std/macros
 
 type
   TConfig = tuple
@@ -67,4 +67,3 @@ template genericTemplate[N, Z](f: Foo[N, Z], ll = 3, zz = 12): int = N
 
 static:
   echo genericTemplate(x) # Error: internal error: (filename: compiler/evaltempl.nim, line: 39)
-

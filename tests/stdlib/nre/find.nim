@@ -1,7 +1,7 @@
-import unittest, sequtils
-import nre except toSeq
+import std/[unittest, sequtils]
+import std/nre except toSeq
 import optional_nonstrict
-import times, strutils
+import std/[times, strutils]
 
 block: # find
   block: # find text

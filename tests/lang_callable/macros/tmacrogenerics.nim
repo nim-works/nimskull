@@ -8,7 +8,7 @@ counter: 3
   output: "int\nfloat\nint\nstring"
 """
 
-import typetraits, macros
+import std/[typetraits, macros]
 
 var counter {.compileTime.} = 0
 

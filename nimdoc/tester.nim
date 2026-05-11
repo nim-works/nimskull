@@ -2,7 +2,7 @@
 # To run this, cd to the git repo root, and run "nim r nimdoc/tester.nim".
 # to change expected results (after carefully verifying everything), use -d:nimTestsNimdocFixup
 
-import strutils, os
+import std/[strutils, os]
 from std/private/gitutils import diffFiles
 
 const fixup = defined(nimTestsNimdocFixup)

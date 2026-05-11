@@ -1,4 +1,4 @@
-import strutils, os, pegs, strtabs, math, threadpool, times
+import std/[strutils, os, pegs, strtabs, math, threadpool, times]
 
 proc fakeTimeDep() = echo(times.getDateStr())
 proc fakedeps() =

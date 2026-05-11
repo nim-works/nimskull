@@ -7,9 +7,9 @@
 #    distribution, for details about the copyright.
 #
 
-## Entry point into the C code generator when rodfiles are used. Instead of
-## invoking the code generator directly, it simply invokes the normal code
-## generation orchestrator for the C backend.
+## Implements the incremental-compilation specific glue in between the
+## compiler front-end (i.e., semantic analysis) and the mid-end / code
+## generation.
 
 import
   std/[
@@ -32,8 +32,6 @@ import
     pathutils
   ],
   compiler/backend/[
-    cgendata,
-    cgen,
     extccomp
   ],
   compiler/ic/[
@@ -48,16 +46,10 @@ import
     sighashes
   ]
 
-import compiler/backend/cbackend as cbackend2
-
 proc unpackTree(g: ModuleGraph; thisModule: int;
                 tree: PackedTree; n: NodePos): PNode =
   var decoder = initPackedDecoder(g.config, g.cache)
   result = loadNodes(decoder, g.packed, thisModule, tree, n)
-
-proc setupBackendModule(g: BModuleList; m: var LoadedModule, alive: AliveSyms) =
-  var bmod = cgen.newModule(g, m.module, g.config)
-  bmod.idgen = idgenFromLoadedModule(m)
 
 proc addFileToLink(config: ConfigRef; m: PSym) {.used.} =
   # XXX: currently unused, but kept in case it is needed again
@@ -72,7 +64,7 @@ proc addFileToLink(config: ConfigRef; m: PSym) {.used.} =
     addFileToCompile(config, cf)
 
 when defined(debugDce):
-  import os, std/packedsets
+  import std/os, std/packedsets
 
 proc storeAliveSymsImpl(asymFile: AbsoluteFile; s: seq[int32]) =
   var f = rodfiles.create(asymFile.string)
@@ -124,9 +116,9 @@ proc storePackedModule(g: ModuleGraph, i: int; alive: AliveSyms) =
     storeAliveSyms(g.config, g.packed[i].module.position, alive)
     closeRodFile(g, g.packed[i].module)
 
-proc generateCode*(g: ModuleGraph) =
-  ## The single entry point, generate C(++) code for the entire
-  ## Nim program aka `ModuleGraph`.
+proc finalizeModules*(g: ModuleGraph): ModuleList =
+  ## Prepares `g` for code generation, finalizing still-open rodfiles and
+  ## returning the module list for the full program.
   resetForBackend(g)
 
   # First pass: replay the module-graph state changes that the backend needs to
@@ -143,11 +135,6 @@ proc generateCode*(g: ModuleGraph) =
     for i in 0..high(g.packed):
       echo i, " is of status ", g.packed[i].status, " ", toFullPath(g.config, FileIndex(i))
 
-  # setup the module list and allocate space for all existing modules.
-  # The slots for unchanged modules stay uninitialized.
-  let backend = cgendata.newModuleList(g)
-  backend.modules.setLen(g.packed.len)
-
   # Second pass: Setup all the backend modules for all the modules that have
   # changed:
   for i in 0..high(g.packed):
@@ -158,7 +145,7 @@ proc generateCode*(g: ModuleGraph) =
     of loading, stored:
       assert false
     of storing, outdated:
-      setupBackendModule(backend, g.packed[i], alive)
+      discard "nothing to do"
     of loaded:
       # Even though this module didn't change, DCE might trigger a change.
       # Consider this case: Module A uses symbol S from B and B does not use
@@ -169,7 +156,6 @@ proc generateCode*(g: ModuleGraph) =
 
       # for now, we simply re-generate code for all modules, independent of
       # whether they've changed
-      setupBackendModule(backend, g.packed[i], alive)
 
   # Third pass: Setup a ``ModuleList``. For simplicity, we simulate the
   # ``collectPass`` being invoked.
@@ -180,7 +166,7 @@ proc generateCode*(g: ModuleGraph) =
 
     let
       pos = m.module.position
-      c = pass.open(g, m.module, backend.modules[pos].idgen)
+      c = pass.open(g, m.module, idgenFromLoadedModule(m))
     for p in allNodes(m.fromDisk.topLevel):
       let n = unpackTree(g, pos, m.fromDisk.topLevel, p)
       discard pass.process(c, n)
@@ -213,12 +199,8 @@ proc generateCode*(g: ModuleGraph) =
         if tfHasAsgn in t.flags and t.kind notin {tyDistinct, tyObject}:
           discard g.canonTypes.mgetOrPut(hashType(t, {CoDistinct, CoType}), t)
 
-  # Fourth pass: Generate the code:
-  cbackend2.generateCode(g, backend, mlist)
-  g.backend = backend
-
-  # Last pass: Write the rodfiles to disk. The code generator still modifies
-  # their contents right up to this point, so this step currently cannot happen
-  # earlier
+  # Last pass: Write the rodfiles to disk
   for i in 0..high(g.packed):
     storePackedModule(g, i, alive)
+
+  result = mlist

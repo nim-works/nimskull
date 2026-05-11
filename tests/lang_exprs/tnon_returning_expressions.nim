@@ -153,10 +153,16 @@ type Obj = object
 # construction expressions:
 testExprWithEffect 0:
   [(;return; var val = 0; 1), val, effect()]
+testExprWithEffect 2:
+  [effect(), (discard effect(); return; 1)]
 testExprWithEffect 0:
   ((;return; var val = 0; 1), val, effect())
+testExprWithEffect 2:
+  (effect(), (discard effect(); return; 1))
 testExprWithEffect 0:
   Obj(a: (;return; var val = 0; 1), b: val, c: effect())
+testExprWithEffect 2:
+  Obj(a: effect(), b: (discard effect(); return; 1))
 
 # cast:
 testExprWithEffect 0:

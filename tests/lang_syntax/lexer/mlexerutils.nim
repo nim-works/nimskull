@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 macro lispReprStr*(a: untyped): untyped = newLit(a.lispRepr)
 

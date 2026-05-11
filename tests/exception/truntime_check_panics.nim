@@ -9,7 +9,6 @@ discard """
   nimout: '''
 --expandArc: test
 scope:
-  def a: array[0..0, int]
   chckIndex(arg a, arg i)
   discard a[i]
   chckBounds(arg a, arg 0, arg i)
@@ -17,7 +16,7 @@ scope:
   def _7: int = addI(arg i, arg i)
   def _8: int = unaryMinusI(arg i)
   def _9: range 0..1(int) = chckRange(arg i, arg 0, arg 1)
-  chckField(arg <D0>, arg o.kind, arg false, arg "field \'x\' is not accessible for type \'Object\' using \'kind = ")
+  chckField(arg <const> {true}, arg o.kind, arg false, arg "field \'x\' is not accessible for type \'Object\' using \'kind = ")
   discard o.kind.x
   def _11: bool = isNil(arg r)
   def _10: bool = not(arg _11)
@@ -27,6 +26,7 @@ scope:
   discard r.(Sub)
   def _12: float = mulF64(arg f, arg f)
   chckNaN(arg _12)
+return
 
 -- end of expandArc ------------------------'''
 """
@@ -45,8 +45,7 @@ type
       discard
 
 # export the procedure so that it's not omitted
-proc test(i: int, f: float, o: Object, r: ref RootObj) {.exportc.} =
-  var a: array[1, int]
+proc test(i: int, f: float, a: seq[int], o: Object, r: ref RootObj) {.exportc.} =
   discard a[i]                 # index check
   discard toOpenArray(a, 0, i) # bound check
   discard i + i                # overflow check for binary arithmetic

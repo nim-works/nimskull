@@ -1,4 +1,4 @@
-import pegs
+import std/pegs
 
 discard parsePeg(
       pattern = "input",

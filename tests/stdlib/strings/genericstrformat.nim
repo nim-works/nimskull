@@ -1,7 +1,7 @@
 # from issue #7632
 # imported and used in tstrformat
 
-import strformat
+import std/strformat
 
 proc fails*(a: static[int]): string =
   &"formatted {a:2}"

@@ -5,7 +5,7 @@ discard """
 
 import std / isolation
 
-import json, streams
+import std/[json, streams]
 
 proc myParseJson(s: Stream; filename: string): JsonNode =
   {.cast(noSideEffect).}:

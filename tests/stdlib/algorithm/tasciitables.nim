@@ -1,7 +1,7 @@
 import stdtest/unittest_light
 import std/private/asciitables
 
-import strformat
+import std/strformat
 
 proc alignTableCustom(s: string, delim = '\t', sep = ","): string =
   for cell in parseTableCells(s, delim):

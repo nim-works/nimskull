@@ -4,7 +4,7 @@ output: "0"
 
 import matrix, matrixalgo
 
-import typetraits # XXX: this should be removed
+import std/typetraits # XXX: this should be removed
 
 var m: Matrix[3, 3, int]
 var projectionMatrix: Matrix[4, 4, float]
@@ -28,4 +28,3 @@ static:
   ok Matrix[5, 10, int] is AnyMatrix
   no Matrix[7, 15, float] is AnySquareMatrix
   no Matrix[4, 4, int] is AnyTransform3D
-

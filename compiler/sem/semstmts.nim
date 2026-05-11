@@ -264,9 +264,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
           else:
             makeRefType(c.config, a[0][1].typ, c.idgen)
 
-        if symbolNode.kind == nkError:
-          localReport(c.config, symbolNode)
-        else:
+        if symbolNode.kind != nkError:
           # propagate the symbol's type to the node
           symbolNode.typ = symbol.typ
 
@@ -522,10 +520,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
     # a custom pragma as opposed to a built-in
     let (ident, err) = considerQuotedIdent(c, key)
     if err != nil:
-      # XXX: replace with propagating ``nkError``. As it is now, an erroneous
-      #      ``nkAccQuoted`` will not disable following macro pragmas if
-      #      errorMax > 1!
-      localReport(c.config, n)
+      # TODO: don't try the other macros if the identifier is malformed
       return
     elif strTableGet(c.userPragmas, ident) != nil:
       return # User defined pragma
@@ -553,7 +548,7 @@ proc tryMacroPragma(c: PContext, pragmas: ptr PNode, i: int,
   x.add(operand) # the definition AST the pragma appears on
 
   # recursion assures that this works for multiple macro annotations too:
-  let r = semOverloadedCall(c, x, copyNodeWithKids(x), {skMacro, skTemplate}, {efNoUndeclared})
+  let r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
   if r.isNil:
     # restore the old list of pragmas since we couldn't process this one
     pragmas[] = n
@@ -703,7 +698,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
   
   elif not haveGivenTyp and haveInit: # eg: var foo = 1
     def = initExpr
-    typ = initType.skipTypes({tyStatic, tySink}).skipIntLit(c.idgen)
+    typ = principalType(initType, c.idgen)
     if typ.kind in tyUserTypeClasses and typ.isResolvedUserTypeClass:
       typ = typ.lastSon
 
@@ -1782,37 +1777,7 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
   checkSonsLen(typeDef, 3, c.config)
   var name = typeDef[0]
   var s: PSym
-  if name.kind == nkDotExpr and typeDef[2].kind == nkObjectTy:
-    let
-      pkgName = legacyConsiderQuotedIdent(c, name[0], nil)
-      typName = legacyConsiderQuotedIdent(c, name[1], nil)
-      pkg = c.graph.packageSyms.strTableGet(pkgName)
-    if pkg.isNil or pkg.kind != skPackage:
-      localReport(c.config, name.info, reportStr(
-        rsemUnknownPackageName, pkgName.s))
-
-    else:
-      let typsym = c.graph.packageTypes.strTableGet(typName)
-      if typsym.isNil:
-        s = semIdentDef(c, name[1], skType)
-        s.typ = newTypeS(tyObject, c)
-        s.typ.sym = s
-        # until the type is completed, the size and alignment are treated as
-        # unknown
-        s.typ.size = szUnknownSize
-        s.typ.align = szUnknownSize
-        s.flags.incl sfForward
-        c.graph.packageTypes.strTableAdd s
-        addInterfaceDecl(c, s)
-      elif typsym.kind == skType and sfForward in typsym.flags:
-        s = typsym
-        addInterfaceDecl(c, s)
-      else:
-        localReport(c.config, name.info, reportSym(
-          rsemTypeCannotBeForwarded, typsym))
-
-        s = typsym
-  else:
+  if true:
     s = semIdentDef(c, name, skType)
     s.typ = newTypeS(tyForward, c)
     s.typ.sym = s             # process pragmas:
@@ -1823,9 +1788,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
         typeDefLeftSidePass(c, typeSection, i)
         return
       name[1] = pragmaDecl(c, s, name[1], typePragmas)
-      # check if we got any errors and if so report them
-      for e in ifErrorWalkErrors(c.config, name[1]):
-        localReport(c.config, e)
 
     if typeDef[1].kind != nkEmpty:
       # the type is generic. So that the right-side pass can easily
@@ -1833,22 +1795,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       # type
       s.typ.flags.incl tfHasMeta
 
-    if sfForward in s.flags:
-      # check if the symbol already exists:
-      let pkg = c.module.owner
-      if not isTopLevel(c) or pkg.isNil:
-        localReport(c.config, name, reportSem rsemPackageRequiresToplevel)
-      else:
-        let typsym = c.graph.packageTypes.strTableGet(s.name)
-        if typsym != nil:
-          if sfForward notin typsym.flags or sfNoForward notin typsym.flags:
-            typeCompleted(typsym)
-            typsym.info = s.info
-          else:
-            localReport(c.config, name.info, reportSymbols(
-              rsemDoubleCompletionOf, @[typsym, s]))
-
-          s = typsym
     # add it here, so that recursive types are possible:
     if sfGenSym notin s.flags:
       addInterfaceDecl(c, s)
@@ -2004,12 +1950,6 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # process the type's body:
       pushOwner(c, s)
       var t = semTypeNode(c, a[2], s.typ)
-      
-      if t.kind == tyError and t.n.isError:
-        # we've got a tyError with a report in n
-        # xxx: we should probably propagate tyError like nkError
-        c.config.localReport(t.n)
-      
       if s.typ == nil:
         s.typ = t
       elif t != s.typ and (s.typ == nil or s.typ.kind != tyAlias):
@@ -2178,7 +2118,7 @@ proc semProcAnnotation(c: PContext, prc: PNode): PNode =
   # let the semantic checker deal with it:
   result = semAnnotation(c, addr prc[pragmasPos], prc, {})
 
-proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
+proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode =
   ## used for resolving 'auto' in lambdas based on their callsite
   addInNimDebugUtils(c.config, "semInferredLambda", n, result)
   let original = n[namePos].sym
@@ -2636,7 +2576,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     popOwner(c)
     return wrapErrorAndUpdate(c.config, result, s)
 
-  if result[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
+  if sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
@@ -2703,6 +2643,9 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
       result[namePos] = checkSpecialOperators(c, result[namePos])
       hasError = hasError or result[namePos].kind == nkError
 
+  if result[genericParamsPos].kind == nkEmpty and s.magic == mNone:
+    paramsTypeCheck(c, s.typ, s.flags)
+
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
     if sfBorrow in s.flags:
@@ -2729,9 +2672,6 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     else:
       pushProcCon(c, s)
       if result[genericParamsPos].kind == nkEmpty:
-        if s.magic == mNone:
-          paramsTypeCheck(c, s.typ)
-
         maybeAddResult(c, s, result)
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
@@ -2918,8 +2858,7 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     popOwner(c)
     return wrapErrorAndUpdate(c.config, result, s)
 
-  if result[pragmasPos].kind != nkEmpty:
-    setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
+  setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
   # analyse the body:
@@ -3039,7 +2978,8 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
   result[namePos] =
     semRoutineName(c, n[namePos], kind, allowAnon = kind in AllowAnon)
 
-  c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
+  if result[namePos].kind != nkError:
+    c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
 
   if result[namePos].kind == nkError:
     if result[namePos].diag.kind == adSemDefNameSym:
@@ -3390,4 +3330,3 @@ proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = semExpr(c, n, flags)
   else:
     result = semExprNoType(c, n)
-

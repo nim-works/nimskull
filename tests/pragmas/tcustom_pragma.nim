@@ -1,6 +1,6 @@
 {.experimental: "notnil".}
 
-import macros
+import std/macros
 
 block:
   template myAttr() {.pragma.}

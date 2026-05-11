@@ -129,7 +129,6 @@ type
     sysTypes*: array[TTypeKind, PType]
     compilerprocs*: TStrTable
     exposed*: TStrTable
-    packageTypes*: TStrTable
     emptyNode*: PNode
     canonTypes*: Table[SigHash, PType]
     symBodyHashes*: Table[int, SigHash] # symId to digest mapping
@@ -527,7 +526,6 @@ proc newModuleGraph*(cache: IdentCache; config: ConfigRef): ModuleGraph =
   result.methods = @[]
   initStrTable(result.compilerprocs)
   initStrTable(result.exposed)
-  initStrTable(result.packageTypes)
   result.emptyNode = newNode(nkEmpty)
   result.cacheSeqs = initTable[string, PNode]()
   result.cacheCounters = initTable[string, BiggestInt]()
@@ -652,6 +650,7 @@ proc getBody*(g: ModuleGraph; s: PSym): PNode {.inline.} =
     assert result != nil and result.kind == nkError,
       "assume we've populated the nkError here"
   else:
+    internalAssert(g.config, s.ast.kind != nkError, s.info)
     result = s.ast[bodyPos]
     if result == nil and g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
       result = loadProcBody(g.config, g.cache, g.packed, s)

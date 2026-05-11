@@ -2,7 +2,7 @@ discard """
   description: '''
     Ensure that `sink` cannot be used as a type-class or constraint
   '''
-  cmd: "nim check --filenames=canonical --hints:off $options $file"
+  cmd: "nim check --hints:off $options $file"
   action: reject
 """
 

@@ -25,7 +25,7 @@ when ATTEMPT == 0:
   defineOpAssigns(Foo)
 
 # bug #1543
-import sequtils
+import std/sequtils
 
 (var i = @[""];i).applyIt(it)
 # now works:

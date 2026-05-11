@@ -3,7 +3,7 @@ errormsg: "Expected identifier to be `foo` here"
 line: 18
 """
 
-import macros
+import std/macros
 
 macro testUntyped(arg: untyped): void =
   arg.expectKind nnkStmtList

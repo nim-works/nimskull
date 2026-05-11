@@ -2,13 +2,9 @@ discard """
   output: '''5: 231
 0: asdf
 '''
-  knownIssue: '''
-    Assignments to ``openArray`` lvalues with side-effects (e.g.,
-    ``x[y] = ...``) are currently not supported by the C code generator
-  '''
 """
 
-import tables
+import std/tables
 
 {.experimental: "views".}
 

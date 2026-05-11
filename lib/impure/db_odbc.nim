@@ -88,8 +88,8 @@
 ##
 ##  theDb.close()
 
-import strutils, odbcsql
-import db_common
+import std/[strutils, odbcsql]
+import std/db_common
 export db_common
 
 import std/private/since

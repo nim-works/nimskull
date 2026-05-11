@@ -2,7 +2,7 @@ discard """
   output: '''ok'''
 """
 # bug #9864
-import macros, tables
+import std/[macros, tables]
 
 proc bar(shOpt: Table[string, int]) = discard
 

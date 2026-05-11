@@ -4,7 +4,7 @@ discard """
 # codes to differ and be reported as a failure
 """
 
-import nre
+import std/nre
 import nre/init
 import nre/captures
 import nre/find

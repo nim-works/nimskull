@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 macro test(): untyped =
   result = nnkStmtList.newTree()

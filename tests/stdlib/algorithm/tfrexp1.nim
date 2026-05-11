@@ -7,7 +7,7 @@ import std/math
 const manualTest = false
 
 when manualTest:
-  import strformat
+  import std/strformat
 
 proc frexp_test(lo, hi, step: float64) =
   var exp: int

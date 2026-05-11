@@ -1,5 +1,9 @@
 discard """
   output: "12"
+  knownIssue: '''
+    `cast[UncheckedArray[...]](...)` doesn't work, and it's unclear whether
+    it should be supported at all
+  '''
 """
 
 {.emit: """

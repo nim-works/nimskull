@@ -9,7 +9,7 @@ Second tasks completed.
 test1'''
 """
 
-import strutils, os, std / wordwrap
+import std/[strutils, os, wordwrap]
 
 import system / ansi_c
 
@@ -19,7 +19,7 @@ proc retTuple(): (seq[int], int) =
 
 # bug #12899
 
-import sequtils, strmisc
+import std/[sequtils, strmisc]
 
 const input = ["KXSC, BGMC => 7 PTHL", "PXFX => LBZJ", "WXRQ, ZSCZD => HLQM"]
 
@@ -51,8 +51,7 @@ proc nonStaticTests =
   doAssert "${1}12 ${-1}$2" % ["a", "b"] == "a12 bb"
 
   block: # formatSize tests
-    when not defined(js):
-      doAssert formatSize((1'i64 shl 31) + (300'i64 shl 20)) == "2.293GiB"   # <=== bug #8231
+    doAssert formatSize((1'i64 shl 31) + (300'i64 shl 20)) == "2.293GiB"   # <=== bug #8231
     doAssert formatSize((2.234*1024*1024).int) == "2.234MiB"
     doAssert formatSize(4096) == "4KiB"
     doAssert formatSize(4096, prefix=bpColloquial, includeSpace=true) == "4 kB"
@@ -251,4 +250,3 @@ proc main =
       "test" & $i
 
 main()
-

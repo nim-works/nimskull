@@ -77,7 +77,7 @@ type
     opcMulSet, opcPlusSet, opcMinusSet, opcConcatStr,
     opcContainsSet, opcRepr, opcSetLenStr, opcSetLenSeq,
     opcIsNil, opcOf,
-    opcParseFloat, opcConv, opcNumConv, opcObjConv, opcCast
+    opcConv, opcNumConv, opcObjConv, opcCast
     opcQuit, opcInvalidField,
     opcNarrowS, opcNarrowU,
     opcSignExtend,

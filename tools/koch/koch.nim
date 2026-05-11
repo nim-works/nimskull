@@ -77,7 +77,6 @@ Commands for core developers:
                            to niminst
   archive [options]        builds the release source archive; options are passed
                            to niminst
-  installdeps [options]    installs external dependency (e.g. tinyc) to dist/
   tests [options]          run the testsuite (run a subset of tests by
                            specifying a category, e.g. `tests cat async`)
   temp options             creates a temporary compiler for testing
@@ -184,6 +183,8 @@ proc buildTool(toolname, args: string) =
   copyFile(dest="bin" / splitFile(toolname).name.exe, source=toolname.exe)
 
 proc buildTools(args: string = "") =
+  nimCompileFold("Compile dust", "tools/dust/dust.nim",
+                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
@@ -366,7 +367,7 @@ type
 proc buildReleaseBinaries(args = "") =
   ## Build binaries needed for creating a release
   # Boot the compiler
-  boot("-d:danger " & args)
+  boot("-d:release " & args)
   # Build the tools
   buildTools(args)
 
@@ -455,18 +456,8 @@ proc hostInfo(): string =
   "hostOS: $1, hostCPU: $2, int: $3, float: $4, cpuEndian: $5, cwd: $6" %
     [hostOS, hostCPU, $int.sizeof, $float.sizeof, $cpuEndian, getCurrentDir()]
 
-proc installDeps(dep: string, commit = "") =
-  # the hashes/urls are version controlled here, so can be changed seamlessly
-  # and tied to a nim release (mimicking git submodules)
-  var commit = commit
-  case dep
-  of "tinyc":
-    if commit.len == 0: commit = "916cc2f94818a8a382dd8d4b8420978816c1dfb3"
-    cloneDependency(distDir, "https://github.com/timotheecour/nim-tinyc-archive", commit)
-  else: doAssert false, "unsupported: " & dep
-  # xxx: also add linenoise, niminst etc, refs https://github.com/nim-lang/RFCs/issues/206
-
 proc testTools(cmd: string) =
+  nimexecFold("Run dust tests", "r tools/dust/tester")
   # xxx: temporarily placing nimscript testing to ensure it's at least running
   nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   nimexecFold("Run nimdoc tests", "r nimdoc/tester")
@@ -558,7 +549,6 @@ when isMainModule:
       of "geninstall": geninstall(op.cmdLineRest)
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
-      of "installdeps": installDeps(op.cmdLineRest)
       of "test", "tests": tests(op.cmdLineRest)
       of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)

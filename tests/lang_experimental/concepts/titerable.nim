@@ -3,7 +3,7 @@ discard """
   output: 15
 """
 
-import typetraits
+import std/typetraits
 
 type
   Iterable[T] = concept x
@@ -17,4 +17,3 @@ proc sum*[T](iter: Iterable[T]): T =
     result += element
 
 echo sum([1, 2, 3, 4, 5])
-

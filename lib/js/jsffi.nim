@@ -152,6 +152,14 @@ proc to*(x: JsObject, T: typedesc): T {.importjs: "(#)".}
 proc toJs*[T](val: T): JsObject {.importjs: "(#)".}
   ## Converts a value of any type to type JsObject.
 
+proc toJs*(val: int64): JsObject =
+  ## Converts a 64-bit signed integer to a JavaScript Number.
+  toJs(float(val))
+
+proc toJs*(val: uint64): JsObject =
+  ## Converts a 64-bit unsigned integer to a JavaScript Number.
+  toJs(float(val))
+
 template toJs*(s: string): JsObject = cstring(s).toJs
 
 macro jsFromAst*(n: untyped): untyped =

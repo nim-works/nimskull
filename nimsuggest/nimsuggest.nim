@@ -60,9 +60,9 @@ from compiler/front/main import customizeForBackend
 from compiler/tools/suggest import findTrackedSym, executeCmd, listUsages, suggestSym
 
 when defined(windows):
-  import winlean
+  import std/winlean
 else:
-  import posix
+  import std/posix
 
 const sep = '\t'
 const DummyEof = "!EOF!"
@@ -742,6 +742,7 @@ when isMainModule:
 
   let argv = getExecArgs()
   let conf = newConfigRef(cli_reporter.reportHook)
+  conf.diagHandler = msgs.defaultDiagHandler
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   handleCmdLine(newIdentCache(), conf, argv)
 else:
@@ -795,6 +796,7 @@ else:
         suggestMode: true,
         processCmdLine: mockCmdLine
       )
+    conf.diagHandler = msgs.defaultDiagHandler
     conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
     self.initDefinesProg(conf, "nimsuggest")
 

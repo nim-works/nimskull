@@ -9,6 +9,7 @@ discard """
 scope:
   def a: Ptr = nil
   def b: Ptr = nil
+return
 
 -- end
 '''

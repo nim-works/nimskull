@@ -8,7 +8,7 @@ discard """
 hello 18.0'''
 """
 
-import macros
+import std/macros
 
 proc internalBar(top, left, width, height: cint, s: string, x, y: int, r,g,b: int) =
   echo "(left: ", left, ", r: ", r, ", x: ", x, ", height: ", height, ", s: ", s,
@@ -84,7 +84,7 @@ bar(rect(top, left, width, height), "test", point(8, 9), color(7,7,8))
 
 # bug #10075
 
-import macros
+import std/macros
 
 proc convert_hidden_stdconv(args: NimNode): NimNode =
   var n = args

@@ -45,7 +45,7 @@ type
     wCompleteStruct = "completeStruct", wRequiresInit = "requiresInit", wAlign = "align",
     wNodecl = "nodecl", wPure = "pure", wSideEffect = "sideEffect", wHeader = "header",
     wNoSideEffect = "noSideEffect", wGcSafe = "gcsafe", wNoreturn = "noreturn",
-    wNosinks = "nosinks", wLib = "lib", wDynlib = "dynlib",
+    wLib = "lib", wDynlib = "dynlib",
     wCompilerProc = "compilerproc", wCore = "core", wProcVar = "procvar",
     wBase = "base", wUsed = "used", wFatal = "fatal", wError = "error", wWarning = "warning",
     wHint = "hint",
@@ -64,10 +64,10 @@ type
     wStyleChecks = "styleChecks", wStaticBoundchecks = "staticBoundChecks"
 
     wAssertions = "assertions", wTrMacros = "trmacros",
-    wSinkInference = "sinkInference", wWarnings = "warnings",
+    wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",
-    wSafecode = "safecode", wPackage = "package",
+    wSafecode = "safecode",
     wNoRewrite = "norewrite", wNoDestroy = "nodestroy", wPragma = "pragma",
     wCompileTime = "compileTime", wNoInit = "noinit", wPassc = "passc", wPassl = "passl",
     wLocalPassc = "localPassC", wBorrow = "borrow", wDiscardable = "discardable",
@@ -119,7 +119,7 @@ const
 const enumUtilsExist = compiles:
   import std/enumutils
 
-import strutils
+import std/strutils
 
 when enumUtilsExist:
   from std/enumutils import genEnumCaseStmt

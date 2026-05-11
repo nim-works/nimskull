@@ -18,8 +18,8 @@ export in_options
 
 when not FileSystemCaseSensitive:
   from compiler/utils/strutils2 import toLowerAscii
-from terminal import isatty
-from times import utc, fromUnix, local, getTime, format, DateTime
+from std/terminal import isatty
+from std/times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
@@ -41,7 +41,6 @@ from compiler/ast/reports import
   ReportTypes
 
 const
-  hasTinyCBackend* = defined(tinyc)
   useEffectSystem* = true
   useWriteTracking* = false
   copyrightYear* = "2022"
@@ -80,11 +79,6 @@ type
                             ## some close token.
 
     errorOutputs*: TErrorOutputs ## Allowed output streams for messages.
-    # REFACTOR this field is mostly touched in sem for 'performance'
-    # reasons - don't write out error messages when compilation failed,
-    # don't generate list of call candidates when `compiles()` fails and so
-    # on. This should be replaced with `.inTryExpr` or something similar,
-    # and let the reporting hook deal with all the associated heuristics.
 
     msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
     ## information about instantiation stack - "template/generic
@@ -179,7 +173,6 @@ type
               ## reaction.
     doNothing ## Don't do anything
     doAbort   ## Immediately abort compilation
-    doRaise   ## Raise recoverable error
 
   ProjectInputMode* = enum
     pimStdin ## the contents of the main module are provided by stdin
@@ -197,6 +190,7 @@ type
     irVm     = "vm"
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  DiagHandler* = proc(conf: ConfigRef, report: sink Report) {.closure.}
 
   HackController* = object
     ## additional configuration switches to control the behavior of the
@@ -309,6 +303,9 @@ type
       ## callback that is invoked when an enabled report is passed to report
       ## handling. The callback is meant to handle rendering/displaying of
       ## the report
+    diagHandler*: DiagHandler
+      ## a callback that receives all emitted diagnostics and is responsible
+      ## for handling them
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
       ## callback that sets the message format for legacy reporting, needs to
@@ -327,9 +324,6 @@ type
     timeTracer*: Tracer
       ## global instance of the time tracer, for creating an execution time
       ## trace
-
-    when defined(nimDebugUnreportedErrors):
-      unreportedErrors*: OrderedTable[NodeId, PNode]
 
 const 
   IdeLocCmds* = {ideSug, ideCon, ideDef, ideUse, ideDus}
@@ -588,6 +582,10 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
   ## Get active report hook
   conf.structuredReportHook
 
+proc setDiagHandler*(conf: ConfigRef, handler: sink DiagHandler) {.inline.} =
+  ## Sets the active diagnostic handler.
+  conf.diagHandler = handler
+
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
@@ -614,8 +612,8 @@ template report*[R: ReportTypes](
 
 template report*[R: ReportTypes](
     conf: ConfigRef, tinfo: TLineInfo, inReport: R): TErrorHandling =
-  ## Write out new report, updating it's location info using `tinfo` and
-  ## it's instantiation info with `instantiationInfo()` of the template.
+  ## Write out new report, updating its location info using `tinfo` and
+  ## its instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
@@ -729,29 +727,6 @@ func isEnabled*(conf: ConfigRef, report: Report): bool =
   report.kind == rsemExpandMacro and
     conf.macrosToExpand.hasKey(report.semReport.sym.name.s) or
     conf.isEnabled(report.kind)
-
-type
-  ReportWritabilityKind* = enum
-    writeEnabled
-    writeDisabled
-    writeForceEnabled
-
-func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
-  let compTimeCtx = conf.m.errorOutputs == {}
-    ## indicates whether we're in a `compiles` or `constant expression
-    ## evaluation` context. `sem` and `semexprs` in particular will clear
-    ## `conf.m.errorOutputs` as a signal for this. For more details see the
-    ## comment for `MsgConfig.errorOutputs`.
-  if r.category == repDebug and compTimeCtx:
-    # Force write of the report messages using regular stdout if compTimeCtx
-    # is enabled
-    writeForceEnabled
-  elif compTimeCtx:
-    # Or we are in the special hack mode for `compiles()` processing
-    # Return without writing
-    writeDisabled
-  else:
-    writeEnabled
 
 const
   oldExperimentalFeatures* = {dotOperators, callOperator}
@@ -1361,7 +1336,7 @@ when not declared(isRelativeTo):
     result = path.len > 0 and not ret.startsWith ".."
 
 const stdlibDirs = [
-  "pure", "core", "arch",
+  "pure", "core", "arch", "std",
   "pure/collections",
   "pure/concurrency",
   "pure/unidecode", "impure",
@@ -1405,33 +1380,28 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
-  ## Return absolute path to the imported module `modulename`. Imported
-  ## path can be relative to the `currentModule`, absolute one, `std/` or
-  ## `pkg/`-prefixed. In case of `pkg/` prefix it is dropped and search is
-  ## performed again, while ignoring stdlib.
-  ##
-  ## Search priority is
-  ##
-  ## 1. `pkg/` prefix
-  ## 2. Stdlib prefix
-  ## 3. Relative to the current file
-  ## 4. Search in the `--path` (see `findFile` and `rawFindFile`)
-  ##
-  ## If the module is found and exists module override, apply it last.
+  ## Returns the absolute path for the module addressed by import path
+  ## `modulename`, or an empty string when the import path cannot be resolved
+  ## to a module. The imported path may be:
+  ## 1. a relative path. If it's not relative to the directory of
+  ##    `currentModule`, it's searched for on the search paths
+  ## 2. an `std/`-prefixed path. The part past the prefix is treated as a
+  ##    path relative to one of the standard library directories
+  ## 3. a `pkg/`-prefixed path. The module is searched for on the search paths
+  ##   (except that of the standard library)
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
     result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
+  elif m.startsWith(stdPrefix):
+    let stripped = m.substr(stdPrefix.len)
+    for candidate in stdlibDirs:
+      let path = (conf.libpath.string / candidate / stripped)
+      if fileExists(path):
+        result = AbsoluteFile path
+        break
   else:
-    if m.startsWith(stdPrefix):
-      let stripped = m.substr(stdPrefix.len)
-      for candidate in stdlibDirs:
-        let path = (conf.libpath.string / candidate / stripped)
-        if fileExists(path):
-          result = AbsoluteFile path
-          break
-    else: # If prefixed with std/ why would we add the current module path!
-      let currentPath = currentModule.splitFile.dir
-      result = AbsoluteFile currentPath / m
+    # look in the current directory first, then try the search paths
+    result = AbsoluteFile(currentModule.splitFile.dir / m)
     if not fileExists(result):
       result = findFile(conf, m)
 
@@ -1477,27 +1447,6 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
     if dir == "": break
   return ""
 
-proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
-  ## canonical module import filename, e.g.: system.nim, std/tables.nim,
-  ## system/assertions.nim, etc. Canonical module import filenames follow the
-  ## same rules as canonical imports (see `canonicalImport`), except the module
-  ## name is followed by a `.nim` file extension, and the directory separators
-  ## are OS specific.
-  let
-    desc = getPkgDesc(conf, file.string)
-    (_, moduleName, ext) = file.splitFile
-  if desc.pkgKnown and
-     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
-    # we ignore the pkg root name for intra-package module imports, allows for
-    # easier pkg renames (without changing all files using canonical imports).
-    result = desc.pkgRootName
-    if desc.pkgSubpath != "":
-      result = result / desc.pkgSubpath
-  else:
-    result = desc.pkgSubpath
-  result = if result == "": moduleName else: result / moduleName
-  result = result.changeFileExt(ext) # since we lost it above
-
 proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
   ## Shows the canonical module import, e.g.: system, std/tables,
   ## fusion/pointers, system/assertions, std/private/asciitables
@@ -1508,8 +1457,20 @@ proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
   ## - if a module is at the base of a package, then `pkgroot/module`
   ## - if a module is within the project's package, `pkgroot` is skipped like
   ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
-  let ret = canonicalImportAux(conf, file)
-  result = ret.nativeToUnixPath.changeFileExt("")
+  let
+    desc = getPkgDesc(conf, file.string)
+    (_, moduleName, _) = file.splitFile
+  if desc.pkgKnown and
+     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
+    # we ignore the pkg root name for intra-package module imports, allows for
+    # easier pkg renames (without changing all files using canonical imports).
+    result = desc.pkgRootName
+    if desc.pkgSubpath != "":
+      result = result / desc.pkgSubpath
+  else:
+    result = desc.pkgSubpath
+  result = if result == "": moduleName else: result / moduleName
+  result = result.nativeToUnixPath
 
 proc canonDynlibName*(s: string): string =
   ## Get 'canonical' dynamic library name - without optional `lib` prefix

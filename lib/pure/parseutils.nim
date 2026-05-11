@@ -421,10 +421,6 @@ proc captureBetween*(s: string, first: char, second = '\0', start = 0): string =
 proc integerOutOfRangeError() {.noinline.} =
   raise newException(ValueError, "Parsed integer outside of valid range")
 
-# See #6752
-when defined(js):
-  {.push overflowChecks: off.}
-
 proc rawParseInt(s: string, b: var BiggestInt, start = 0): int =
   var
     sign: BiggestInt = -1
@@ -449,9 +445,6 @@ proc rawParseInt(s: string, b: var BiggestInt, start = 0): int =
     else:
       b = b * sign
       result = i - start
-
-when defined(js):
-  {.pop.} # overflowChecks: off
 
 proc parseBiggestInt*(s: string, number: var BiggestInt, start = 0): int {.
   rtl, extern: "npuParseBiggestInt", noSideEffect, raises: [ValueError].} =
@@ -569,11 +562,237 @@ proc parseUInt*(s: string, number: var uint, start = 0): int {.
   if result != 0:
     number = uint(res)
 
-proc parseBiggestFloat*(s: string, number: var BiggestFloat, start = 0): int {.
-  magic: "ParseBiggestFloat", importc: "nimParseBiggestFloat", noSideEffect.}
-  ## Parses a float starting at `start` and stores the value into `number`.
-  ## Result is the number of processed chars or 0 if a parsing error
-  ## occurred.
+
+when not defined(nimskullHasNoParseFloatMagic):
+  proc parseBiggestFloat*(s: string, number: var BiggestFloat, start = 0): int {.
+    magic: "ParseBiggestFloat", importc: "nimParseBiggestFloat", noSideEffect.}
+elif defined(js):
+  proc parseFloatNative(a: string): float =
+    let a2 = a.cstring
+    asm """
+    `result` = Number(`a2`);
+    """
+
+  {.push checks: off.} # TODO: Make the parsing work with checks enabled
+  proc parseBiggestFloat*(s: string, number: var BiggestFloat,
+                          start: int = 0): int {.noSideEffect.} =
+    var sign: bool
+    var i = start
+    if s[i] == '+': inc(i)
+    elif s[i] == '-':
+      sign = true
+      inc(i)
+    if s[i] == 'N' or s[i] == 'n':
+      if s[i+1] == 'A' or s[i+1] == 'a':
+        if s[i+2] == 'N' or s[i+2] == 'n':
+          if s[i+3] notin IdentChars:
+            number = NaN
+            return i+3 - start
+      return 0
+    if s[i] == 'I' or s[i] == 'i':
+      if s[i+1] == 'N' or s[i+1] == 'n':
+        if s[i+2] == 'F' or s[i+2] == 'f':
+          if s[i+3] notin IdentChars:
+            number = if sign: -Inf else: Inf
+            return i+3 - start
+      return 0
+
+    var buf: string
+      # we could also use an `array[char, N]` buffer to avoid reallocs, or
+      # use a 2-pass algorithm that first computes the length.
+    if sign: buf.add '-'
+    template addInc =
+      buf.add s[i]
+      inc(i)
+    template eatUnderscores =
+      while s[i] == '_': inc(i)
+    while s[i] in {'0'..'9'}: # Read integer part
+      buf.add s[i]
+      inc(i)
+      eatUnderscores()
+    if s[i] == '.': # Decimal?
+      addInc()
+      while s[i] in {'0'..'9'}: # Read fractional part
+        addInc()
+        eatUnderscores()
+    # Again, read integer and fractional part
+    if buf.len == ord(sign): return 0
+    if s[i] in {'e', 'E'}: # Exponent?
+      addInc()
+      if s[i] == '+': inc(i)
+      elif s[i] == '-': addInc()
+      if s[i] notin {'0'..'9'}: return 0
+      while s[i] in {'0'..'9'}:
+        addInc()
+        eatUnderscores()
+    number = parseFloatNative(buf)
+    result = i - start
+  {.pop.}
+else:
+  proc c_strtod(buf: cstring, endptr: ptr cstring): float64 {.
+    importc: "strtod", header:"<stdlib.h>", noSideEffect.}
+  const powtens = [1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9,
+                   1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
+                   1e20, 1e21, 1e22]
+
+  proc parseBiggestFloat*(s: string, number: var BiggestFloat,
+                          start = 0): int {.noSideEffect.} =
+    ## Parses a float starting at `start` and stores the value into `number`.
+    ## Result is the number of processed chars or 0 if a parsing error
+    ## occurred.
+    # This routine attempt to parse float that can parsed quickly.
+    # i.e. whose integer part can fit inside a 53bits integer.
+    # their real exponent must also be <= 22. If the float doesn't follow
+    # these restrictions, transform the float into this form:
+    #  INTEGER * 10 ^ exponent and leave the work to standard `strtod()`.
+    # This avoid the problems of decimal character portability.
+    # see: http://www.exploringbinary.com/fast-path-decimal-to-floating-point-conversion/
+    var
+      i = start
+      sign = 1.0
+      kdigits, fdigits = 0
+      exponent = 0
+      integer = uint64(0)
+      fracExponent = 0
+      expSign = 1
+      firstDigit = -1
+      hasSign = false
+
+    # Sign?
+    if i < s.len and (s[i] == '+' or s[i] == '-'):
+      hasSign = true
+      if s[i] == '-':
+        sign = -1.0
+      inc(i)
+
+    # NaN?
+    if i+2 < s.len and (s[i] == 'N' or s[i] == 'n'):
+      if s[i+1] == 'A' or s[i+1] == 'a':
+        if s[i+2] == 'N' or s[i+2] == 'n':
+          if i+3 >= s.len or s[i+3] notin IdentChars:
+            number = NaN
+            return i+3 - start
+      return 0
+
+    # Inf?
+    if i+2 < s.len and (s[i] == 'I' or s[i] == 'i'):
+      if s[i+1] == 'N' or s[i+1] == 'n':
+        if s[i+2] == 'F' or s[i+2] == 'f':
+          if i+3 >= s.len or s[i+3] notin IdentChars:
+            number = Inf*sign
+            return i+3 - start
+      return 0
+
+    if i < s.len and s[i] in {'0'..'9'}:
+      firstDigit = (s[i].ord - '0'.ord)
+    # Integer part?
+    while i < s.len and s[i] in {'0'..'9'}:
+      inc(kdigits)
+      integer = integer * 10'u64 + (s[i].ord - '0'.ord).uint64
+      inc(i)
+      while i < s.len and s[i] == '_': inc(i)
+
+    # Fractional part?
+    if i < s.len and s[i] == '.':
+      inc(i)
+      # if no integer part, Skip leading zeros
+      if kdigits <= 0:
+        while i < s.len and s[i] == '0':
+          inc(fracExponent)
+          inc(i)
+          while i < s.len and s[i] == '_': inc(i)
+
+      if firstDigit == -1 and i < s.len and s[i] in {'0'..'9'}:
+        firstDigit = (s[i].ord - '0'.ord)
+      # get fractional part
+      while i < s.len and s[i] in {'0'..'9'}:
+        inc(fdigits)
+        inc(fracExponent)
+        integer = integer * 10'u64 + (s[i].ord - '0'.ord).uint64
+        inc(i)
+        while i < s.len and s[i] == '_': inc(i)
+
+    # if has no digits: return error
+    if kdigits + fdigits <= 0 and
+      (i == start or # no char consumed (empty string).
+      (i == start + 1 and hasSign)): # or only '+' or '-
+      return 0
+
+    if i+1 < s.len and s[i] in {'e', 'E'}:
+      inc(i)
+      if s[i] == '+' or s[i] == '-':
+        if s[i] == '-':
+          expSign = -1
+
+        inc(i)
+      if s[i] notin {'0'..'9'}:
+        return 0
+      while i < s.len and s[i] in {'0'..'9'}:
+        exponent = exponent * 10 + (ord(s[i]) - ord('0'))
+        inc(i)
+        while i < s.len and s[i] == '_': inc(i) # underscores are allowed and ignored
+
+    var realExponent = expSign*exponent - fracExponent
+    let expNegative = realExponent < 0
+    var absExponent = abs(realExponent)
+
+    # if exponent greater than can be represented: +/- zero or infinity
+    if absExponent > 999:
+      if expNegative:
+        number = 0.0*sign
+      else:
+        number = Inf*sign
+      return i - start
+
+    # if integer is representable in 53 bits:  fast path
+    # max fast path integer is  1<<53 - 1 or  8999999999999999 (16 digits)
+    let digits = kdigits + fdigits
+    if digits <= 15 or (digits <= 16 and firstDigit <= 8):
+      # max float power of ten with set bits above the 53th bit is 10^22
+      if absExponent <= 22:
+        if expNegative:
+          number = sign * integer.float / powtens[absExponent]
+        else:
+          number = sign * integer.float * powtens[absExponent]
+        return i - start
+
+      # if exponent is greater try to fit extra exponent above 22 by multiplying
+      # integer part is there is space left.
+      let slop = 15 - kdigits - fdigits
+      if absExponent <= 22 + slop and not expNegative:
+        number = sign * integer.float * powtens[slop] * powtens[absExponent-slop]
+        return i - start
+
+    # if failed: slow path with strtod.
+    var t: array[500, char] # flaviu says: 325 is the longest reasonable literal
+    var ti = 0
+    let maxlen = t.high - "e+000".len # reserve enough space for exponent
+
+    let endPos = i
+    result = endPos - start
+    i = start
+    # re-parse without error checking, any error should be handled by the code above.
+    if i < endPos and s[i] == '.': i.inc
+    while i < endPos and s[i] in {'0'..'9','+','-'}:
+      if ti < maxlen:
+        t[ti] = s[i]; inc(ti)
+      inc(i)
+      while i < endPos and s[i] in {'.', '_'}: # skip underscore and decimal point
+        inc(i)
+
+    # insert exponent
+    t[ti] = 'E'
+    inc(ti)
+    t[ti] = if expNegative: '-' else: '+'
+    inc(ti, 4)
+
+    # insert adjusted exponent
+    t[ti-1] = ('0'.ord + absExponent mod 10).char
+    absExponent = absExponent div 10
+    t[ti-2] = ('0'.ord + absExponent mod 10).char
+    absExponent = absExponent div 10
+    t[ti-3] = ('0'.ord + absExponent mod 10).char
+    number = c_strtod(addr t, nil)
 
 proc parseFloat*(s: string, number: var float, start = 0): int {.
   rtl, extern: "npuParseFloat", noSideEffect.} =

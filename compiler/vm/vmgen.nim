@@ -1859,17 +1859,6 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
       c.freeTemp(tmp)
     else:
       genUnaryABC(c, n, dest, opcIsNil)
-  of mParseBiggestFloat:
-    if dest.isUnset: dest = c.getTemp(n.typ)
-    var
-      tmp1 = c.genx(n[1])
-      tmp2 = c.genx(n[2])
-      tmp3 = c.genx(n[3])
-    c.gABC(n, opcParseFloat, dest, tmp1, tmp2)
-    c.gABC(n, opcParseFloat, tmp3)
-    c.freeTemp(tmp1)
-    c.freeTemp(tmp2)
-    c.freeTemp(tmp3)
   of mDefault:
     if fitsRegister(n.typ):
       prepare(c, dest, n.typ)
@@ -2014,7 +2003,7 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mNCallSite:
     if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcCallSite, dest)
-  of mNGenSym: genBinaryABC(c, n, dest, opcGenSym)
+  of mNGenSym: genUnaryABC(c, n, dest, opcGenSym)
   of mMinI, mMaxI, mAbsI, mDotDot:
     c.genCall(n, dest)
   of mExpandToAst:

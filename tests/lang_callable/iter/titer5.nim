@@ -2,7 +2,7 @@ discard """
   output: ""
 """
 # Test method call syntax for iterators:
-import strutils
+import std/strutils
 
 const lines = """abc  xyz"""
 

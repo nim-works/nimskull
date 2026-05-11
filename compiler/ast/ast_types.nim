@@ -718,6 +718,8 @@ type
     skStub                ## symbol is a stub and not yet loaded from the ROD
                           ## file (it is loaded on demand, which may
                           ## mean: never)
+    skGenerated           ## symbol is generated and requires specialization in
+                          ## a definition context
     skPackage             ## symbol is a package (used for canonicalization)
 
   TSymKinds* = set[TSymKind]
@@ -730,7 +732,6 @@ const
 
   tfUnion* = tfNoSideEffect
   tfGcSafe* = tfThread
-  tfObjHasKids* = tfEnumHasHoles
   tfReturnsNew* = tfInheritable
   skError* = skUnknown
 
@@ -787,7 +788,7 @@ type
     mSetLengthStr, mSetLengthSeq,
     mIsPartOf, mAstToStr,
     mSwap, mIsNil, mArrToSeq,
-    mNewString, mNewStringOfCap, mParseBiggestFloat,
+    mNewString, mNewStringOfCap,
     mMove, mWasMoved, mDestroy, mTrace,
     mDefault, mFinished, mIsolate, mAccessEnv, mAccessTypeField, mReset,
     mArray, mOpenArray, mRange, mSet, mSeq, mVarargs,
@@ -853,9 +854,6 @@ type
     mStoreParams
       ## storeParams(p, tup): savely stores the tuple in the storage pointed
       ## to by `p`
-    mEnsureNoCleanup
-      ## destructor calls following an ensureNoCleanup call result in a
-      ## compiler error
 
 # things that we can evaluate safely at compile time, even if not asked for it:
 const
@@ -911,6 +909,7 @@ type
     taNoUntyped
     taIsTemplateOrMacro
     taProcContextIsNotMacro
+    taFFI ## the context is a usage at the FFI border, in either direction
 
   TTypeAllowedFlags* = set[TTypeAllowedFlag]
 
@@ -1248,6 +1247,7 @@ type
     adSemCannotMixTypesAndValuesInTuple
     adSemNoReturnTypeDeclared
     adSemReturnNotAllowed
+    adSemGeneratedSymUsed
     # semmagics
     adSemExprHasNoAddress
     adSemExpectedOrdinal
@@ -1279,9 +1279,7 @@ type
     adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
-  TAstDiag* {.acyclic.} = object
-    ## A diagnostic must never store a tree that references the diagnostic
-    ## itself.
+  TAstDiag* = object
     # xxx: consider splitting storage type vs message
     # xxx: consider breaking up diag into smaller types
     # xxx: try to shrink the int/int128 etc types for counts/ordinals
@@ -1399,7 +1397,8 @@ type
         adSemContinueCannotHaveLabel,
         adSemUnavailableLocation,
         adSemForExpectedIterator,
-        adSemExternalLocalNotAllowed:
+        adSemExternalLocalNotAllowed,
+        adSemGeneratedSymUsed:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode

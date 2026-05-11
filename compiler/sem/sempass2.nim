@@ -20,8 +20,6 @@ import
     types,
     idents,
     wordrecg,
-    errorreporting,
-    errorhandling,
     lineinfos,
     trees,
   ],
@@ -59,7 +57,6 @@ when defined(useDfa):
   import dfa
 
 import liftdestructors
-include sinkparameter_inference
 
 ##[
 This module contains the second semantic checking pass over the AST. Necessary
@@ -1048,7 +1045,6 @@ proc trackCall(tracked: PEffects; n: PNode) =
       case op[i].kind
       of tySink:
         createTypeBoundOps(tracked,  op[i][0], n.info)
-        checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
       of tyVar:
         tracked.hasDangerousAssign = true
       #of tyOut:
@@ -1145,17 +1141,6 @@ proc allowCStringConv(n: PNode): bool =
   of nkAddr: result = isCharArrayPtr(n.typ, true)
   else: result = isCharArrayPtr(n.typ, false)
 
-proc reportErrors(c: ConfigRef, n: PNode) =
-  ## Reports all errors found in the AST `n`.
-  case n.kind
-  of nkError:
-    localReport(c, n)
-  of nkWithSons:
-    for it in n.items:
-      reportErrors(c, it)
-  of nkWithoutSons - {nkError}:
-    discard "ignore"
-
 proc track(tracked: PEffects, n: PNode) =
   addInNimDebugUtils(tracked.config, "track")
   case n.kind
@@ -1211,7 +1196,6 @@ proc track(tracked: PEffects, n: PNode) =
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n[0].typ, n.info)
     if n[0].kind != nkSym or not isLocalVar(tracked, n[0].sym):
-      checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[1])
       if not tracked.hasDangerousAssign and n[0].kind != nkSym:
         tracked.hasDangerousAssign = true
   of nkVarSection, nkLetSection:
@@ -1340,14 +1324,12 @@ proc track(tracked: PEffects, n: PNode) =
         if x[0].kind == nkSym:
           notNilCheck(tracked, x[1], x[0].sym.typ)
           objConvCheck(tracked.config, x[1])
-        checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x[1])
-      else:
-        checkForSink(tracked.config, tracked.c.idgen, tracked.owner, x)
+
     setLen(tracked.guards.s, oldFacts)
     if tracked.owner.kind != skMacro:
-      # XXX n.typ can be nil in runnableExamples, we need to do something about it.
-      if n.typ != nil and n.typ.skipTypes(abstractInst).kind == tyRef:
-        createTypeBoundOps(tracked, n.typ.lastSon, n.info)
+      let skipped = n.typ.skipTypes(abstractInst)
+      if skipped.kind == tyRef:
+        createTypeBoundOps(tracked, skipped.lastSon, n.info)
       createTypeBoundOps(tracked, n.typ, n.info)
   of nkTupleConstr:
     for i in 0..<n.len:
@@ -1359,7 +1341,6 @@ proc track(tracked: PEffects, n: PNode) =
           createTypeBoundOps(tracked, n[i][0].typ, n.info)
         else:
           createTypeBoundOps(tracked, n[i].typ, n.info)
-      checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
   of nkPragmaBlock:
     let pragmaList = n[0]
     var bc = createBlockContext(tracked)
@@ -1426,8 +1407,10 @@ proc track(tracked: PEffects, n: PNode) =
     for i in 0..<n.safeLen:
       track(tracked, n[i])
       objConvCheck(tracked.config, n[i])
-      checkForSink(tracked.config, tracked.c.idgen, tracked.owner, n[i])
-    if tracked.owner.kind != skMacro:
+    if tracked.owner.kind != skMacro and n.typ != nil:
+      # the type might be nil when sempass2 is invoked in a
+      # ``compiles`` context
+      createTypeBoundOps(tracked, elemType(n.typ), n.info)
       createTypeBoundOps(tracked, n.typ, n.info)
   of nkBracketExpr:
     if optStaticBoundsCheck in tracked.currOptions and n.len == 2:
@@ -1441,11 +1424,9 @@ proc track(tracked: PEffects, n: PNode) =
     inc tracked.leftPartOfAsgn
   of nkBindStmt, nkMixinStmt, nkImportStmt, nkImportExceptStmt, nkExportStmt,
      nkExportExceptStmt, nkFromStmt:
-    # a declarative statement that is not relevant to the analysis. Report
-    # errors part of the AST, but otherwise ignore
-    reportErrors(tracked.config, n)
+    discard "not relevant to the analysis"
   of nkError:
-    localReport(tracked.config, n)
+    discard "already reported, nothing to do"
   of nkNimNodeLit:
     discard "don't analyse literal AST"
   else:
@@ -1536,26 +1517,39 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
           [$branch.typ.lockLevel, $disp.typ.lockLevel])
 
 proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
+  ## Initializes the effect lists for the proc type `t`. `n` is the pragma
+  ## list to take the explicit effect specification (if any) from, while `s`
+  ## is the symbol of the routine the type is attached to.
+  internalAssert(g.config, t.kind == tyProc)
   var effects = t.n[0]
-  if t.kind != tyProc or effects.kind != nkEffectList: return
-  if n.kind != nkEmpty:
-    internalAssert(g.config, isNoEffectList(effects), "Starting effects list must be empty")
+  internalAssert(g.config, effects.kind == nkEffectList)
+  internalAssert(g.config, effects.len == 0, "Starting effects list must be empty")
+  newSeq(effects.sons, effectListLen)
 
-    if effects.len < effectListLen:
-      newSeq(effects.sons, effectListLen)
-    let raisesSpec = effectSpec(n, wRaises)
+  let raisesSpec = if n.kind == nkPragma: effectSpec(n, wRaises) else: nil
+  let exc =
     if not isNil(raisesSpec):
-      effects[exceptionEffects] = raisesSpec
+      raisesSpec
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
-      effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
+      # cannot have exception effects by itself
+      newNodeI(nkBracket, effects.info)
+    else:
+      nil # means both "not computed yet" and "any exceptions"
 
-    let tagsSpec = effectSpec(n, wTags)
+  let tagsSpec = if n.kind == nkPragma: effectSpec(n, wTags) else: nil
+  let tags =
     if not isNil(tagsSpec):
-      effects[tagEffects] = tagsSpec
+      tagsSpec
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
-      effects[tagEffects] = newNodeI(nkArgList, effects.info)
+      # cannot have tag effects by itself
+      newNodeI(nkBracket, effects.info)
+    else:
+      nil # means both "not computed yet" and "any tags"
 
-    effects[pragmasEffects] = n
+  effects[exceptionEffects] = exc
+  effects[tagEffects] = tags
+  effects[pragmasEffects] = n
+
   if s != nil and s.magic != mNone:
     if s.magic != mEcho:
       t.flags.incl tfNoSideEffect
@@ -1563,8 +1557,8 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
 proc rawInitEffects(g: ModuleGraph; effects: PNode) =
   if effects.len < effectListLen:
     newSeq(effects.sons, effectListLen)
-  effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
-  effects[tagEffects] = newNodeI(nkArgList, effects.info)
+  effects[exceptionEffects] = newNodeI(nkBracket, effects.info)
+  effects[tagEffects] = newNodeI(nkBracket, effects.info)
   effects[pragmasEffects] = g.emptyNode
 
 proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PContext) =
@@ -1642,23 +1636,28 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
     of skProc, skFunc, skIterator:
       # NOTE: a routine using the closure calling convention means that it
       # *may* captures something (it might not). A routine not using the
-      # closure calling convention means that it *can't* capture anything,
+      # closure calling convention means that it *cannot* capture anything,
       # so we don't need to analyse the latter
-      if s.typ != nil and s.typ.callConv == ccClosure and
-         s.owner.kind != skModule: # don't analyse top-level closure iterators
-        if s.owner.id == owner.id:
-          # a procedure that's defined directly inside the currently analysed
-          # procedure is used as a value. Recurse into it to see if it captures
-          # an entity outside of `top`
-          result = detectCapture(s, top, s.ast[bodyPos], marker)
+      if s.typ != nil and s.skipGenericOwner.kind != skModule:
+        # top-level routines cannot capture anything and are thus not relevant
+        if s.isOwnedBy(top) or sfForward notin s.flags:
+          # an inner routine is used, scan it if hasn't been already
+          if s.typ.callConv == ccClosure and not containsOrIncl(marker, s.id):
+            if s.isOwnedBy(top):
+              result = detectCapture(s, top, s.ast[bodyPos], marker)
+            else:
+              # treat as capturing, even if `s` doesn't close over anything
+              # in practice
+              # TODO: fix lambdalifting such that not all .closure routines are
+              #       considered capturing and remove this workaround
+              result = n
         else:
-          # procedure A that uses the closure calling convention is used in
-          # procedure B, but A is not an inner procedure of B. Because of a
-          # limitation of the lambda-lifting implementation, B needs to be
-          # treated as capturing something
-          # XXX: fixing this requires two things: 1) tracking which routine
-          #      really captures something, and 2) fixing ``lambdalifting``
-          result = detect(s)
+          # an outer (relative to `top`), still forwarded routine is used
+          if s.typ.callConv == ccClosure or
+             tfExplicitCallConv notin s.typ.flags:
+            # conservatively assume that the routine will capture something
+            result = n
+
     else:
       discard "not relevant"
   of nkWithoutSons - {nkSym, nkCommentStmt}:
@@ -1748,7 +1747,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   if cap != nil:
     # the procedure captures something and thus requires a hidden environment
     # parameter
-    if not canCaptureFrom(s, cap.sym.owner):
+    if not canCaptureFrom(s, cap.sym.skipGenericOwner):
       # attempting to capture an entity that only exists at run-time in a
       # compile-time context
       localReport(g.config, cap.info, reportSym(
@@ -1800,7 +1799,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     # exceptions, if any, were already reported; don't report errors again in
     # that case
     if raisesSpec.isNil or raisesSpec.len > 0:
-      let newSpec = newNodeI(nkArgList, s.info)
+      let newSpec = newNodeI(nkBracket, s.info)
       checkRaisesSpec(g, rsemHookCannotRaise, newSpec,
                       t.exc, hints=off, nil)
       # override the raises specification to prevent cascading errors:
@@ -1888,7 +1887,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     genApply(c, s)
 
     # create the type-bound ops for the continuation type:
-    let cont = s.typ.n[0][3].typ.skipTypes(skipForHooks)
+    let cont = s.typ.n[0][effectListLen].typ.skipTypes(skipForHooks)
     createTypeBoundOps(c.graph, c, cont, s.info, c.idgen)
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =

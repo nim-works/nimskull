@@ -2,7 +2,7 @@ discard """
   output: '''true'''
 """
 
-import hashes, math
+import std/[hashes, math]
 
 {.pragma: myShallow.}
 

@@ -4,7 +4,7 @@ Nim 3.4368930843, 0.3299290698
 C double: 3.4368930843, 0.3299290698'''
 """
 
-import math, strutils
+import std/[math, strutils]
 
 {.emit: """
 void printFloats(void) {

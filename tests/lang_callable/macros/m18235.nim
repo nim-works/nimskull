@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 # Necessary code to update the AST on a symbol across module boundaries when
 # processed by a type macro. Used by a test of a corresponding name of this

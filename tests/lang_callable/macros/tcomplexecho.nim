@@ -7,7 +7,7 @@ OK
 61'''
 """
 
-import macros
+import std/macros
 
 # Bug from the forum
 macro addEcho1(s: untyped): untyped =

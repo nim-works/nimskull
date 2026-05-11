@@ -2,7 +2,7 @@ discard """
 errormsg: "typechecked nodes may not be modified"
 """
 
-import macros
+import std/macros
 
 macro doSomething(arg: typed): untyped =
   echo arg.treeREpr

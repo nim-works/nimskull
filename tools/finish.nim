@@ -1,7 +1,7 @@
 
 # -------------- post unzip steps ---------------------------------------------
 
-import strutils, os, osproc, streams, browsers
+import std/[strutils, os, osproc, streams, browsers]
 
 const
   arch = $(sizeof(int)*8)

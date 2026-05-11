@@ -36,9 +36,6 @@ proc utoa2Digits*(buf: var openArray[char]; pos: int; digits: uint32) {.inline.}
 proc trailingZeros2Digits*(digits: uint32): int32 {.inline.} =
   return trailingZeros100[digits]
 
-when defined(js):
-  proc numToString(a: SomeInteger): cstring {.importjs: "((#) + \"\")".}
-
 func addChars[T](result: var string, x: T, start: int, n: int) {.inline.} =
   let old = result.len
   result.setLen old + n
@@ -79,11 +76,7 @@ func addIntImpl(result: var string, x: uint64) {.inline.} =
   addChars(result, tmp, next, tmp.len - next)
 
 func addInt*(result: var string, x: uint64) =
-  when nimvm: addIntImpl(result, x)
-  else:
-    when not defined(js): addIntImpl(result, x)
-    else:
-      addChars(result, numToString(x))
+  addIntImpl(result, x)
 
 proc addInt*(result: var string; x: int64) =
   ## Converts integer to its string representation and appends it to `result`.
@@ -91,7 +84,7 @@ proc addInt*(result: var string; x: int64) =
     var s = "foo"
     s.addInt(45)
     assert s == "foo45"
-  template impl =
+  if true:
     var num: uint64
     if x < 0:
       if x == low(int64):
@@ -104,11 +97,6 @@ proc addInt*(result: var string; x: int64) =
     else:
       num = uint64(x)
     addInt(result, num)
-  when nimvm: impl()
-  else:
-    when defined(js):
-      addChars(result, numToString(x))
-    else: impl()
 
 proc addInt*(result: var string; x: int) {.inline.} =
   addInt(result, int64(x))

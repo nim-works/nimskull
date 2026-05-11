@@ -26,7 +26,7 @@ Raises
 """
 # test os path creation, iteration, and deletion
 
-import os, strutils, pathnorm
+import std/[os, strutils, pathnorm]
 from stdtest/specialpaths import buildDir
 
 block fileOperations:
@@ -307,7 +307,7 @@ block: # moveDir
   doAssert fileExists(tempDir / "moveDir_test_dest/a.txt")
   removeDir(tempDir / "moveDir_test_dest")
 
-import times
+import std/times
 block modificationTime:
   # Test get/set modification times
   # Should support at least microsecond resolution
@@ -691,7 +691,7 @@ block: # isValidFilename
   doAssert isValidFilename("nim.nim")
   doAssert isValidFilename("foo.log")
 
-import sugar
+import std/sugar
 
 block: # normalizeExe
   doAssert "".dup(normalizeExe) == ""

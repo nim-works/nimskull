@@ -90,10 +90,6 @@ type
     graph: ModuleGraph
     idgen: IdGenerator
 
-    env: PSym ## the symbol of the local (or parameter) through which
-              ## the lifted local environment is accessed. 'nil', if
-              ## none exists.
-
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
 proc pushTransCon(c: PTransf, t: PTransCon) =
@@ -135,7 +131,7 @@ proc transformSymAux(c: PTransf, n: PNode): PNode =
       # which is only available after transforming the routine...
       discard transformBody(c.graph, c.idgen, s, true)
 
-      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c), c.env)
+      return liftIterSym(c.graph, n, c.idgen, getCurrOwner(c))
     elif s.kind in {skProc, skFunc, skConverter, skMethod}:
       # top level .closure procs are still somewhat supported for 'Nake':
       ensureEnvParam(c.graph, c.idgen, s)
@@ -575,6 +571,10 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
     [conv, newNodeIT(nkNilLit, prc.info, getSysType(c.graph, prc.info, tyNil))]
 
 proc transformConv(c: PTransf, n: PNode): PNode =
+  if sameType(n.typ.skipTypes({tySink}), n[1].typ.skipTypes({tySink})):
+    # the conversion doesn't modify the type, drop it
+    return transform(c, n[1])
+
   # numeric types need range checks:
   var dest = skipTypes(n.typ, abstractVarRange)
   var source = skipTypes(n[1].typ, abstractVarRange)
@@ -631,8 +631,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     of tyObject:
       let diff = inheritanceDiff(dest, source)
       if diff == 0 or diff == high(int):
-        result = transform(c, n[1])
-        result.typ = n.typ
+        result = transformSons(c, n)
       else:
         result = newTreeIT(
           if diff < 0: nkObjUpConv else: nkObjDownConv,
@@ -642,8 +641,8 @@ proc transformConv(c: PTransf, n: PNode): PNode =
   of tyObject:
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):
-      result = transform(c, n[1])
-      result.typ = n.typ
+      # must be some distinct type conversion; keep
+      result = transformSons(c, n)
     else:
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,
@@ -1138,7 +1137,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     else:
       result = s
 
-    if result[0].typ != nil and result[0].typ.callConv == ccTailcall and
+    if result[0].typ != nil and
+       result[0].typ.skipTypes(abstractInst).callConv == ccTailcall and
        sfGeneratedOp notin getCurrOwner(c).flags and
        getCurrOwner(c).typ != nil and
        getCurrOwner(c).typ.callConv == ccTailcall and
@@ -1335,10 +1335,15 @@ proc transform(c: PTransf, n: PNode): PNode =
     # it can happen that for-loop-inlining produced a fresh
     # set of variables, including some computed environment
     # (bug #2604). We need to patch this environment here too:
-    let a = n[1]
-    if a.kind == nkSym:
+    if c.inlining > 0:
       result = copyTree(n)
-      result[1] = transformSymAux(c, a)
+      result[1] = transform(c, n[1])
+    elif n[0].kind == nkSym and n[0].sym.isIterator:
+      # must be a preliminary construction created by lambda lifting; complete
+      # it, but first transform the iterator so that it has a proper
+      # environment type
+      discard transformBody(c.graph, c.idgen, n[0].sym, true)
+      result = transformIterConstr(c.graph, n, c.idgen, getCurrOwner(c))
     else:
       result = n
   of nkOfBranch:
@@ -1441,7 +1446,8 @@ proc forwardReturn(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
   proc wrap(g: ModuleGraph, owner: PSym, n: var PNode, active: bool) =
     if active:
       if n.kind in nkCallKinds and
-         n[0].typ != nil and n[0].typ.callConv == ccTailcall:
+         n[0].typ != nil and
+         n[0].typ.skipTypes(abstractInst).callConv == ccTailcall:
         n = newTreeI(nkReturnStmt, n.info, n)
       else:
         n = newTreeI(nkReturnStmt, n.info,
@@ -1566,7 +1572,7 @@ proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode):
   ## Application always happens in that exact order.
   g.config.timeTracer.traceSym(tikTransform, prc)
   var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
-  (result, c.env) = liftLambdas(g, prc, body, c.idgen)
+  result = liftLambdas(g, prc, body, c.idgen)
   result = processTransf(c, result, prc)
   liftDefer(c, result)
   result = eliminateUnreachable(g, result)

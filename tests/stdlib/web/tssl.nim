@@ -4,11 +4,12 @@ discard """
   disabled: "openbsd"
 """
 # disabled: pending bug #15713
-import net, nativesockets
+import std/[net, nativesockets]
 
-when defined(posix): import os, posix
+when defined(posix):
+  import std/[os, posix]
 else:
-  import winlean
+  import std/winlean
   const SD_SEND = 1
 
 when not defined(ssl):
@@ -69,7 +70,7 @@ proc main() =
       while true:
         # Send data until we get EPIPE.
         peer.send(DummyData, {})
-    except OSError:
+    except OSError, SslError:
       discard
     finally:
       peer.close()

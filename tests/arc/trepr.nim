@@ -14,7 +14,7 @@ ref (member: ref @["hello"])
 
 # xxx consider merging with `tests/stdlib/trepr.nim` to increase overall test coverage
 
-import tables
+import std/tables
 
 type
   NimSym = distinct NimNode
@@ -43,7 +43,7 @@ dumpSym(doAssert)
 
 # bug 13731
 
-import os
+import std/os
 var a: File
 echo repr a
 
@@ -75,7 +75,7 @@ discard repr p2
 #####################################################################
 # bug #15043
 
-import macros
+import std/macros
 
 macro extract(): untyped =
   result = newStmtList()

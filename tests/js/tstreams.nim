@@ -6,7 +6,7 @@ GROOT
 '''
 """
 
-import streams
+import std/streams
 
 var s = newStringStream("I\nAM\nGROOT")
 doAssert s.peekStr(1) == "I"

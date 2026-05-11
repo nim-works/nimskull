@@ -212,7 +212,7 @@ template len*[I; T](x: OrdinalSeq[I, T]): int =
 template `[]`*[I; T](x: OrdinalSeq[I, T], i: I): untyped =
   base(x)[ord i]
 
-template `[]=`*[I; T](x: OrdinalSeq[I, T], i: I, item: T): untyped =
+template `[]=`*[I; T](x: var OrdinalSeq[I, T], i: I, item: T): untyped =
   base(x)[ord i] = item
 
 func add*[I; T](x: var OrdinalSeq[I, T], item: sink T): I {.inline.} =

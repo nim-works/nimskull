@@ -38,7 +38,7 @@ const
 echo offset[1]
 
 # bug #1547
-import tables
+import std/tables
 
 type Person* = object
     FirstName*: string

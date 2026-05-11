@@ -15,7 +15,7 @@ GROOT
 """
 
 
-import streams
+import std/streams
 
 
 block tstreams:

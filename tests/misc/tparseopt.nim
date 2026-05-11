@@ -36,7 +36,7 @@ joinable: false
 """
 
 when defined(testament_tparseopt):
-  import os
+  import std/os
   proc main() =
     let args = commandLineParams()
     echo args
@@ -44,7 +44,7 @@ when defined(testament_tparseopt):
       echo "arg ", i, " ai.len:", ai.len, " :{", ai, "}"
   main()
 else:
-  from parseopt import nil
+  from std/parseopt import nil
 
   block: # general test
     echo "t 0-0"
@@ -79,7 +79,7 @@ else:
     for kind, key, val in parseopt.getopt(p):
       echo "kind: ", kind, "\tkey:val  --  ", key, ":", val
 
-  import osproc, os, strutils
+  import std/[osproc, os, strutils]
   from stdtest/specialpaths import buildDir
   import stdtest/unittest_light
 

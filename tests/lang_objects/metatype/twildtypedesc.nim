@@ -7,7 +7,7 @@ discard """
 123'''
 """
 
-import strutils
+import std/strutils
 
 proc unpack(t: typedesc[string], v: string): string = $v
 proc unpack(t: typedesc[int], v: string): int = parseInt(v)
@@ -40,4 +40,3 @@ proc unit(t: typedesc[float]): t = 0.0
 doAssert unit(int) == 0
 doAssert unit(string) == ""
 doAssert unit(float) == 0.0
-

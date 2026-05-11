@@ -122,3 +122,9 @@ proc chckNil(p: pointer) =
 when defined(nimV2):
   proc raiseObjectCaseTransition() {.compilerproc.} =
     sysFatal(FieldDefect, "assignment to discriminant changes object branch")
+
+proc chckBounds(len: int, lo, hi: int) {.compilerproc, inline.} =
+  ## Bounds check for integer-sized containers.
+  let ulen = cast[uint](len)
+  if hi-lo != -1 and (cast[uint](lo) >= ulen or cast[uint](hi) >= ulen):
+    sysFatal(IndexDefect, "index out of bounds")

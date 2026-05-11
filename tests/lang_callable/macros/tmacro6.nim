@@ -3,7 +3,7 @@ errormsg: "expression '123' is of type 'int literal(123)' and has to be used (or
 line: 73
 """
 
-import macros
+import std/macros
 
 proc foo(a, b, c: int): int =
   result += a

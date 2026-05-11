@@ -34,7 +34,7 @@ jobs:
       DOC_TARGET: x86_64-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup latest compiler
         uses: nim-works/setup-nimskull@0.1.2
@@ -78,9 +78,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DEVEL: ${{ steps.versions.outputs.devel }}
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: built-docs/
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

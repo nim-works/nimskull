@@ -30,7 +30,7 @@ test()
 
 #############################################
 ### bug 12820
-import tables
+import std/tables
 var t = initTable[string, seq[ptr int]]()
 discard t.hasKeyOrPut("f1", @[])
 

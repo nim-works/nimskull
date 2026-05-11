@@ -8,7 +8,10 @@
 #
 # The generic ``repr`` procedure for the javascript backend.
 
-proc reprInt(x: int64): string {.compilerproc.} = $x
+proc reprInt(x: int): string {.compilerproc.} = $x
+proc reprInt64(x: int64): string {.compilerproc.} = $x
+proc reprUInt(x: uint): string {.compilerproc.} = $x
+proc reprUInt64(x: uint64): string {.compilerproc.} = $x
 proc reprFloat(x: float): string {.compilerproc.} = $x
 
 proc reprPointer(p: pointer): string {.compilerproc.} =
@@ -190,8 +193,14 @@ proc reprAux(result: var string, p: pointer, typ: PNimType,
     return
   dec(cl.recDepth)
   case typ.kind
-  of tyInt..tyInt64, tyUInt..tyUInt64:
+  of tyInt..tyInt32:
     add(result, reprInt(cast[int](p)))
+  of tyInt64:
+    add(result, reprInt64(cast[int64](p)))
+  of tyUInt..tyUInt32:
+    add(result, reprUInt(cast[uint](p)))
+  of tyUInt64:
+    add(result, reprUInt64(cast[uint64](p)))
   of tyChar:
     add(result, reprChar(cast[char](p)))
   of tyBool:

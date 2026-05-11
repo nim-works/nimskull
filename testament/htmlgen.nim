@@ -9,7 +9,7 @@
 
 ## HTML generator for the tester.
 
-import strutils, json, os, times
+import std/[strutils, json, os, times]
 
 import "testamenthtml.nimf"
 

@@ -1,4 +1,14 @@
-import macros
+discard """
+  targets: c js vm
+  knownIssue.vm: '''
+    The test transitively relies on `os` (imported by `testutils`, which is
+    currently not supported for the VM target
+  '''
+"""
+
+# TODO: move this test elsewhere, it's not specific to the VM
+
+import std/macros
 from stdtest/testutils import disableVM
 type
   Dollar = distinct int

@@ -2,7 +2,7 @@ discard """
   outputsub: '''tquasiquote.nim(14, 8): Check failed: 1 > 2'''
 """
 
-import macros
+import std/macros
 
 macro check(ex: untyped): untyped =
   var info = ex.lineInfo

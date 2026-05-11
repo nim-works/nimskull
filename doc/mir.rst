@@ -49,7 +49,7 @@ Semantics
         | LVALUE
 
   TARGET = <Label>
-  EX_TARGET = <Label> | Resume
+  EX_TARGET = <Label> | Unwind
 
   UNARY_OP = NegI VALUE
 
@@ -177,6 +177,8 @@ Semantics
             | Goto TARGET
             | Loop <Label>              # unconditional jump back to the start
                                         # of a loop
+            | Return                    # return from procedure
+            | Return LVALUE             # return from procedure
             | Destroy LVALUE
             | Raise EX_TARGET
             | Join <Label>              # join point for non-exceptional
@@ -236,13 +238,15 @@ Terminology:
 * *terminator*: marks the end of a basic block
 
 A basic block is started by `Finally` and `Except`. Terminators are: `Case`,
-`Goto`, `Raise`, `Continue`, and `Loop`. `If`, `Join`, and `LoopJoin` act as
-both the start and end of a basic block. The nature of `End` depends on the
-associated construct:
+`Goto`, `Return`, `Raise`, `Continue`, and `Loop`. `If`, `Join`, and `LoopJoin`
+act as both the start and end of a basic block. The nature of `End` depends
+on the associated construct:
 * for `If`, it acts as both a terminator and start of a basic block
 * for `Except`, it only marks the end of the section
 
 Except for `Loop`, all terminators only allow forward control-flow.
+
+Ignoring end-of-scope markers, a MIR body must end with a terminator.
 
 Structured Constructs
 ---------------------
@@ -262,10 +266,10 @@ that:
 is not allowed. However, much like in the high-level language, structured
 constructs can be nested.
 
-Resume
+Unwind
 ------
 
-`Resume` is a special jump target that may only appear as the target of
+`Unwind` is a special jump target that may only appear as the target of
 `Raise`, `Continue`, `CheckedCall`, and `Except`. It specifies that
 unwinding/exception-handling *resumes* in the caller procedure.
 
@@ -293,6 +297,16 @@ target for exceptional control-flow.
 
 At the end of `Finally` section must be a `Continue` statement, which specifies
 where raising the exception continues.
+
+Returns
+-------
+
+For procedures with a non-void return type, all `Return`s must have the result
+variable as the singular operand, except when it follows after a tailcall, in
+which case the `Return` must use the zero-operand form.
+
+For procedures with a void return type, all `Return` statements must use the
+zero-operand form.
 
 Storage
 =======

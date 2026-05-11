@@ -7,7 +7,7 @@ true
 """
 
 # issue #7615
-import macros
+import std/macros
 
 template table(name: string) {.pragma.}
 

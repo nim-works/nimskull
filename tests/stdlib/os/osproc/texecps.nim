@@ -5,7 +5,7 @@ description: '''This test runs itself as a set of parallel processes in order
 to test `osproc.execProcesses`.'''
 """
 
-import osproc, streams, strutils, os
+import std/[osproc, streams, strutils, os]
 
 const NumberOfProcesses = 13
 

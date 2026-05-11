@@ -5,14 +5,14 @@ discard """
 {.warning[UnusedImport]: off.}
 
 when defined(linux):
-  import linenoise
+  import std/linenoise
 elif defined(windows):
   import std/[
     registry,
     winlean
   ]
 
-import
+import std/[
   algorithm,
   atomics,
   base64,
@@ -114,6 +114,7 @@ import
   volatile,
   xmlparser,
   xmltree
+]
 
 import experimental/[
   diff,

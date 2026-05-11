@@ -11,6 +11,5 @@ proc foo(a: static[string]): KK[a.len] =
 
 var x = foo "test"
 
-import typetraits
+import std/typetraits
 static: echo x.x.type.name
-

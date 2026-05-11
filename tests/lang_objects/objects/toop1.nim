@@ -2,7 +2,7 @@ discard """
   output: "34[]o 5"
 """
 # Test the stuff in the tutorial
-import macros
+import std/macros
 
 type
   TFigure = object of RootObj    # abstract base class:

@@ -6,7 +6,7 @@ outputsub: ""
 
 when not defined(windows):
 
-  import posix
+  import std/posix
 
   var
     u: Utsname

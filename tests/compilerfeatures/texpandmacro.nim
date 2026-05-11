@@ -7,7 +7,7 @@ var x = 4 [ExpandMacro]
   output: '''injected echo'''
 """
 
-import macros
+import std/macros
 
 macro foo(x: untyped): untyped =
   result = quote do:

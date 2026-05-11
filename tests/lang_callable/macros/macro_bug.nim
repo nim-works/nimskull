@@ -1,4 +1,4 @@
-import macros
+import std/macros
 
 macro macro_bug*(s: untyped) =
   echo s.treeRepr

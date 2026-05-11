@@ -20,7 +20,7 @@ jobs:
     steps:
       - if: github.event.client_payload.pull_request.merge_commit_sha == null
         name: Report "No merge HEAD" found
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ env.PR }}
           body: |
@@ -36,7 +36,7 @@ jobs:
           exit 1
 
       - name: "Checkout merge head for #${{ env.PR }}"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.client_payload.pull_request.merge_commit_sha }}
           sparse-checkout: |
@@ -44,7 +44,7 @@ jobs:
 
       - id: changelog
         name: Create changelog
-        uses: mikepenz/release-changelog-builder-action@v5
+        uses: mikepenz/release-changelog-builder-action@v6
         with:
           configuration: ".github/changelog.json"
           fromTag: ${{ github.event.client_payload.slash_command.args.named.from || '' }}
@@ -53,7 +53,7 @@ jobs:
 
       - if: steps.changelog.outputs.failed == 'true'
         name: Report failure
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ env.PR }}
           body: |
@@ -68,7 +68,7 @@ jobs:
           exit 1
 
       - name: Comment with changelog
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           issue-number: ${{ env.PR }}
           body: |

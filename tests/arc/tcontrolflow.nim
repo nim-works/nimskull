@@ -79,14 +79,14 @@ var c = Control(x: 7)
 
 run(c)
 
-proc sysFatal(exceptn: typedesc, message: string) {.inline, noreturn.} =
+proc sysFatal(exceptn: typedesc, message: string) {.inline.} =
   var buf = newStringOfCap(200)
   add(buf, "##")
   add(buf, message)
   add(buf, "##")
   echo buf
 
-proc ifexpr(i, a, b: int) {.compilerproc, noinline.} =
+proc ifexpr(i, a, b: int) {.noinline.} =
   sysFatal(IndexDefect,
     if b < a: "index out of bounds, the container is empty"
     else: "index " & $i & " not in " & $a & " .. " & $b)

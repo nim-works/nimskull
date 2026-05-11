@@ -20,8 +20,7 @@
 import
   std/[
     strutils,
-    tables,
-    parseutils
+    tables
   ],
   compiler/ast/[
     ast,
@@ -809,9 +808,6 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
     const L = instLoc()
     {.line: L.}: raiseAccessViolation(r, L)
 
-
-when not defined(nimHasSinkInference):
-  {.pragma: nosinks.}
 
 proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
@@ -1782,31 +1778,6 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
 
       checkHandle(regs[rb])
       regs[ra].intVal = ord(bitSetIn(bitSet(regs[rb].handle), regs[rc].intVal))
-    of opcParseFloat:
-      # TODO: this op has really unusual semantics. Turn it into a callback?
-
-      # a = number of chars read
-      # c[] = parseFloat(rb, rd)
-      decodeBC(rkInt)
-      inc pc
-      assert c.code[pc].opcode == opcParseFloat
-      let rd = c.code[pc].regA
-
-      checkHandle(regs[rb])
-      checkHandle(regs[rc])
-      assert regs[rc].handle.typ.kind == akFloat
-
-      # because the ``number`` parameter of ``parseBiggestFloat`` is an out
-      # parameter, no valid input value needs to be provided
-      var number: BiggestFloat
-      # TODO: don't do a string copy here
-      let r = parseBiggestFloat($regs[rb].strVal, number, regs[rd].intVal.int)
-      if r != 0:
-        # only write back the number if parsing succeeded (matching the
-        # behaviour of ``parseBiggestFloat``)
-        writeFloat(regs[rc].handle, number)
-
-      regs[ra].intVal = r
     of opcRangeChck:
       # Checks if a is in range [b, c], aborts execution otherwise
       let rb = instr.regB
@@ -2732,16 +2703,13 @@ proc rawExecute(c: var TCtx, t: var VmThread, pc: var int): YieldReason =
       for i in 0..<regs[rc].intVal.int:
         delSon(regs[ra].nimNode, bb)
     of opcGenSym:
-      decodeBC(rkNimNode)
-      let k = regs[rb].intVal
-      checkHandle(regs[rc])
-      assert regs[rc].handle.typ.kind == akString
+      decodeB(rkNimNode)
+      checkHandle(regs[rb])
+      assert regs[rb].handle.typ.kind == akString
       # XXX: costly stringify of strVal... `getIdent` doesn't use openArray :(
-      let name = if regs[rc].strVal.len == 0: ":tmp"
-                 else: $regs[rc].strVal
-      guestValidate(k in 0..ord(high(TSymKind)),
-        "request to create symbol of invalid kind")
-      var sym = newSym(k.TSymKind, getIdent(c.cache, name), nextSymId c.idgen, c.module.owner, c.debug[pc])
+      let name = if regs[rb].strVal.len == 0: ":tmp"
+                 else: $regs[rb].strVal
+      var sym = newSym(skGenerated, getIdent(c.cache, name), nextSymId c.idgen, nil, c.debug[pc])
       incl(sym.flags, sfGenSym)
       regs[ra].nimNode = newSymNode(sym)
     of opcNccValue:

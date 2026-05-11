@@ -43,8 +43,8 @@ import
     modulegraphs # Project module graph
   ],
   compiler/backend/[
+    build_insts, # JSON build instructions
     extccomp,    # Calling C compiler
-    cgen,        # C code generation
   ],
   compiler/utils/[
     platform,    # Target platform data
@@ -84,19 +84,6 @@ when not defined(leanCompiler):
   import
     compiler/backend/jsbackend,
     compiler/tools/[docgen, docgen2]
-
-when defined(nimDebugUnreportedErrors):
-  import std/exitprocs
-  import compiler/utils/astrepr
-
-  proc echoAndResetUnreportedErrors(conf: ConfigRef) =
-    if conf.unreportedErrors.len > 0:
-      echo "Unreported errors:"
-      for nodeId, node in conf.unreportedErrors:
-        var reprConf = defaultTReprConf
-        reprConf.flags.incl trfShowNodeErrors
-        echo conf.treeRepr(node)
-      conf.unreportedErrors.clear
 
 type
   InternalStateDump = ref object
@@ -195,6 +182,8 @@ template prepareForCodegen(g: ModuleGraph) =
   # the backend / code generation phase generally expects errors to terminate
   # the compiler, so make sure that they do
   g.config.errorMax = 1
+  # the VM instance is not needed anymore. Free it to save memory
+  reset g.vm
 
 proc commandCompileToC(graph: ModuleGraph) =
   let conf = graph.config
@@ -204,8 +193,7 @@ proc commandCompileToC(graph: ModuleGraph) =
     registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
-      if not changeDetectedViaJsonBuildInstructions(conf, conf.jsonBuildInstructionsFile):
-        # nothing changed
+      if not buildInstructionsStatus(conf, conf.getBuildInstructionsFile()):
         graph.config.notes = graph.config.mainPackageNotes
         return
 
@@ -217,24 +205,20 @@ proc commandCompileToC(graph: ModuleGraph) =
   prepareForCodegen(graph)
   if conf.symbolFiles == disabledSf:
     cbackend2.generateCode(graph, graph.takeModuleList())
-    cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
-    cbackend.generateCode(graph)
-    # graph.backend can be nil under IC when nothing changed at all:
-    if graph.backend != nil:
-      cgenWriteModules(graph.backend, conf)
-  if conf.cmd != cmdTcc and graph.backend != nil:
-    extccomp.callCCompiler(conf)
-    extccomp.writeJsonBuildInstructions(conf)
-    if conf.depfile.string.len != 0:
-      writeGccDepfile(conf)
-    if optGenScript in graph.config.globalOptions:
-      writeDepsFile(graph)
+    cbackend2.generateCode(graph, graph.finalizeModules())
+
+  extccomp.callCCompiler(conf)
+  extccomp.writeBuildInstructions(conf)
+  if conf.depfile.string.len != 0:
+    writeGccDepfile(conf)
+  if optGenScript in graph.config.globalOptions:
+    writeDepsFile(graph)
 
 proc commandJsonScript(graph: ModuleGraph) =
-  extccomp.runJsonBuildInstructions(graph.config, graph.config.jsonBuildInstructionsFile)
+  extccomp.runBuildInstructions(graph.config, graph.config.getBuildInstructionsFile())
 
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config
@@ -507,7 +491,7 @@ proc mainCommand*(graph: ModuleGraph) =
 
   ## command prepass
   if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
-  if conf.cmd notin cmdBackends + {cmdTcc, cmdNimscript, cmdInteractive}:
+  if conf.cmd notin cmdBackends + {cmdNimscript, cmdInteractive}:
     customizeForBackend(graph, conf, backendC)
   if conf.outDir.isEmpty:
     # doc like commands can generate a lot of files (especially with --project)
@@ -517,9 +501,6 @@ proc mainCommand*(graph: ModuleGraph) =
     doAssert ret.string.isAbsolute # `AbsoluteDir` is not a real guarantee
     if conf.cmd in cmdDocLike + {cmdRst2html, cmdRst2tex}: ret = ret / htmldocsDir
     conf.outDir = ret
-
-  when defined(nimDebugUnreportedErrors):
-    addExitProc proc = echoAndResetUnreportedErrors(conf)
 
   when defined(gcOrc) and not defined(leakTest):
     # Compilation is currently very taxing on ORC due to frequent
@@ -539,16 +520,6 @@ proc mainCommand*(graph: ModuleGraph) =
   ## process all commands
   case conf.cmd
   of cmdBackends: compileToBackend()
-  of cmdTcc:
-    when hasTinyCBackend:
-      let cc = extccomp.setCC(conf, "tcc")
-      doAssert cc == ccTcc, "what happened to tcc?"
-      if conf.backend != backendC:
-        conf.logError("'run' requires c backend, got: '$1'" % $conf.backend)
-      else:
-        compileToBackend()
-    else:
-      conf.logError("'run' command not available; rebuild with -d:tinyc")
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
@@ -714,12 +685,9 @@ proc mainCommand*(graph: ModuleGraph) =
     writeToStream(conf.timeTracer, f)
     f.close()
 
-  if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
+  if conf.errorCounter == 0 and conf.cmd notin {cmdDump, cmdNop}:
     if conf.isEnabled(rintSuccessX):
       conf.writeln(cmdOutStatus, $genSuccessX(conf))
-
-  when defined(nimDebugUnreportedErrors):
-    echoAndResetUnreportedErrors(conf)
 
   when PrintRopeCacheStats:
     echo "rope cache stats: "

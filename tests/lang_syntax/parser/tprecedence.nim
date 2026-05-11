@@ -6,7 +6,7 @@ defabc 4
 """
 
 # Test top level semicolon works properly:
-import os; echo "holla"
+import std/os; echo "holla"
 
 # Test the new predence rules
 

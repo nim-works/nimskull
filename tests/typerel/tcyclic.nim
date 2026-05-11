@@ -126,3 +126,15 @@ type
 
 testNot WithUncheckedArray
 testNot (ref WithUncheckedArray)
+
+# instantiated concepts are treated as if they were their bound type
+type Concept = concept T
+
+proc wrapper(x: Concept) =
+  test typeof(x)
+
+proc wrapperNot(x: Concept) =
+  testNot typeof(x)
+
+wrapper Cyclic()
+wrapperNot NonCyclicObj()

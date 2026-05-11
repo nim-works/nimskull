@@ -1,7 +1,7 @@
 discard """
   output: '''ok'''
 """
-import strscans, strutils
+import std/[strscans, strutils]
 
 proc raiseTestException*() =
   raise newException(Exception, "test")

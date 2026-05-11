@@ -3,7 +3,7 @@ discard """
 """
 # Test an idea I recently had:
 
-import macros
+import std/macros
 
 macro quoteWords(n: varargs[untyped]): untyped =
   result = newNimNode(nnkBracket)

@@ -48,13 +48,6 @@ from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
   lgamma
-when declared(math.copySign):
-  # pending bug #18762, avoid renaming math
-  from std/math as math2 import copySign
-
-when declared(math.signbit):
-
-  from std/math as math3 import signbit
 
 from std/os import getEnv, existsEnv, delEnv, putEnv, envPairs,
   dirExists, fileExists, walkDir, getAppFilename, getCurrentDir,
@@ -65,6 +58,7 @@ from std/times import getTime
 from std/hashes import hash
 from std/osproc import nil
 from system/formatfloat import writeFloatToBufferSprintf
+from std/parseutils import parseBiggestFloat
 
 from compiler/modules/modulegraphs import `$`
 
@@ -340,18 +334,19 @@ iterator basicOps*(): Override =
   override "stdlib.math.mod", proc(a: VmArgs) {.nimcall.} =
     setResult(a, `mod`(getFloat(a, 0), getFloat(a, 1)))
 
-  when declared(copySign):
-    wrap2f_math(copySign)
-
-  when declared(signbit):
-    wrap1f_math(signbit)
-
   override "stdlib.math.round", proc (a: VmArgs) {.nimcall.} =
     let n = a.numArgs
     case n
     of 1: setResult(a, round(getFloat(a, 0)))
     of 2: setResult(a, round(getFloat(a, 0), getInt(a, 1).int))
     else: doAssert false, $n
+
+  override "stdlib.parseutils.parseBiggestFloat", proc(a: VmArgs) {.nimcall.} =
+    var num: BiggestFloat
+    copyMem(num.addr, a.getHandle(1).rawPointer, sizeof(num))
+    let parsed = a.getString(0).parseBiggestFloat(num, int a.getInt(2))
+    copyMem(a.getHandle(1).rawPointer, num.addr, sizeof(num))
+    a.setResult(parsed)
 
   wrap1s(getMD5, md5op)
 

@@ -49,7 +49,7 @@ discard """
 #
 
 import
-  strutils, times
+  std/[strutils, times]
 
 type
   PNode = ref TNode

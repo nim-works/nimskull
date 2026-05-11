@@ -4,7 +4,7 @@ discard """
     declarations in compile-time-only contexts
   '''
   nimoutformat: "sexp"
-  cmd: "nim check --filenames=canonical --msgFormat=sexp $options $file"
+  cmd: "nim check --msgFormat=sexp $options $file"
 """
 
 block non_compiletime_only_procedure:

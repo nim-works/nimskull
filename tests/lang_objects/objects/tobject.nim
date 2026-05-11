@@ -1,4 +1,4 @@
-import unittest
+import std/unittest
 
 type Obj = object
   foo: int

@@ -10,7 +10,7 @@ total ok: true'''
 # https://github.com/nim-lang/Nim/issues/8509 and
 # https://github.com/nim-lang/Nim/issues/9421 for more information.
 
-import strutils, data
+import std/strutils, data
 
 proc main =
   var m = 0

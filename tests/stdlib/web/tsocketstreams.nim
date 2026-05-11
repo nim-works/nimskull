@@ -8,7 +8,7 @@ NIM
 Hello server!
 Hi there client!
 '''"""
-import std/socketstreams, net, streams
+import std/[socketstreams, net, streams]
 
 block UDP:
   var recvSocket = newSocket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)

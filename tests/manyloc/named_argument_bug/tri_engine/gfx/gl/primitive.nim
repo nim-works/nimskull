@@ -8,7 +8,7 @@ import
   tri_engine/math/rect,
   tri_engine/math/circle
 
-import strutils
+import std/strutils
 
 type
   TVert* = tuple[pos: TV2[TR], texCoord: TV2[TR]]

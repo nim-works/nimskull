@@ -8,7 +8,7 @@ range fail expected
 range fail expected
 '''
 """
-import math, fenv
+import std/[math, fenv]
 
 type
   Positive = range[0.0..Inf]

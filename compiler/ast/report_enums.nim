@@ -297,12 +297,6 @@ type
     # nimsuggest
     rsemSugNoSymbolAtPosition
 
-    # Global Errors
-    rsemCustomGlobalError
-      ## just like custom error, but treat it like a "raise" and fast track the
-      ## "graceful" abort of this compilation run, used by `errorreporting` to
-      ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
-
     # Module errors
     rsemSystemNeeds
     rsemInvalidModulePath
@@ -313,13 +307,11 @@ type
     rsemExportRequiresToplevel
     rsemExperimentalRequiresToplevel
     rsemMethodRequiresToplevel
-    rsemPackageRequiresToplevel
     rsemConverterRequiresToplevel
     rsemImportRequiresToplevel
     rsemUnexpectedToplevelDefer
     rsemUsingRequiresToplevel
     rsemInvalidVisibility
-    rsemUnknownPackageName
     rsemUnexpectedInfixInInclude
 
     # ..
@@ -486,7 +478,6 @@ type
     rsemNoObjectOrTupleType
     rsemForExpectsIterator
     rsemSelectorMustBeOfCertainTypes
-    rsemTypeCannotBeForwarded
     rsemDoubleCompletionOf
     rsemExpectedInvariantParam
     rsemCovariantUsedAsNonCovariant
@@ -645,6 +636,7 @@ type
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
     rsemCannotCodegenCompiletimeProc
+    rsemNameCollision
 
     # Pragma
     rsemInvalidPragma
@@ -702,6 +694,7 @@ type
     rsemPragmaRecursiveDependency
     rsemMisplacedDeprecation
     rsemNoUnionForJs
+    rsemUndeclaredSymUsed
 
     rsemThisPragmaRequires01Args
     rsemMismatchedPopPush
@@ -854,6 +847,8 @@ type
     rbackCannotWriteMappingFile ## Cannot write module compilation mapping
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
+    rbackTlsEmulationNotImplemented
+    rbackHeaderGenerationNotImplemented
     rbackJsTooCaseTooLarge
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly

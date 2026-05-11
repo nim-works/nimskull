@@ -2,7 +2,7 @@ discard """
   output: "Digest[128]\nDigest[256]"
 """
 
-import typetraits
+import std/typetraits
 
 type
   Digest[bits: static[int]] = object
@@ -41,4 +41,3 @@ proc finish(hmac: var HMAC): Digest[HMAC.HashType.bits] =
 var hm: HMAC[Hash256]
 var d = hm.finish
 echo d.type.name
-

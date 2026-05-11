@@ -2,7 +2,7 @@ discard """
   output: "success"
 """
 
-import os, times
+import std/[os, times]
 
 proc main =
   var i = 0

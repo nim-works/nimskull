@@ -4,12 +4,13 @@ discard """
 """
 {.warning[UnusedImport]: off.}
 
-import
+import std/[
   asyncjs,
   dom,
   jsconsole,
   jsffi,
   jsre
+]
 
 import std/[
   jsbigints,

@@ -3,7 +3,7 @@ discard """
   output: ""
 """
 
-import lenientops
+import std/lenientops
 
 proc `~=`[T](a, b: T): bool = abs(a - b) < 1e-7
 
