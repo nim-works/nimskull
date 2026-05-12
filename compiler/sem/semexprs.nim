@@ -3664,9 +3664,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     # 6. `foo[baz]` - paramless macro/template invocation, `[]` routine
 
     c.isAmbiguous = false
-    let
-      mode = if nfDotField in n.flags: {} else: {checkUndeclared}
-      s = qualifiedLookUp(c, n[0], mode)
+    # don't check for undeclared identifiers here; leave that to
+    # overload resolution
+    let s = qualifiedLookUp(c, n[0], {})
     if s != nil and not s.isError:
       # not a module qualified lookup
       # xxx: currently `qualifiedLookUp` will set the s.ast field to nkError
@@ -3703,6 +3703,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         else: result = semMagic(c, n, s, flags)
       else:
         result = semIndirectOp(c, n, flags)
+    elif s.isNil and n[0].kind in {nkIdent, nkAccQuoted}:
+      result = semDirectOp(c, n, flags)
     elif (n[0].kind == nkBracketExpr or shouldBeBracketExpr(n)) and
         isSymChoice(n[0][0]):
       # xxx: the ludicrous predicate/ast transform done in
