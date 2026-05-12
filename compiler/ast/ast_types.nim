@@ -512,6 +512,15 @@ type
       ## this is still a "generic param" that will bind types
       ## and resolves them during sigmatch and instantiation.
 
+    tySignature
+      ## A static interface.
+      ## sons[0]: the `tyGenericParam` type representing the 'self' type
+      ##          variable
+    tySignatureInst
+      ## A concrete type constrained by a static interface.
+      ## sons[0]: the signature type
+      ## sons[1]: the constrained concrete type
+
     tyCompositeTypeClass
       ## Type such as seq[Number]
       ## Similar to ``tyUserTypeClassInst``, this type will also bind
@@ -561,7 +570,7 @@ const
   tyUnknownTypes* = {tyError, tyFromExpr}
 
   tyTypeClasses* = {tyBuiltInTypeClass, tyCompositeTypeClass,
-                    tyUserTypeClass, tyUserTypeClassInst,
+                    tyUserTypeClass, tyUserTypeClassInst, tySignature,
                     tyAnd, tyOr, tyNot, tyAnything}
 
   tyMetaTypes* = {tyGenericParam, tyTypeDesc, tyUntyped} + tyTypeClasses
