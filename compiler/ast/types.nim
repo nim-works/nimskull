@@ -1569,6 +1569,16 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
   of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
      tyString, tyCstring, tyVoid:
     result = false
+  of tySignature:
+    # unknown, assume the worst
+    result = true
+  of tySignatureInst:
+    # XXX: `productReachable` is used for both internal checks and language-
+    #      exposed type traits. For the language-exposed type traits, resolved
+    #      signatures should be treated if they're opaque w.r.t. the bound
+    #      type, but for internal checks, they should be transparent
+    # assume the worst
+    result = true
   of tyDistinct, tyGenericInst, tyAlias, tyInferred:
     result = productReachable(marker, g, t.lastSon, search, isInd)
   of tyUserTypeClasses:
@@ -1617,7 +1627,7 @@ proc classifyBackendView*(t: PType): BackendViewKind =
   of tyOpenArray, tyVarargs:
     bvcSequence
   of ConcreteTypes - {tyVar, tyLent, tyOpenArray}, tyNil, tyVoid, tyError,
-     tyUncheckedArray, tyTypeDesc:
+     tyUncheckedArray, tyTypeDesc, tySignature, tySignatureInst:
     bvcNone
   of abstractInst - {tyTypeDesc}, tyUserTypeClasses, tyStatic:
     classifyBackendView(t.lastSon)
