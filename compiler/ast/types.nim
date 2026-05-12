@@ -916,6 +916,19 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
   of tyGenericInst, tyAlias, tyInferred:
     cycleCheck()
     result = sameTypeAux(a.lastSon, b.lastSon, c)
+  of tySignature:
+    # signature types are nominal types
+    # TODO: are they? The specification doesn't say anything in this regards
+    result = a.id == b.id
+  of tySignatureInst:
+    cycleCheck()
+    result = sameTypeAux(a[0], b[0], c) and sameTypeAux(a[1], b[1], c)
+    if result:
+      # same signature and applied-to type. The bound symbols must match
+      for i in 0..<a.n.len:
+        if a.n[i].sym.ast[bodyPos].sym.id != b.n[i].sym.ast[bodyPos].sym.id:
+          return false
+      result = true
   of tyNone: result = false
 
 proc sameBackendType*(x, y: PType): bool =
