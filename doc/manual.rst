@@ -2564,7 +2564,7 @@ Overload Set
 ------------
 
 The set of routines from which the final routine is picked is called the
-"overload set", also referred to the "set of overloads".
+"overload set", also referred to as the "set of overloads".
 
 The overload set for an identifier `x` is comprised of all routines with name
 `x` that are *reachable* from the point where overload resolution happens.
@@ -4187,34 +4187,32 @@ argument expression, no indirection through locals is allowed.
 Signatures
 =============
 
-A *signature* is a static interface. It lists the routines and their shape that
-need to be available for a type in order for said type to satisfy the
-interface.
+A *signature* is a static interface. It's a collection of routine declarations
+describing the routines and their shape that need to be available for a type
+in order for said type to satisfy the interface.
 
-Signatures are types, which are defined as follows:
+Signature types are introduced via the non-overloadable binary `signature` type
+constructor, only available in a type context. The first operand must be an
+identifier (referred to as `self`), the second operand a non-empty listing of
+routine declarations.
 
-.. code-block:: nim
+Within the scope of the routine declarations, the `self` identifier - which
+shadows identifiers from enclosing scopes - provides the name of the type
+variable that represents the described type. Form this point onwards, the type
+variable representing the described type is called `Self`.
 
-  type S {.signature.} = concept T
-    ...
-
-
-The `concept` keyword must be followed by an identifier, which is the name of
-the placeholder used within the body to refer to the type that is described.
-From this point onwards, this identifier is referred to as the `placeholder`.
-
-The body must be a non-empty list of routine *declarations*. Only `func`:idx:,
-`proc`:idx:, `iterator`:idx:, and `method`:idx: are allowed, `template`:idx:
-and `macro`:idx: are not.
+Only `func`:idx:, `proc`:idx:, and `iterator`:idx:, declarations are allowed
+in the body, `method`:idx:, `template`:idx:, and `macro`:idx: declarations
+are not.
 
 For every routine declaration in the body, at least one parameter must be of
-type `placholder`, `var placeholder`, or `sink placeholder`. Declarations must
-not be explicitly or implicitly generic. For pragmas, only calling conventions
+type `Self`, `var Self`, or `sink Self`. Declarations must not have explicit
+or implicit generic parameter. For pragmas, only calling conventions
 (except `.closure`) and `tags` and `raises` specifications are allowed.
 
-Special names such as the dot and call operators, as well as hook names are
-*not* allowed for the routine declarations. All other operators (e.g., `[]`,
-`field=`, etc.) are allowed.
+The special names `.`, `.=`, `.()`, and the names of hooks are *not* allowed
+for the routine declarations. All other operators (e.g., `[]`, `field=`, etc.)
+are allowed.
 
 In addition, no two declarations must have same name *and* parameter lists.
 Same parameter list means the same number of parameters, in the same order
@@ -4227,7 +4225,7 @@ follows:
 * `S` is a super-type of `A`
 * `A` is a super-type of `T`, meaning that an instance of `T` may be used where
   `A` is expected
-* `A` is l-value convertible to `T`
+* `T` is l-value convertible to `A`
 
 Application of signature type `S` happens when a value of type `T` is
 implicitly or explicitly converted to `S`.
@@ -4235,10 +4233,10 @@ implicitly or explicitly converted to `S`.
 On application of `S` to `T`, for every routine declaration `x` of `S`, a
 routine `y` must be *visible* in the current context such that:
 * `x` and `y` have the same name
-* after all `placholder`s in the parameter list of `x` are replaced with `T`,
-  the lists of `x` and `y` are the same, ignoring parameter names
-* the return type of `x` and `y` are the same (after `placeholder`s in the
-  return type of `x` were replaced with `T`)
+* after replacing `Self` with `T` in the parameter list of `x`, the parameter
+  lists of `x` and `y` are the same, ignoring parameter names
+* the return type of `x` and `y` are the same (after replacing `Self` in the
+  return type of `x` with `T`)
 * the routine kinds of `x` and `y` are the same
 * the calling conventions of `x` and `y` are the same
 * (only if `tags` is provided for `x`) the tags of `x` must be a superset of
@@ -4250,7 +4248,7 @@ If `y` is generic, it is instantiated first. If there are either none, or two
 or more candidates that satisfy the requirements listed above, application
 fails. If sucessful, the resulting application is said to *bind* to `y`.
 
-Two applied signatures are equal are equal iff both are applications of the
+Two applied signatures are equal if and only if both are applications of the
 same signature `S` to the same `T` and bind the exact same routines.
 
 
