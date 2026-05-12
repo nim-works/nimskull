@@ -1381,8 +1381,10 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
 
       result = recurse(result, true)
 
-  of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass,
+  of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass, tySignature,
      tyAnd, tyOr, tyNot:
+    # TODO: decide on whether the bind-once-by-default behaviour is sensible
+    #       for signature types
     if not anon and paramTypId == nil and paramType.kind == tyBuiltInTypeClass:
       # for efficiency, built-in type-classes don't use a symbol by
       # default. We fetch the identifier here.
