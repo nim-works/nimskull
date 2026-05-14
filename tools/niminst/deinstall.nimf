@@ -21,7 +21,6 @@ if [ $# -eq 1 ] ; then
       libdir=/usr/lib/?proj
       docdir=/usr/share/?proj/doc
       datadir=/usr/share/?proj/data
-      nimbleDir="/opt/nimble/pkgs/?c.nimblePkgName-?c.version"
       ;;
     "/usr/local/bin")
       bindir=/usr/local/bin
@@ -29,7 +28,6 @@ if [ $# -eq 1 ] ; then
       libdir=/usr/local/lib/?proj
       docdir=/usr/local/share/?proj/doc
       datadir=/usr/local/share/?proj/data
-      nimbleDir="/opt/nimble/pkgs/?c.nimblePkgName-?c.version"
       ;;
     "/opt")
       bindir="/opt/?proj/bin"
@@ -37,7 +35,6 @@ if [ $# -eq 1 ] ; then
       libdir="/opt/?proj/lib"
       docdir="/opt/?proj/doc"
       datadir="/opt/?proj/data"
-      nimbleDir="/opt/nimble/pkgs/?c.nimblePkgName-?c.version"
       ;;
     *)
       bindir="$1/?proj/bin"
@@ -45,7 +42,6 @@ if [ $# -eq 1 ] ; then
       libdir="$1/?proj/lib"
       docdir="$1/?proj/doc"
       datadir="$1/?proj/data"
-      nimbleDir="$1/?proj"
       ;;
   esac
   echo "removing files..."
@@ -61,12 +57,6 @@ if [ $# -eq 1 ] ; then
   rm -rf $docdir
   rm -rf $datadir
   rm -rf $libdir
-
-  ## Nimble pkg stuff
-  #for f in items(c.cat[fcNimble]):
-    rm -f $nimbleDir/?f.toUnix
-  #end for
-  rm -f $nimbleDir/?{c.nimblePkgName}.nimble
 
   echo "deinstallation successful"
 else
