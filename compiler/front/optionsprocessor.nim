@@ -870,6 +870,30 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
                                 srcCodeOrigin: instLoc())
       return
 
+  template argProcessCfgPath(conf: ConfigRef, arg, s: string): AbsoluteDir =
+    let
+      path = if arg.len > 0 and arg[0] == '"': strutils.unescape(arg)
+             else: arg
+      info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
+      # xxx: we hack commandLineSrcIdx at callers like `nimconf` to get different
+      #      info here; rework so it's all handled via returns and remove the
+      #      need for info.
+      basedir = toFullPath(conf, info).splitFile().dir
+      p = if os.isAbsolute(path) or '$' in path:
+              path
+            else:
+              basedir / path
+    try:
+      AbsoluteDir pathSubs(conf, p, basedir)
+    except ValueError:
+      result = ProcSwitchResult(kind: procSwitchErrArgPathInvalid,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                pathAttempted: p,
+                                srcCodeOrigin: instLoc())
+      return
+
   template argSplit(s, arg: string; key, val: var string) =
     if not splitSwitch(arg, key, val):
       result = ProcSwitchResult(kind: procSwitchErrArgMalformedKeyValPair,
@@ -948,6 +972,10 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     of procNoteSuccess:
       discard "TODO: log a trace for success?"
 
+  template addPath(conf: ConfigRef; path: AbsoluteDir) =
+    if not conf.searchPaths.contains(path):
+      conf.active.searchPaths.insert(path, 0)
+
   case switch.normalize
   of "fromcmd":
     setSwitchAndSrc cmdSwitchFromcmd
@@ -956,6 +984,11 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "path", "p":
     setSwitchAndSrc cmdSwitchPath
     expectArg(switch, arg)
+    let p =
+      case pass
+      of passPP: argProcessCfgPath(conf, arg, switch)
+      else:      argProcessPath(conf, arg, switch)
+    conf.addPath p
   of "excludepath":
     setSwitchAndSrc cmdSwitchExcludepath
     expectArg(switch, arg)
