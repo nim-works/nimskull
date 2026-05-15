@@ -1,0 +1,15 @@
+{
+  "packages": {
+    "testproject": {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "testproject",
+          "alias": "testproject"
+        }
+      ]
+    }
+  }
+}

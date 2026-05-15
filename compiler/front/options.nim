@@ -1517,13 +1517,25 @@ proc canonicalImport*(
   ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
   let pkgId = conf.getPackageId(conf.toFilename(currentModule.info))
   
-  if pkgId == "unknown":
-    result = file.splitFile.name.nativeToUnixPath
-  else:
-    result = conf.findPackage(file.string, pkgId).alias
-    let rest = file.string.split('/', 1)
-    if rest.len > 1: result = result / rest[1]
-    result = result.nativeToUnixPath
+  if pkgId == "unknown": return file.splitFile.name.nativeToUnixPath
+
+  let
+    importerId = conf.getPackageId(conf.toFilename(currentModule.info))
+    relPath = relativePath(file.string, conf.packageIndex.packages[pkgId].srcDir
+      ).changeFileExt("").nativeToUnixPath
+
+  if pkgId == importerId:
+    return relPath
+
+  var alias = pkgId
+  if importerId in conf.packageIndex.packages:
+    for dep in conf.packageIndex.packages[importerId].dependencies:
+      if dep.package == pkgId:
+        alias = dep.alias
+        break
+
+  let prefix = if pkgId == "stdlib" and alias == "stdlib": "std" else: alias
+  return (prefix / relPath).nativeToUnixPath
 
 proc canonDynlibName*(s: string): string =
   ## Get 'canonical' dynamic library name - without optional `lib` prefix
