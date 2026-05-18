@@ -99,6 +99,7 @@ runnableExamples:
 
 import std/[
     macros,   # sigh
+    math,
     options,
     random,
   ]
@@ -472,8 +473,41 @@ proc beginGroup*(s: Source, numElements: uint8): uint8 =
     result = readGroupLength(s)
 
 
-proc nextFloat64*(s: Source): float64 =
-  cast[float64](s.chooseScalarRaw(sk8Bytes))
+proc float64ToOrdinal*(f: float64): int64 =
+  ## Maps float64 to monotonic int64 ordinal. +0.0 maps to 0.
+  let bits = cast[uint64](f)
+  if (bits and 0x8000000000000000'u64) == 0:
+    result = cast[int64](bits)
+  else:
+    result = -cast[int64](bits and 0x7FFFFFFFFFFFFFFF'u64)
+
+
+proc ordinalToFloat64*(o: int64): float64 =
+  if o >= 0: result = cast[float64](cast[uint64](o))
+  else: result = cast[float64](cast[uint64](-o) or 0x8000000000000000'u64)
+
+
+proc float32ToOrdinal*(f: float32): int32 =
+  let bits = cast[uint32](f)
+  if (bits and 0x80000000'u32) == 0:
+    result = cast[int32](bits)
+  else:
+    result = -cast[int32](bits and 0x7FFFFFFF'u32)
+
+
+proc ordinalToFloat32*(o: int32): float32 =
+  if o >= 0: result = cast[float32](cast[uint32](o))
+  else: result = cast[float32](cast[uint32](-o) or 0x80000000'u32)
+
+
+proc ordinalToRank*(o: int64): uint64 =
+  if o >= 0: result = uint64(o) shl 1
+  else: result = (uint64(-o) shl 1) - 1
+
+
+proc rankToOrdinal*(r: uint64): int64 =
+  if (r and 1) == 0: result = cast[int64](r shr 1)
+  else: result = -cast[int64]((r + 1) shr 1)
 
 
 # MARK: Combinators ---
@@ -891,6 +925,108 @@ proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] =
     return arr
 
 
+proc genFloat64*(min, max: float64 = NaN, 
+                 allowNaN: bool = false, allowInf: bool = true, 
+                 allowSubnormal: bool = true): Gen[float64] =
+  return proc(s: Source): float64 =
+    # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
+    var classes: seq[int] = @[0, 1]
+    if allowInf: classes.add(2); classes.add(3)
+    if allowNaN: classes.add(4)
+    
+    let choice = s.chooseRange(0'u64, 100'u64, skByte)
+    var cls = 0
+    if choice > 90 and classes.len > 1:
+      cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
+    
+    case cls
+    of 1: return -0.0
+    of 2: return Inf
+    of 3: return -Inf
+    of 4: return NaN
+    else:
+      let
+        fHigh = 1.7976931348623157e+308
+        actualMin = if classify(min) == fcNaN: (if allowInf: -Inf else: -fHigh) else: min
+        actualMax = if classify(max) == fcNaN: (if allowInf: Inf else: fHigh) else: max
+        minOrd = float64ToOrdinal(actualMin)
+        maxOrd = float64ToOrdinal(actualMax)
+        simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: 0.0
+        simplestOrd = float64ToOrdinal(simplest)
+        
+        numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
+        numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
+        rangeSize = numBelow + numAbove
+      
+      let rank = s.chooseRange(0'u64, rangeSize, sk8Bytes)
+      var o: int64
+      let common = min(numBelow, numAbove)
+      if rank <= 2 * common:
+        if (rank and 1) != 0: o = simplestOrd - cast[int64]((rank + 1) shr 1)
+        else: o = simplestOrd + cast[int64](rank shr 1)
+      elif numBelow > numAbove:
+        o = simplestOrd - cast[int64](rank - common)
+      else:
+        o = simplestOrd + cast[int64](rank - common)
+      
+      result = ordinalToFloat64(o)
+      if not allowSubnormal and classify(result) == fcSubnormal: return 0.0
+
+
+proc genFloat32*(min, max: float32 = NaN, 
+                 allowNaN: bool = false, allowInf: bool = true, 
+                 allowSubnormal: bool = true): Gen[float32] =
+  return proc(s: Source): float32 =
+    # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
+    var classes: seq[int] = @[0, 1]
+    if allowInf: classes.add(2); classes.add(3)
+    if allowNaN: classes.add(4)
+    
+    let choice = s.chooseRange(0'u64, 100'u64, skByte)
+    var cls = 0
+    if choice > 90 and classes.len > 1:
+      cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
+    
+    case cls
+    of 1: return -0.0f
+    of 2: return Inf.float32
+    of 3: return -Inf.float32
+    of 4: return NaN.float32
+    else:
+      let
+        fHigh = 3.4028235e+38f
+        actualMin = if classify(min) == fcNaN: (if allowInf: -Inf.float32 else: -fHigh) else: min
+        actualMax = if classify(max) == fcNaN: (if allowInf: Inf.float32 else: fHigh) else: max
+        minOrd = int64(float32ToOrdinal(actualMin))
+        maxOrd = int64(float32ToOrdinal(actualMax))
+        simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: 0.0f
+        simplestOrd = int64(float32ToOrdinal(simplest))
+        numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
+        numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
+        rangeSize = numBelow + numAbove
+      
+      let rank = s.chooseRange(0'u64, rangeSize, sk4Bytes)
+      var o: int64
+      let common = min(numBelow, numAbove)
+      if rank <= 2 * common:
+        if (rank and 1) != 0: o = simplestOrd - cast[int64]((rank + 1) shr 1)
+        else: o = simplestOrd + cast[int64](rank shr 1)
+      elif numBelow > numAbove:
+        o = simplestOrd - cast[int64](rank - common)
+      else:
+        o = simplestOrd + cast[int64](rank - common)
+      
+      result = ordinalToFloat32(int32(o))
+      if not allowSubnormal and classify(result) == fcSubnormal: return 0.0f
+
+
+proc genFloat*(min, max: float = NaN, 
+               allowNaN: bool = false, allowInf: bool = true, 
+               allowSubnormal: bool = true): Gen[float] =
+  let g = genFloat64(float64(min), float64(max), allowNaN, allowInf, allowSubnormal)
+  return proc(s: Source): float = float(g(s))
+
+
 # MARK: Shrinking Strategies ---
 
 proc writeUint64(buffer: var seq[byte], pos: int, bytes: int, val: uint64) =
@@ -1011,19 +1147,44 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
           k = k div 2
 
   template numberShrinker(val: uint64, p: int, vBytes: int, buffer: seq[byte]) =
+    if val != 0:
+      var copy = buffer
+      writeUint64(copy, p, vBytes, 0)
+      yield copy
+
+    # Delta shrinking (Hits thresholds precisely)
+    var step = 1'u64 shl 63
+    while step > 0:
+      if step <= val:
+        let cand = val - step
+        if cand != 0:
+          var copy = buffer
+          writeUint64(copy, p, vBytes, cand)
+          yield copy
+      step = step shr 1
+
+    # Binary shrinking (coarse scale)
     var tryVal = val
     while tryVal > 0:
       tryVal = tryVal div 2
-      var copy = buffer
-      writeUint64(copy, p, vBytes, tryVal)
-      yield copy
-    if val >= 3: # val < 3 is covered by prior while loop and val - 1
+      if tryVal != 0:
+        var copy = buffer
+        writeUint64(copy, p, vBytes, tryVal)
+        yield copy
+
+    # Bit clearing
+    for i in countdown(63, 0):
+      let mask = 1'u64 shl i
+      if (val and mask) != 0:
+        let candidate = val xor mask
+        if candidate != 0:
+          var copy = buffer
+          writeUint64(copy, p, vBytes, candidate)
+          yield copy
+
+    if val > 0 and val < 100:
       var copy = buffer
       writeUint64(copy, p, vBytes, val - 1)
-      yield copy
-    if val >= 4: # val < 4 is covered by prior while loop and val - 1
-      var copy = buffer
-      writeUint64(copy, p, vBytes, val - 2)
       yield copy
 
   # TODO: implement skNBytes shrinking

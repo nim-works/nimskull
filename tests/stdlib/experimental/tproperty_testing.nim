@@ -7,7 +7,7 @@ discard """
 """
 
 
-import std/[options, unittest, strutils]
+import std/[math, options, strutils, unittest]
 import experimental/property_testing
 
 from std/algorithm import sorted
@@ -307,7 +307,7 @@ suite "Structural API & Parser":
       # - decremented value (9)
       # - decrement 2 (8)
       yieldsS.inc
-    check yieldsS == 7
+    check yieldsS == 12
 
     # 2. Array Deletion Validation
     var sA = newSource(seed = 2)
@@ -1127,3 +1127,80 @@ suite "Public API & Properties":
         else: psFail
 
     check result.status == psPass
+
+
+suite "Floating Point Support":
+
+  test "genFloat64 produces special values when allowed":
+    let g = genFloat64(allowNaN = true, allowInf = true)
+    var seenNaN, seenInf, seenNegInf, seenNegZero = false
+    # Sample 1000 times
+    let samples = getSamples(g, count = 2000)
+    for v in samples:
+      if classify(v) == fcNaN: seenNaN = true
+      elif classify(v) == fcInf: seenInf = true
+      elif classify(v) == fcNegInf: seenNegInf = true
+      elif (cast[uint64](v) and 0x8000000000000000'u64) != 0:
+        if v == 0.0: seenNegZero = true
+        elif classify(v) == fcNegZero: seenNegZero = true
+    
+    check seenNaN and seenInf and seenNegInf and seenNegZero
+
+
+  test "genFloat64 shrinking towards 0.0":
+    let prop = Property[float64](
+      gen: genFloat64(),
+      check: proc(x: float64): PropertyStatus =
+        if abs(x) < 1.0: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=500, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    let shrunk = res.shrunkValue.get()
+    checkpoint "Shrunk float64: " & $shrunk
+    check abs(shrunk) >= 1.0 and abs(shrunk) < 1.000000000001
+
+
+  test "genFloat32 shrinking towards 0.0":
+    let prop = Property[float32](
+      gen: genFloat32(),
+      check: proc(x: float32): PropertyStatus =
+        if abs(x) < 1.0f: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=500, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    let shrunk = res.shrunkValue.get()
+    checkpoint "Shrunk float32: " & $shrunk
+    check abs(shrunk) >= 1.0f and abs(shrunk) < 1.000001f
+
+
+  test "Bounded genFloat64 shrinking":
+    # Range [10.0, 20.0]. 10.0 is closest to 0.0.
+    let prop = Property[float64](
+      gen: genFloat64(10.0, 20.0),
+      check: proc(x: float64): PropertyStatus =
+        if x < 11.0: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=500, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    let shrunk = res.shrunkValue.get()
+    checkpoint "Shrunk bounded float64: " & $shrunk
+    check shrunk >= 11.0 and shrunk < 11.000000001
+
+
+  test "Bounded genFloat64 shrinking through zero":
+    # Range [-10.0, 10.0]. Simplest is 0.0.
+    let prop = Property[float64](
+      gen: genFloat64(-10.0, 10.0),
+      check: proc(x: float64): PropertyStatus =
+        if x == 0.0: psPass else: psFail
+    )
+    let res = runProperty(prop, trials=500, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    let shrunk = res.shrunkValue.get()
+    checkpoint "Shrunk float64 through zero: " & $shrunk
+    # 0.0 passes. Simplest failing value is tiny.
+    check abs(shrunk) > 0.0
