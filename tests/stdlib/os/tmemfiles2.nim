@@ -3,7 +3,7 @@ discard """
   output: '''Full read size: 20
 Half read size: 10 Data: Hello'''
 """
-import memfiles, os
+import std/[memfiles, os]
 const
   fn = "test.mmap"
 var

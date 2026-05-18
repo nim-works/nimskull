@@ -64,7 +64,7 @@ proc addFileToLink(config: ConfigRef; m: PSym) {.used.} =
     addFileToCompile(config, cf)
 
 when defined(debugDce):
-  import os, std/packedsets
+  import std/os, std/packedsets
 
 proc storeAliveSymsImpl(asymFile: AbsoluteFile; s: seq[int32]) =
   var f = rodfiles.create(asymFile.string)

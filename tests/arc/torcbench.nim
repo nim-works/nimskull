@@ -3,7 +3,7 @@ discard """
   cmd: "nim c --gc:orc -d:release $file"
 """
 
-import lists, strutils, times
+import std/[lists, strutils, times]
 
 type
   Base = ref object of RootObj

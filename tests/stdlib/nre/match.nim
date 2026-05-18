@@ -1,4 +1,4 @@
-include nre, unittest, optional_nonstrict
+include std/[nre, unittest], optional_nonstrict
 
 block: # match
   block: # upper bound must be inclusive

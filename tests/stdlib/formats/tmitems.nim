@@ -82,7 +82,7 @@ block:
     inc c, i
   echo x
 
-import lists
+import std/lists
 
 block:
   var sl = initSinglyLinkedList[int]()
@@ -111,7 +111,7 @@ block:
     x += 10
   echo sl
 
-import deques
+import std/deques
 
 block:
   var q = initDeque[int]()
@@ -122,7 +122,7 @@ block:
     x += 10
   echo q
 
-import json
+import std/json
 
 block:
   var j = parseJson """{"key1": 1, "key2": 2, "key3": 3}"""
@@ -136,7 +136,7 @@ block:
     x.num += 10
   echo j
 
-import xmltree, xmlparser, parsexml, streams, strtabs
+import std/[xmltree, xmlparser, parsexml, streams, strtabs]
 
 block:
   var d = parseXml(newStringStream """<Students>

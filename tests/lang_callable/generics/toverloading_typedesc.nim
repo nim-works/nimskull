@@ -3,7 +3,7 @@ discard """
 
 """
 import moverloading_typedesc
-import tables
+import std/tables
 
 type
   LFoo = object

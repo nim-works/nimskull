@@ -1,7 +1,7 @@
 ## Implements pattern matching for ``NimNode`` AST. This module is copied
 ## from https://github.com/krux02/ast-pattern-matching.
 
-import macros, strutils, tables
+import std/[macros, strutils, tables]
 
 export macros
 

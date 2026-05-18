@@ -25,7 +25,7 @@ template accept(x) =
 template reject(x) =
   static: assert(not compiles(x))
 
-import macros
+import std/macros
 
 macro skipElse(n: untyped): untyped = n[0]
 

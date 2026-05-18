@@ -1,4 +1,4 @@
-import httpcore, strutils
+import std/[httpcore, strutils]
 
 block:
   block HttpCode:

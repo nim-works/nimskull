@@ -634,7 +634,7 @@ with a special ``'`` prefix:
 
 .. code-block:: nim
 
-  import strutils
+  import std/strutils
   type u4 = distinct uint8 # a 4-bit unsigned integer aka "nibble"
   proc `'u4`(n: string): u4 =
     # The leading ' is required.
@@ -649,7 +649,7 @@ the case that additional parameters are passed to the callee:
 
 .. code-block:: nim
 
-  import strutils
+  import std/strutils
   type u4 = distinct uint8 # a 4-bit unsigned integer aka "nibble"
   proc `'u4`(n: string; moreData: int): u4 =
     result = (parseInt(n) and 0x0F).u4
@@ -4909,7 +4909,7 @@ conservative in its effect analysis:
   {.push warningAsError[Effect]: on.}
   {.experimental: "strictEffects".}
 
-  import algorithm
+  import std/algorithm
 
   type
     MyInt = distinct int
@@ -6329,8 +6329,6 @@ There are two pseudo directories:
    package. However, for technical details that lie outside the scope of this document,
    its semantics are: *Use the search path to look for module name but ignore the standard
    library locations*. In other words, it is the opposite of `std`.
-
-It is recommended and preferred but not currently enforced that all stdlib module imports include the std/ "pseudo directory" as part of the import name.
 
 From import statement
 ---------------------

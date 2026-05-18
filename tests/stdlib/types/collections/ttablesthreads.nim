@@ -3,7 +3,7 @@ discard """
   output: '''true'''
 """
 
-import hashes, tables, algorithm, sequtils
+import std/[hashes, tables, algorithm, sequtils]
 
 proc sortedPairs[T](t: T): auto = toSeq(t.pairs).sorted
 
@@ -249,4 +249,3 @@ proc orderedTableSortTest() =
 
 orderedTableSortTest()
 echo "true"
-

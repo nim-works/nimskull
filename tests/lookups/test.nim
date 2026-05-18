@@ -8,7 +8,7 @@ output: '''
 # This file needs to be called 'test' nim to provoke a clash
 # with the unittest.test name. Issue #
 
-import unittest, macros
+import std/[unittest, macros]
 
 # bug #4555
 

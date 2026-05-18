@@ -13,7 +13,7 @@ see also: tests/osproc/*.nim; consider merging those into a single test here
 import stdtest/[specialpaths, unittest_light]
 import std/[os, osproc, streams, strtabs, strutils]
 when defined(posix):
-  from posix import exitnow
+  from std/posix import exitnow
 elif defined(windows):
   proc exitnow(code: uint32) {.stdcall, dynlib: "kernel32", importc: "ExitProcess", noreturn.}
 

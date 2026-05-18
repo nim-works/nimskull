@@ -1,5 +1,5 @@
 
-import os, strutils
+import std/[os, strutils]
 
 proc main(dir: string, wanted: string) =
   for kind, path in walkDir(dir):

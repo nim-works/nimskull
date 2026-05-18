@@ -5,16 +5,16 @@ discard """
   joinable: false
 """
 
-import os, osproc, strutils, nativesockets, net, selectors, memfiles
+import std/[os, osproc, strutils, nativesockets, net, selectors, memfiles]
 when defined(windows):
-  import winlean
+  import std/winlean
 
   # Note: Windows 10-only API
   proc compareObjectHandles(first, second: Handle): WINBOOL
                            {.stdcall, dynlib: "kernelbase",
                              importc: "CompareObjectHandles".}
 else:
-  import posix
+  import std/posix
 
 proc leakCheck(f: int | FileHandle | SocketHandle, msg: string,
                expectLeak = defined(nimInheritHandles)) =

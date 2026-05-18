@@ -11,7 +11,7 @@ discard """
   '''
 """
 
-import strscans
+import std/strscans
 
 type
   HourRange = range[0..23]
@@ -22,4 +22,3 @@ var
 
 if scanf(timeStr, "$i", hour):
   discard
-

@@ -1,4 +1,4 @@
-import strutils, strtabs, os, osproc, vcvarsall, vccenv, vccvswhere
+import std/[strutils, strtabs, os, osproc], vcvarsall, vccenv, vccvswhere
 
 type
   VccVersion* = enum ## VCC compiler backend versions

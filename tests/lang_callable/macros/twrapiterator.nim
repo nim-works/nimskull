@@ -1,5 +1,5 @@
 
-import macros
+import std/macros
 
 # bug #7093
 

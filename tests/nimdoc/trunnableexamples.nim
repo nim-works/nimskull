@@ -46,7 +46,7 @@ proc fun*() =
     # only works at top level
     import std/macros
     macro myImport(a: static string): untyped =
-      newTree(nnkImportStmt, [newLit a])
+      newTree(nnkImportStmt, [newTree(nnkInfix, ident"/", ident"std", newLit a)])
     myImport "str" & "utils"
     doAssert declared(isAlphaAscii)
     echo "foo6"

@@ -20,9 +20,9 @@ discard """
 import ../../lib/packages/docutils/rstgen
 import ../../lib/packages/docutils/rst
 import ../../lib/packages/docutils/rstast
-import unittest, strutils
+import std/[unittest, strutils]
 import std/private/miscdollars
-import os
+import std/os
 
 proc toAst(input: string,
             rstOptions: RstParseOptions = {roPreferMarkdown, roSupportMarkdown, roNimFile},

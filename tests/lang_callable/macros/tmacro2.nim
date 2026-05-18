@@ -2,7 +2,7 @@ discard """
   output: "ta-da Your value sir: 'HE!!!!o Wor!!d'"
 """
 
-import macros, strutils
+import std/[macros, strutils]
 
 proc testBlock(): string {.compileTime.} =
   block myBlock:

@@ -2,7 +2,7 @@ discard """
   output: ""
 """
 
-import strscans, strutils
+import std/[strscans, strutils]
 
 block ParsePasswd:
   proc parsePasswd(content: string): seq[string] =

@@ -1,4 +1,4 @@
-import unittest
+import std/unittest
 
 template t(a: int): string = "int"
 template t(a: string): string = "string"

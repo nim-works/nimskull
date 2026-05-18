@@ -7,7 +7,7 @@ template templ*(): int =
   bind gx, gy
   gx + gy
 
-import json
+import std/json
 
 const
   codeField = "foobar"
@@ -21,4 +21,3 @@ template trap*(path: string, body: untyped): untyped =
     let msg = getCurrentExceptionMsg()
     #debug "Error occurred within RPC ", path = path, errorMessage = msg
     result = %*{codeField: "SERVER_ERROR", messageField: msg}
-

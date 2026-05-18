@@ -9,7 +9,7 @@ abcdefghijklmnopqrstuvwxyz
 2'''
 """
 
-import strutils
+import std/strutils
 
 const fac4 = (var x = 1; for i in 1..4: x *= i; x)
 
@@ -80,7 +80,7 @@ semiProblem()
 
 # bug #844
 
-import json
+import std/json
 proc parseResponse(): JsonNode =
   result = % { "key1": % { "key2": % "value" } }
   for key, val in result["key1"]:

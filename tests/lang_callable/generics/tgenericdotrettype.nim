@@ -5,7 +5,7 @@ int
 '''
 """
 
-import typetraits
+import std/typetraits
 
 type
   Foo[T, U] = object
@@ -26,4 +26,3 @@ var
   x = bar f
   z = bas f
   y = baz f
-

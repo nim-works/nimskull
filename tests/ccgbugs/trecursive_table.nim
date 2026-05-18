@@ -1,6 +1,6 @@
 
 # bug #1700
-import tables
+import std/tables
 
 type
   E* = enum

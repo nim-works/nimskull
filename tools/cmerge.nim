@@ -1,6 +1,6 @@
 # Simple tool to merge C projects into a single C file
 
-import os, sets, pegs
+import std/[os, sets, pegs]
 
 type
   ProcessResult = enum prSkipIncludeDir, prAddIncludeDir

@@ -16,7 +16,7 @@ output: '''
 '''
 """
 
-import typetraits
+import std/typetraits
 
 var tls1 {.threadvar.}: int
 var g0: int
@@ -75,4 +75,3 @@ proc newEchoThread(T: typedesc) =
 newEchoThread int
 newEchoThread int
 newEchoThread float
-

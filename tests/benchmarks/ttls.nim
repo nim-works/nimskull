@@ -11,7 +11,7 @@ ditto with `--tlsEmulation:on`:
 0.216999
 ]#
 
-import times
+import std/times
 
 proc main2(): int =
   var g0 {.threadvar.}: int

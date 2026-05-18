@@ -5,7 +5,7 @@ discard """
 -1
 '''
 """
-from strutils import endsWith
+from std/strutils import endsWith
 
 type
   TLineInfo = tuple[filename: string, line: int, column: int]

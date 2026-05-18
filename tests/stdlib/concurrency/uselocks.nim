@@ -1,4 +1,4 @@
-import locks
+import std/locks
 
 type MyType* [T] = object
   lock: Lock

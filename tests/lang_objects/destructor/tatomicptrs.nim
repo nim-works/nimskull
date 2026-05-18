@@ -69,7 +69,7 @@ template `.`*[T](s: SharedPtr[T]; field: untyped): untyped =
 template `.=`*[T](s: SharedPtr[T]; field, value: untyped) =
   s.x.field = value
 
-from macros import unpackVarargs
+from std/macros import unpackVarargs
 
 template `.()`*[T](s: SharedPtr[T]; field: untyped, args: varargs[untyped]): untyped =
   # xxx this isn't used, the test should be improved
@@ -163,6 +163,3 @@ type
     internal: seq[ValueObject]
 
 var zz = new(TopObject)
-
-
-

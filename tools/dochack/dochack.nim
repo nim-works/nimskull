@@ -1,4 +1,4 @@
-import dom
+import std/dom
 import fuzzysearch
 
 proc textContent(e: Element): cstring {.

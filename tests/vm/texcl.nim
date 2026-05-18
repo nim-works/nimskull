@@ -2,7 +2,7 @@ discard """
   output: '''false'''
 """
 
-import macros
+import std/macros
 
 type
   nlOptions = enum

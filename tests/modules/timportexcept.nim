@@ -3,7 +3,7 @@ discard """
   line: 9
 """
 
-import strutils except `%`
+import std/strutils except `%`
 
 # doesn't work
 echo "$1" % "abc"

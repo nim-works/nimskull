@@ -6,7 +6,7 @@ c_func
 '''
 """
 
-import macros, strutils
+import std/[macros, strutils]
 
 # bug #1025
 

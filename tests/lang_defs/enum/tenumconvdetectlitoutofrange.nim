@@ -1,6 +1,6 @@
 discard """
 description: "Test out of range int literal conversion for enums"
-cmd: "nim check --filenames:canonical --backend:$target $options $file"
+cmd: "nim check --backend:$target $options $file"
 action: reject
 """
 

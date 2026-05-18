@@ -6,7 +6,7 @@ Sequence continues: 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610
 """
 
 
-import strformat
+import std/strformat
 
 var fib_n {.compileTime.}: int
 var fib_prev {.compileTime.}: int

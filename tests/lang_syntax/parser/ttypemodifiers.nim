@@ -432,7 +432,7 @@ StmtList
 '''
 """
 
-import macros
+import std/macros
 
 dumpTree:
   type

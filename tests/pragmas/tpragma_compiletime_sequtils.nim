@@ -9,7 +9,7 @@ discard """
   '''
 """
 
-import sequtils
+import std/sequtils
 
 {.push compile_time.}
 
@@ -20,5 +20,3 @@ proc foo =
 
 static:
   foo()
-
-

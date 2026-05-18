@@ -12,7 +12,7 @@ Found 1 loops (including artificial root node) (3)'''
 
 # bug #3184
 
-import tables, sets
+import std/[tables, sets]
 
 when not declared(withScratchRegion):
   template withScratchRegion(body: untyped) = body

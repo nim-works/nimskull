@@ -2,7 +2,7 @@ discard """
   targets: "c js"
 """
 
-from strutils import endsWith, contains, strip
+from std/strutils import endsWith, contains, strip
 from std/macros import newLit
 
 macro deb(a): string = newLit a.repr.strip

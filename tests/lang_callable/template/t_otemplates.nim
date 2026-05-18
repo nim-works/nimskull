@@ -8,7 +8,7 @@ discard """
 
 
 # Imports
-import tables, parseutils, macros, strutils
+import std/[tables, parseutils, macros, strutils]
 import annotate
 export annotate
 

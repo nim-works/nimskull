@@ -1,9 +1,9 @@
-import macros
-import parseutils
-import unicode
-import math
-import pegs
-import streams
+import std/macros
+import std/parseutils
+import std/unicode
+import std/math
+import std/pegs
+import std/streams
 
 type
   FormatError = object of CatchableError ## Error in the format string.

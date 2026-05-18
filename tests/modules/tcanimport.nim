@@ -7,8 +7,8 @@ template canImport(x): bool =
   compiles:
     import x
 
-when canImport(strutils):
-  import strutils
+when canImport(std/strutils):
+  import std/strutils
   echo "abc".toUpperAscii
 else:
   echo "meh"

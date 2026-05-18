@@ -5,7 +5,7 @@ it's nil
 '''
 """
 
-import macros
+import std/macros
 
 
 block anontuples:

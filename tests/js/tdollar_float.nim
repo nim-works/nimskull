@@ -3,7 +3,7 @@ merge into tests/system/tdollars.nim once https://github.com/nim-lang/Nim/pull/1
 is merged
 ]#
 
-import unittest
+import std/unittest
 
 block: # https://github.com/timotheecour/Nim/issues/133
   # simple test

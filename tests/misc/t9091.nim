@@ -1,6 +1,6 @@
 # bug #9091
 
-import streams
+import std/streams
 
 block:
   type Mine = ref object

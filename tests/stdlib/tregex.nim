@@ -10,7 +10,7 @@ when defined(powerpc64):
 
 else:
   import
-    re
+    std/re
 
   if "keyA = valueA" =~ re"\s*(\w+)\s*\=\s*(\w+)":
     write(stdout, "key: ", matches[0])

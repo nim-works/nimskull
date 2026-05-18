@@ -1,5 +1,5 @@
-include nre
-import unittest
+include std/nre
+import std/unittest
 
 block: # replace
   block: # replace with 0-length strings

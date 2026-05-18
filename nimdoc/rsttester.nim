@@ -1,4 +1,4 @@
-import os, strutils
+import std/[os, strutils]
 from std/private/gitutils import diffFiles
 
 const

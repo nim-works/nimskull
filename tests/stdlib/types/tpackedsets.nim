@@ -1,8 +1,8 @@
 import std/packedsets
 import std/sets
 
-import sequtils
-import algorithm
+import std/sequtils
+import std/algorithm
 
 block basicIntSetTests:
   var y = initPackedSet[int]()
@@ -137,7 +137,7 @@ block printTest:
   a.incl C 
   doAssert $a == "{A, C}"
 
-import intsets
+import std/intsets
 
 block legacyMainModuleTests:
   template genericTests(A: typedesc[Ordinal], x: typed) =

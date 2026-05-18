@@ -4,7 +4,7 @@ discard """
 """
 
 # bug #2169
-import strutils, math
+import std/[strutils, math]
 
 type
   Point2D*[S] = object

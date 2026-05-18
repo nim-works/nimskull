@@ -1,7 +1,7 @@
 
 {.warning[UnusedImport]: off.}
 
-import hashes
+import std/hashes
 
 proc test(a: float): float =
   a

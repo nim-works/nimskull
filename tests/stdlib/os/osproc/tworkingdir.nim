@@ -2,7 +2,7 @@ discard """
   output: ""
 """
 
-import osproc, os
+import std/[osproc, os]
 when defined(windows):
   # Windows don't have this issue, so we won't test it.
   discard

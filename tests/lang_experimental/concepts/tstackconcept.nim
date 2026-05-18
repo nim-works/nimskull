@@ -10,7 +10,7 @@ IMPLICIT VALUE TYPE NAME INT INT
 '''
 """
 
-import typetraits, strutils
+import std/[typetraits, strutils]
 
 template reject(e) =
   static: assert(not compiles(e))

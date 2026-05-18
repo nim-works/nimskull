@@ -277,7 +277,7 @@ return
 -- end of expandArc ------------------------'''
 """
 
-import os
+import std/os
 
 type Target = tuple[repo, package, ext: string]
 

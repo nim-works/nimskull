@@ -1,5 +1,5 @@
 
-import unittest, strutils
+import std/[unittest, strutils]
 import ../../lib/packages/docutils/highlite
 
 block: # Nim tokenizing

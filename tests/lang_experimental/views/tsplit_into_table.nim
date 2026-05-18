@@ -4,7 +4,7 @@ discard """
 '''
 """
 
-import tables
+import std/tables
 
 {.experimental: "views".}
 

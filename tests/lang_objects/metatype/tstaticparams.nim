@@ -193,5 +193,5 @@ block: # #12864
   static: fun()
 
 when true: #12864 original snippet
-  import times
+  import std/times
   discard times.format(dateTime(2017, mMar, 30, 0, 0, 0, 0, utc()), TimeFormat())

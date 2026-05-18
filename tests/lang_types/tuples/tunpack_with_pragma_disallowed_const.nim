@@ -4,7 +4,7 @@ errormsg: "pragmas are disallowed during tuple unpacking assignment, this is a k
 line: 12
 """
 
-import macros
+import std/macros
 
 macro foo(l, t, e: untyped): untyped =
   discard

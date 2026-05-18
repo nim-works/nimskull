@@ -5,7 +5,7 @@ TBar'''
 
 # bug #1319
 
-import macros
+import std/macros
 
 type
   TTextKind = enum

@@ -10,7 +10,7 @@ discard """
 
 # bug #6736
 
-import unittest
+import std/unittest
 
 type
   A = object

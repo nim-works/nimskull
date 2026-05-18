@@ -8,7 +8,7 @@ int
 '''
 """
 
-import typetraits
+import std/typetraits
 
 type
   FonConcept = concept x
@@ -50,4 +50,3 @@ let e = y.f3
 a.f()
 d.f()
 e.f()
-

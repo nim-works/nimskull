@@ -12,7 +12,7 @@ import "$nim/compiler/nimpaths"
 import compiler/nimpaths
 ]#
 
-import os
+import std/os
 
 # Note: all the const paths defined here are known at compile time and valid
 # so long Nim repo isn't relocated after compilation.

@@ -1,6 +1,6 @@
 
 
-import strutils, os, osproc, streams
+import std/[strutils, os, osproc, streams]
 
 const
   DummyEof = "!EOF!"

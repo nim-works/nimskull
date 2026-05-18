@@ -8,7 +8,7 @@ discard """
 
 # bugfix #15584
 
-import rlocks
+import std/rlocks
 
 var r: RLock
 r.initRLock()

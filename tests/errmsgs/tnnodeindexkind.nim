@@ -6,7 +6,7 @@ tnnodeindexkind.nim(11, 4) Error: cannot set child of node kind: nnkStrLit
 tnnodeindexkind.nim(15, 7) Error: cannot set child of node kind: nnkCommentStmt
 '''
 """
-import macros
+import std/macros
 macro t(x: untyped): untyped =
   x[0] = newEmptyNode()
 t("abc")

@@ -102,7 +102,7 @@ except CatchableError:
 #------------------------------------------------------------------------------
 # issue #13810
 
-import streams
+import std/streams
 
 type
   A = ref AObj
@@ -239,12 +239,12 @@ l.setParent(l)
 
 
 # bug #14968
-import times
+import std/times
 let currentTime = now().utc
 
 
 # bug #14994
-import sequtils
+import std/sequtils
 var newLine = @['a']
 let indent = newSeq[char]()
 
@@ -298,7 +298,7 @@ createMachine()
 
 # bug #15122
 
-import tables
+import std/tables
 
 type
   BENodeKind = enum
@@ -329,7 +329,7 @@ doAssert data["examples"]["values"].listVal[0].strVal == "test"
 
 ###############################################################################
 # bug #15405
-import parsexml
+import std/parsexml
 const test_xml_str = "<A><B>value</B></A>"
 var stream = newStringStream(test_xml_str)
 var xml: XmlParser

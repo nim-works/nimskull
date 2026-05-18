@@ -9,7 +9,7 @@ Second tasks completed.
 test1'''
 """
 
-import strutils, os, std / wordwrap
+import std/[strutils, os, wordwrap]
 
 import system / ansi_c
 
@@ -19,7 +19,7 @@ proc retTuple(): (seq[int], int) =
 
 # bug #12899
 
-import sequtils, strmisc
+import std/[sequtils, strmisc]
 
 const input = ["KXSC, BGMC => 7 PTHL", "PXFX => LBZJ", "WXRQ, ZSCZD => HLQM"]
 
@@ -250,4 +250,3 @@ proc main =
       "test" & $i
 
 main()
-

@@ -2,7 +2,7 @@ discard """
   targets: "c"
 """
 
-import typeinfo
+import std/typeinfo
 
 var x = ""
 discard getString(toAny(x))

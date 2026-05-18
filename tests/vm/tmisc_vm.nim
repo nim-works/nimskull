@@ -219,7 +219,7 @@ static:
 
   doAssert state[1] == 13087528040916209671'u64
 
-import macros
+import std/macros
 # bug #12670
 
 macro fooImpl(arg: untyped) =

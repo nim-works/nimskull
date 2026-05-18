@@ -3,7 +3,7 @@ discard """
   matrix: "--deepcopy:on"
 """
 
-import tables, lists
+import std/[tables, lists]
 
 type
   ListTable[K, V] = object

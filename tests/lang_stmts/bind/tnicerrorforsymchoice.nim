@@ -10,7 +10,7 @@ type
   AsyncSocket* = object of RootObj
 
 #bug #442
-import strtabs
+import std/strtabs
 proc handleSCGIRequest[TScgi: ScgiState | AsyncScgiState](s: TScgi) =
   discard
 proc handleSCGIRequest(client: AsyncSocket, headers: StringTableRef,

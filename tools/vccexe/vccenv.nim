@@ -1,7 +1,7 @@
 ## VCC compiler backend installation discovery using Visual Studio common tools
 ## environment variables.
 
-import os
+import std/os
 
 type
   VccEnvVersion* = enum ## The version of the Visual Studio C/C++ Developer Environment to load

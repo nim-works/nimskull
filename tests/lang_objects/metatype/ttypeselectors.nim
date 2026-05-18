@@ -3,7 +3,7 @@ output: "8\n8\n4"
 """
 
 import
-  macros, typetraits
+  std/[macros, typetraits]
 
 template selectType(x: int): type =
   when x < 10:
@@ -76,7 +76,7 @@ static:
 
 # https://github.com/nim-lang/Nim/issues/7379
 
-import macros, typetraits
+import std/[macros, typetraits]
 
 macro works(): untyped =
   result = getType(int64)

@@ -1,4 +1,4 @@
-import typetraits
+import std/typetraits
 
 template typeLen(x): int = x.type.name.len
 
@@ -53,4 +53,3 @@ no string is ConceptUsingTemplate1
 ok int is ConceptUsingTemplate2
 no float is ConceptUsingTemplate2
 no string is ConceptUsingTemplate2
-

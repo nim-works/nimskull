@@ -69,7 +69,7 @@ var ff = Foo.create(12)
 echo ff.arg
 
 
-import macros
+import std/macros
 
 # bug #11494
 macro staticForEach(arr: untyped, body: untyped): untyped =

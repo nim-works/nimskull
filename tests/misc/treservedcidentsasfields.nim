@@ -2,7 +2,7 @@ discard """
   targets: "c"
 """
 
-import macros
+import std/macros
 
 macro make_test_type(idents: varargs[untyped]): untyped =
   result = nnkStmtList.newTree()

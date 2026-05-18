@@ -1,4 +1,4 @@
-import punycode, std/unicode
+import std/punycode, std/unicode
 
 doAssert(decode(encode("", "bücher")) == "bücher")
 doAssert(decode(encode("münchen")) == "münchen")

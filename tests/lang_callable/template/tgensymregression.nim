@@ -30,7 +30,7 @@ proc foo(): void =
 foo()
 
 # bug #5383
-import sequtils
+import std/sequtils
 
 proc zipWithIndex[A](ts: seq[A]): seq[(int, A)] =
   toSeq(pairs(ts))
@@ -51,7 +51,7 @@ proc main2() =
 main2()
 
 # bug #5467
-import macros
+import std/macros
 
 converter int2string(x: int): string = $x
 
@@ -73,7 +73,7 @@ makeProc()
 someProc()
 
 # bug #12193
-import macros, strutils
+import std/[macros, strutils]
 
 macro gen(T: typedesc): untyped =
   let typeSym = getTypeImpl(T)[1]

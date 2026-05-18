@@ -1,6 +1,6 @@
 # bug #1744
 
-import macros
+import std/macros
 
 type
   SuiteTest = object

@@ -6,7 +6,7 @@ true'''
 
 #bug #913
 
-import macros
+import std/macros
 
 macro thirteen(args: varargs[untyped]): int =
   result = newIntLitNode(13)
@@ -21,7 +21,7 @@ echo "success"
 
 # bug #2545
 
-import macros
+import std/macros
 macro test(e: varargs[untyped]): untyped =
   bindSym"true"
 

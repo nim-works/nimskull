@@ -1,4 +1,4 @@
-import unittest, strutils
+import std/[unittest, strutils]
 
 block: # parseutils
   check: parseBiggestUInt("0") == 0'u64

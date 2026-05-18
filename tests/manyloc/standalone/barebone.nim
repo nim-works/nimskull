@@ -5,7 +5,7 @@ output: "hello"
 knownIssue: "`--gc:none` is currently unsupported"
 """
 # bug  #2041: Macros need to be available for os:standalone!
-import macros
+import std/macros
 
 proc printf(frmt: cstring) {.varargs, header: "<stdio.h>", cdecl.}
 

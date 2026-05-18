@@ -4,7 +4,7 @@ discard """
 
 {.warning[TypelessParam]: off.}
 
-import sugar
+import std/sugar
 
 # bug #3329
 
@@ -19,4 +19,3 @@ proc mean[T: SomeNumber](xs: seq[T]): T =
 when true:
   let x = mean(@[1.float, 2, 3])
   echo x
-

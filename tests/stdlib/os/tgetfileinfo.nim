@@ -3,7 +3,7 @@ discard """
   joinable: false
 """
 
-import os, strutils
+import std/[os, strutils]
 # Cases
 #  1 - String : Existing File : Symlink true
 #  2 - String : Existing File : Symlink false

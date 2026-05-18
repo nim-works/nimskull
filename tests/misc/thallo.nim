@@ -5,7 +5,7 @@ action: compile
 # noted this seems to be an old test file designed for manual testing.
 
 import
-  os, strutils, macros
+  std/[os, strutils, macros]
 
 type
   TMyEnum = enum

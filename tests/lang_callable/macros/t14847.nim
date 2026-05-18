@@ -5,7 +5,7 @@ create new proc with existing proc's body, previously this resulted in an error
 due to stale information.
 '''
 """
-import macros
+import std/macros
 
 #bug #14847
 proc hello*(b: string) =

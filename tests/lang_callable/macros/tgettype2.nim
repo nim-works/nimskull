@@ -31,7 +31,7 @@ gt2(s): 	MySimpleType
 '''
 """
 
-import macros, typetraits
+import std/[macros, typetraits]
 
 type Foo = distinct int
 type Bar = distinct int

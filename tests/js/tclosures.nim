@@ -2,7 +2,7 @@ discard """
   action: run
 """
 
-import random, strutils
+import std/[random, strutils]
 const consolePrefix = "jsCallbacks"
 
 var callback {.exportc.}: JsRoot

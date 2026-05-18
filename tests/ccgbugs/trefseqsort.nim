@@ -3,7 +3,7 @@ discard """
 @[0, 1, 2, 3, 9]'''
 """
 # bug #6724
-import algorithm
+import std/algorithm
 
 type
   Bar = object

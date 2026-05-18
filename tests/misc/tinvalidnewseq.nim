@@ -3,7 +3,7 @@ discard """
   file: "tinvalidnewseq.nim"
   line: 15
 """
-import re, strutils
+import std/[re, strutils]
 
 type
   TURL = tuple[protocol, subdomain, domain, port: string, path: seq[string]]

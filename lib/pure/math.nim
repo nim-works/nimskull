@@ -164,30 +164,6 @@ func isNaN*(x: SomeFloat): bool {.inline, since: (1,5,1).} =
     when defined(js) or defined(vm) or defined(nimscript): fn()
     else: result = c_isnan(x)
 
-when defined(js):
-  import std/private/jsutils
-
-  proc toBitsImpl(x: float): array[2, uint32] =
-    let buffer = newArrayBuffer(8)
-    let a = newFloat64Array(buffer)
-    let b = newUint32Array(buffer)
-    a[0] = x
-    {.emit: "`result` = `b`;".}
-    # result = cast[array[2, uint32]](b)
-
-  proc jsSetSign(x: float, sgn: bool): float =
-    let buffer = newArrayBuffer(8)
-    let a = newFloat64Array(buffer)
-    let b = newUint32Array(buffer)
-    a[0] = x
-    asm """
-    function updateBit(num, bitPos, bitVal) {
-      return (num & ~(1 << bitPos)) | (bitVal << bitPos);
-    }
-    `b`[1] = updateBit(`b`[1], 31, `sgn`);
-    `result` = `a`[0]
-    """
-
 proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
   ## Returns true if `x` is negative, false otherwise.
   runnableExamples:
@@ -205,10 +181,7 @@ proc signbit*(x: SomeFloat): bool {.inline, since: (1, 5, 1).} =
   when nimvm:
     result = signbitCastImpl()
   else:
-    when defined(js):
-      let uintBuffer = toBitsImpl(x)
-      result = (uintBuffer[1] shr 31) != 0
-    elif defined(vm) or defined(nimscript):
+    when not defined(c):
       result = signbitCastImpl()
     else:
       result = c_signbit(x) != 0
@@ -236,9 +209,7 @@ func copySign*[T: SomeFloat](x, y: T): T {.inline, since: (1, 5, 1).} =
   when nimvm:
     result = copySignImpl()
   else:
-    when defined(js):
-      result = jsSetSign(x, sgn = (toBitsImpl(y)[1] shr 31) != 0)
-    elif defined(vm) or defined(nimscript):
+    when not defined(c):
       result = copySignImpl()
     else:
       result = c_copysign(x, y)

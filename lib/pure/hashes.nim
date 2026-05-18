@@ -127,37 +127,6 @@ proc hiXorLo(a, b: uint64): uint64 {.inline.} =
     else:
       result = hiXorLoFallback64(a, b)
 
-when defined(js):
-  import std/jsbigints
-  import std/private/jsutils
-
-  proc hiXorLoJs(a, b: JsBigInt): JsBigInt =
-    let
-      prod = a * b
-      mask = big"0xffffffffffffffff" # (big"1" shl big"64") - big"1"
-    result = (prod shr big"64") xor (prod and mask)
-
-  template hashWangYiJS(x: JsBigInt): Hash =
-    let
-      P0 = big"0xa0761d6478bd642f"
-      P1 = big"0xe7037ed1a0b428db"
-      P58 = big"0xeb44accab455d16d" # big"0xeb44accab455d165" xor big"8"
-      res = hiXorLoJs(hiXorLoJs(P0, x xor P1), P58)
-    cast[Hash](int64(toNumber(wrapToInt(res, 32))))
-
-  template toBits(num: float): JsBigInt =
-    let
-      x = newArrayBuffer(8)
-      y = newFloat64Array(x)
-    if hasBigUint64Array():
-      let z = newBigUint64Array(x)
-      y[0] = num
-      z[0]
-    else:
-      let z = newUint32Array(x)
-      y[0] = num
-      big(z[0]) + big(z[1]) shl big(32)
-
 proc hashWangYi1*(x: int64|uint64|Hash): Hash {.inline.} =
   ## Wang Yi's hash_v1 for 64-bit ints (see https://github.com/rurban/smhasher for
   ## more details). This passed all scrambling tests in Spring 2019 and is simple.
@@ -166,20 +135,7 @@ proc hashWangYi1*(x: int64|uint64|Hash): Hash {.inline.} =
   const P0  = 0xa0761d6478bd642f'u64
   const P1  = 0xe7037ed1a0b428db'u64
   const P58 = 0xeb44accab455d165'u64 xor 8'u64
-  template h(x): untyped = hiXorLo(hiXorLo(P0, uint64(x) xor P1), P58)
-  when nimvm:
-    when defined(js): # Nim int64<->JS Number & VM match => JS gets 32-bit hash
-      result = cast[Hash](h(x)) and cast[Hash](0xFFFFFFFF)
-    else:
-      result = cast[Hash](h(x))
-  else:
-    when defined(js):
-      if hasJsBigInt():
-        result = hashWangYiJS(big(x))
-      else:
-        result = cast[Hash](x) and cast[Hash](0xFFFFFFFF)
-    else:
-      result = cast[Hash](h(x))
+  result = cast[Hash](hiXorLo(hiXorLo(P0, uint64(x) xor P1), P58))
 
 proc hashData*(data: pointer, size: int): Hash =
   ## Hashes an array of bytes of size `size`.
@@ -268,33 +224,12 @@ when defined(nimPreviewHashRef) or defined(nimdoc):
 proc hash*(x: float): Hash {.inline.} =
   ## Efficient hashing of floats.
   let y = x + 0.0 # for denormalization
-  when nimvm:
-    # workaround a JS VM bug: bug #16547
-    result = hashWangYi1(cast[int64](float64(y)))
-  else:
-    when not defined(js):
-      result = hashWangYi1(cast[Hash](y))
-    else:
-      result = hashWangYiJS(toBits(y))
+  result = hashWangYi1(cast[int64](y))
 
 # Forward declarations before methods that hash containers. This allows
 # containers to contain other containers
 proc hash*[A](x: openArray[A]): Hash
 proc hash*[A](x: set[A]): Hash
-
-
-when defined(js):
-  proc imul(a, b: uint32): uint32 =
-    # https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/imul
-    let mask = 0xffff'u32
-    var
-      aHi = (a shr 16) and mask
-      aLo = a and mask
-      bHi = (b shr 16) and mask
-      bLo = b and mask
-    result = (aLo * bLo) + (aHi * bLo + aLo * bHi) shl 16
-else:
-  template imul(a, b: uint32): untyped = a * b
 
 proc rotl32(x: uint32, r: int): uint32 {.inline.} =
   (x shl r) or (x shr (32 - r))
@@ -327,9 +262,9 @@ proc murmurHash(x: openArray[byte]): Hash =
       k1 = cast[ptr uint32](unsafeAddr x[i])[]
     inc i, stepSize
 
-    k1 = imul(k1, c1)
+    k1 = k1 * c1
     k1 = rotl32(k1, 15)
-    k1 = imul(k1, c2)
+    k1 = k1 * c2
 
     h1 = h1 xor k1
     h1 = rotl32(h1, 13)
@@ -341,17 +276,17 @@ proc murmurHash(x: openArray[byte]): Hash =
   while rem > 0:
     dec rem
     k1 = (k1 shl 8) or (ord(x[i+rem])).uint32
-  k1 = imul(k1, c1)
+  k1 = k1 * c1
   k1 = rotl32(k1, 15)
-  k1 = imul(k1, c2)
+  k1 = k1 * c2
   h1 = h1 xor k1
 
   # finalization
   h1 = h1 xor size.uint32
   h1 = h1 xor (h1 shr 16)
-  h1 = imul(h1, m1)
+  h1 = h1 * m1
   h1 = h1 xor (h1 shr 13)
-  h1 = imul(h1, m2)
+  h1 = h1 * m2
   h1 = h1 xor (h1 shr 16)
   return cast[Hash](h1)
 

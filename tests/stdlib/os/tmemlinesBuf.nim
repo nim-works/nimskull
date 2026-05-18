@@ -1,4 +1,4 @@
-import memfiles
+import std/memfiles
 var inp = memfiles.open("tests/stdlib/os/tmemlinesBuf.nim")
 var buffer: string = ""
 var lineCount = 0

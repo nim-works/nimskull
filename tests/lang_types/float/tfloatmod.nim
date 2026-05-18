@@ -5,7 +5,7 @@ discard """
 """
 
 # Test `mod` on float64 both at compiletime and at runtime
-import math
+import std/math
 
 # Testdata from golang
 const testValues: array[10, tuple[f64, expected: float64]] = [

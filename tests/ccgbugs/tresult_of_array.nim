@@ -10,7 +10,7 @@ false
 # resetLoc generate incorrect memset code
 # because of array passed as argument decaying into a pointer
 
-import tables
+import std/tables
 const tableOfArray = {
     "one": [true, false, false],
     "two": [false, true, false],

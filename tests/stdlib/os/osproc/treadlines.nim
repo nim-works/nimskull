@@ -9,7 +9,7 @@ Error: cannot open 'b.nim'
 
 # marked as not joinable as this test executes compiler processes (error prone)
 
-import osproc
+import std/osproc
 from std/os import getCurrentCompilerExe
 
 var ps: seq[Process] # compile & run 2 progs in parallel

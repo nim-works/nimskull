@@ -10,7 +10,7 @@ description: '''
 '''
 """
 
-import options
+import std/options
 type Foo  = ref object
   i:      int
 

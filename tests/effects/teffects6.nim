@@ -36,7 +36,7 @@ proc use*() =
 use()
 
 # bug #12642
-import os
+import std/os
 
 proc raises() {.raises: Exception.} = discard
 proc harmless() {.raises: [].} = discard

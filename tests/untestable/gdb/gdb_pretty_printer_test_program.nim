@@ -1,6 +1,6 @@
 
 
-import tables
+import std/tables
 
 type
   MyEnum = enum

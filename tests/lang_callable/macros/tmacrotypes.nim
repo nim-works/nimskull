@@ -37,7 +37,7 @@ typeDesc[range[1 .. 5]]; ntyTypeDesc; typeDesc[range[1, 5]]; typeDesc[range[1 ..
 typeDesc[builtinTypeClass[range]]; ntyTypeDesc; typeDesc[builtinTypeClass[range]]; typeDesc[builtinTypeClass[range]]'''
 """
 
-import macros, typetraits
+import std/[macros, typetraits]
 
 macro checkType(ex: typed): untyped =
   echo ex.getTypeInst.repr, "; ", ex.typeKind, "; ", ex.getType.repr, "; ", ex.getTypeImpl.repr

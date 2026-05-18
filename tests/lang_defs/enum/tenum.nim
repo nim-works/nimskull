@@ -11,7 +11,7 @@ my value A0my value Bconc1valueCabc3abc
 """
 
 
-import macros
+import std/macros
 
 block tenum1:
   type E = enum a, b, c, x, y, z

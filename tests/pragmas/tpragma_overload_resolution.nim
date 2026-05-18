@@ -11,7 +11,7 @@ discard """
 """
 
 import foobar, barfoo
-import macros
+import std/macros
 # foobar and barfoo also contain definitions for {.async.}
 proc bar() {.async.} =
   echo 42
@@ -20,4 +20,3 @@ proc foo() {.async.} =
   bar()
 
 foo()
-

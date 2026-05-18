@@ -7,8 +7,9 @@
 #    distribution, for details about the copyright.
 
 import
-  algorithm, os, osproc, strutils, parseopt, parsecfg, strtabs, streams,
-  debcreation, std / sha1, json, times, sequtils
+  std/[algorithm, os, osproc, strutils, parseopt, parsecfg, strtabs, streams],
+  std/[sha1, json, times, sequtils],
+  debcreation
 
 const
   maxOS = 20 # max number of OSes

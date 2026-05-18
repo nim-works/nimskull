@@ -12,7 +12,7 @@ false'''
 joinable: false
 """
 
-import macros
+import std/macros
 
 macro same(a: typedesc, b: typedesc): untyped =
   newLit(a.getType[1].sameType b.getType[1])

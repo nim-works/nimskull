@@ -12,7 +12,7 @@ one1two2three3
 # Test the new implicit conversion from sequences to arrays in a constant
 # context.
 
-import strutils
+import std/strutils
 
 
 block t1:
