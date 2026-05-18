@@ -165,6 +165,16 @@ type
 const DefaultSourceLimit* = 100_000 # Reasonable default limit
 
 
+proc lexLess(a, b: seq[byte]): bool =
+  ## Lexicographical comparison from last byte to first (big-endian order).
+  ## Matches complexity of little-endian integers (higher bits at the end).
+  let L = min(a.len, b.len)
+  for i in countdown(L - 1, 0):
+    if a[i] < b[i]: return true
+    if a[i] > b[i]: return false
+  return a.len < b.len
+
+
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
                 idempotent: bool = false, debug: bool = false): Source =
   new(result)
@@ -1300,6 +1310,7 @@ type
     seed*: uint32
     failingValue*: Option[T]
     failingBuffer*: seq[byte]
+    errorMsg*: Option[string]
     shrunk*: bool
     shrunkValue*: Option[T]
     shrunkBuffer*: seq[byte]
@@ -1310,7 +1321,8 @@ const defaultTrials* = 1024 ## number of trials to run per property
 
 
 proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
-                     seed: uint32 = 0, debug: bool = false): TestResult[T] =
+                     seed: uint32 = 0, maxDiscards: int = -1,
+                     debug: bool = false): TestResult[T] =
   ## Runs the property `p` for `trials` iterations, using `seed` as the base
   ## seed. Returns a `TestResult` containing the status of the test, the number
   ## of trials run, the seed used, and the failing value and buffer if a failure
@@ -1326,8 +1338,15 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
   result.status = psPass
   result.runCount = 0
 
-  for i in 1..trials:
-    result.runCount = i
+  let actualMaxDiscards = if maxDiscards == -1: trials * 10 else: maxDiscards
+  var discardCount = 0
+
+  while result.runCount < trials:
+    if discardCount >= actualMaxDiscards:
+      result.status = psFail
+      result.errorMsg = some("Gave up: too many discards (" & $discardCount & ")")
+      return
+
     let runSeed = uint32(rng.next() and 0xFFFFFFFF'u64)
     result.seed = runSeed
 
@@ -1335,6 +1354,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       s = newSource(runSeed)
       val: T
       status: PropertyStatus
+      valErrorMsg: Option[string]
 
     try:
       val = p.gen(s)
@@ -1344,23 +1364,26 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       status = psDiscard
     except SourceLimitExceededError:
       # General generation error (limit exceeded perhaps)
-      status = psDiscard # Or failure? Typically discard if valid input couldn't be formed
-    except:
-      # Exception during gen (other than known ones) or check counts as failure
+      status = psDiscard
+    except CatchableError as e:
       status = psFail
-      # We could capture exception msg here
+      valErrorMsg = some(e.msg)
+    except Exception as e:
+      status = psFail
+      valErrorMsg = some(e.msg)
 
     if status == psDiscard:
-      # It might be tempting to not count this trial, but we could be stuck in a
-      # loop of discarding. A better approach would be to limit the number of
-      # discards, but for now we'll just count it as a pass.
+      discardCount.inc
       continue
+
+    result.runCount.inc
 
     if status == psFail:
       # Found failure!
       result.status = psFail
       result.failingValue = some(val)
       result.failingBuffer = s.buffer
+      result.errorMsg = valErrorMsg
       if debug:
         result.debugBuffer = s.buffer
 
@@ -1368,33 +1391,41 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       var
         bestBuffer = s.buffer
         bestVal = val
+        bestErrorMsg = valErrorMsg
+        attempts = 0
 
       # Shrink loop
       var improved = true
       while improved:
         improved = false
         for cand in candidates(bestBuffer):
-          if cand.len >= bestBuffer.len and cand == bestBuffer:
-            # Skip if same
-            continue
+          attempts.inc
+          if attempts > 100000: break # Safety break
+
+          # Shortlex ordering: strictly shorter or same length but lexicographically smaller
+          if cand.len > bestBuffer.len: continue
+          if cand.len == bestBuffer.len and not lexLess(cand, bestBuffer): continue
 
           # Try candidate
           var
             sCand = newSource(cand)
             cVal: T
             cStatus: PropertyStatus
+            cErrorMsg: Option[string]
 
           try:
             cVal = p.gen(sCand)
             cStatus = p.check(cVal)
           except SourceLimitExceededError:
-            # TODO: this is for debugging, it shouldn't happen here
-            unreachable("SourceLimitExceededError during shrinking shouldn't be possible")
+            cStatus = psDiscard
           except CatchableError as e:
-            # TODO: capture the exception and add it to the result
-            discard e
-            raise
-            # cStatus = psFail
+            cStatus = psFail
+            cErrorMsg = some(e.msg)
+          except:
+            # Defect or other weirdness. 
+            # In shrinking, this usually means we corrupted the stream.
+            # Don't accept this as an improvement.
+            continue
 
           if cStatus == psFail:
             # Our candidates iterator uses AST heuristics to generate strictly
@@ -1402,12 +1433,16 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             # We accept the first one that fails:
             bestBuffer = cand
             bestVal = cVal
+            bestErrorMsg = cErrorMsg
             improved = true
             result.shrunk = true
             break # Restart candidates iterator with new bestBuffer
+        
+        if attempts > 100000: break
 
       result.shrunkBuffer = bestBuffer
       result.shrunkValue = some(bestVal)
+      result.errorMsg = bestErrorMsg
       return # Return immediately on failure+shrink
 
   # If loop finishes without returning, it's a pass
