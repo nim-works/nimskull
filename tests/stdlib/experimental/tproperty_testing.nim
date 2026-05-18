@@ -193,12 +193,11 @@ suite "Generation Subsystem API":
     # Let's manually craft a corrupted chooseRange buffer that is out of bounds
     let s = newSource(seed = 1)
 
-    # What the buffer *should* look like, but we corrupt the final value
+    # New layout for skRange: skRange, scalarKind, rangeSize, offset
     s.writeStorageKind(skRange)
     s.writeStorageKind(skByte)
-    s.writeRawBytes(10, 1) # min
-    s.writeRawBytes(20, 1) # max
-    s.writeRawBytes(255, 1) # val range (max allowable is 10, but we provide 255)
+    s.writeRawBytes(10, 1) # rangeSize (max - min)
+    s.writeRawBytes(255, 1) # offset (max allowable is 10, but we provide 255)
 
     let sReplay = newSource(s.buffer)
     # The read rangeSize should be 10. The read val should be clamped from 255 -> 10.
@@ -210,26 +209,31 @@ suite "Generation Subsystem API":
 # MARK: Structural API & Parser
 suite "Structural API & Parser":
 
-  test "Structural Generation API - beginArray and beginFixedArray and readArrayLength":
+  test "Structural Generation API - beginArray and beginFixedArray":
     let s = newSource(seed = 1)
 
     # Recording
-    let dynamicLen = s.beginArray(1, 2)
-    s.beginFixedArray(5)
-    s.beginFixedArray(256)
-    s.beginFixedArray(65536)
+    let (dynamicLen, dynamicOldLen, _) = s.beginArray(1, 2)
+    check dynamicLen == dynamicOldLen
+    discard s.beginFixedArray(5)
+    discard s.beginFixedArray(256)
+    discard s.beginFixedArray(65536)
 
     # Replay
     let sReplay = newSource(s.buffer)
-    let readLen = sReplay.readArrayLength()
+    let (readLen, readOldLen, _) = sReplay.beginArray(1, 2)
     check readLen in {1, 2}
     check readLen == dynamicLen
-    check sReplay.readArrayLength() == 5
-    check sReplay.readArrayLength() == 256
-    check sReplay.readArrayLength() == 65536
+    check readLen == readOldLen
 
-    # Overflow/exhaustion
-    check sReplay.readArrayLength() == 0
+    let (readLen2, readOldLen2, _) = sReplay.beginArray(5, 5)
+    check readLen2 == 5 and readOldLen2 == 5
+
+    let (readLen3, readOldLen3, _) = sReplay.beginArray(256, 256)
+    check readLen3 == 256 and readOldLen3 == 256
+
+    let (readLen4, readOldLen4, _) = sReplay.beginArray(65536, 65536)
+    check readLen4 == 65536 and readOldLen4 == 65536
 
 
   test "Structural Generation API - beginGroup and readGroupLength":
@@ -268,24 +272,24 @@ suite "Structural API & Parser":
     # 2. Range testing
     var sR = newSource(seed = 2)
     let
-      minV: uint64 = 100
-      maxV: uint64 = 200 # size = 100 -> 1 byte
-    sR.recordRange(minV, maxV, 150, sk2Bytes)
+      rangeSize: uint64 = 100 # size = 100 -> 1 byte
+    sR.recordRange(rangeSize, 50, sk2Bytes)
     let endRange = skipNode(sR.buffer, 0)
-    # skRange(1) + sk2Bytes(1) + min(2) + max(2) + valRange(1) = 7 bytes
-    check endRange == 7
+    # skRange(1) + sk2Bytes(1) + rangeSize(2) + offset(1) = 5 bytes
+    check endRange == 5
     check endRange == sR.buffer.len
 
     # 3. Array testing
     var sA = newSource(seed = 3)
-    sA.beginFixedArray(3) # skArray (1) + len_range (1 + 1 + 1 + 1 + 1) = 6 bytes
+    discard sA.beginFixedArray(3) 
+    # skArray (1) + skRange (1 + 1 + 1 + 1) [rangeSize=0, offset=0] + actualLen (4) = 7 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(1) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(2) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(3) # 2 bytes
 
     checkpoint "sA.buffer: " & $sA.buffer
     let endArray = skipNode(sA.buffer, 0)
-    check endArray == 1 + 5 + 2 + 2 + 2
+    check endArray == 1 + 4 + 4 + 2 + 2 + 2
     check endArray == sA.buffer.len
 
 
@@ -306,7 +310,7 @@ suite "Structural API & Parser":
 
     # 2. Array Deletion Validation
     var sA = newSource(seed = 2)
-    let length = sA.beginArray(0, 4)
+    let (length, _, _) = sA.beginArray(0, 4)
     check length == 4
     for i in 0 ..< length:
       sA.writeStorageKind(skByte)
@@ -323,6 +327,58 @@ suite "Structural API & Parser":
     checkpoint "seenLengths: " & $seenLengths
     check seenLengths.len > 0
     check 0 in seenLengths and 2 in seenLengths and 3 in seenLengths
+
+
+  test "Structural Buffer Parser - skipNodes":
+    var s = newSource(seed = 1)
+    
+    # Write 3 nodes
+    s.writeStorageKind(skByte); s.writeRawByte(10)
+    s.writeStorageKind(sk2Bytes); s.writeRawBytes(1000, 2)
+    s.writeStorageKind(skByte); s.writeRawByte(20)
+    
+    let buf = s.buffer
+    var s2 = newSource(buf)
+    
+    # Skip 2 nodes
+    s2.skipNodes(2)
+    
+    # Should be at the 3rd node
+    check s2.readStorageKind() == skByte
+    check s2.readRawByte() == 20
+    
+    # Test nested skipNodes
+    var s3 = newSource(seed = 2)
+    discard s3.beginFixedArray(2)
+    s3.writeStorageKind(skByte); s3.writeRawByte(1)
+    s3.writeStorageKind(skByte); s3.writeRawByte(2)
+    s3.writeStorageKind(skByte); s3.writeRawByte(3) # After array
+    
+    var s4 = newSource(s3.buffer)
+    s4.skipNodes(1) # Skip the entire array
+    check s4.readStorageKind() == skByte
+    check s4.readRawByte() == 3
+
+
+  test "skRange Clamping - rangeSize shrinking":
+    var s = newSource(seed = 1)
+    # Recorded with rangeSize 100, offset 50
+    s.recordRange(100, 50, skByte)
+    
+    let buf = s.buffer
+    
+    # Replay with rangeSize 20 (max-min)
+    var s2 = newSource(buf)
+    let val = s2.chooseRange(10'u64, 30'u64, skByte)
+    # offset 50 clamped to rangeSize 20 -> 20. 
+    # result = min (10) + 20 = 30.
+    check val == 30
+    
+    # Replay with rangeSize 200
+    var s3 = newSource(buf)
+    let val2 = s3.chooseRange(0'u64, 200'u64, skByte)
+    # offset 50 NOT clamped. result = 0 + 50 = 50.
+    check val2 == 50
 
 
 # MARK: Primitive Generators

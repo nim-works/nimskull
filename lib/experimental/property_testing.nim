@@ -273,46 +273,40 @@ proc readRangeValue*(s: Source): uint64 =
   let
     tgtKind = s.readStorageKind()
     sBytes = getScalarBytes(tgtKind)
-    rMin = s.readRawBytes(sBytes)
-    rMax = s.readRawBytes(sBytes)
-    rangeSize = rMax - rMin
-    valRange = s.readRawBytes(bytesForRange(rangeSize))
-  assert rMax >= rMin, "rMax must be >= rMin, got: " & $rMax & " >= " & $rMin
-  result = rMin + valRange
+    recordedRangeSize = s.readRawBytes(sBytes)
+    offset = s.readRawBytes(bytesForRange(recordedRangeSize))
+  result = offset
 
 
-proc recordRange*(s: Source, min, max, offset: uint64, scalarKind: StorageKind) =
+proc recordRange*(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
   s.writeStorageKind(skRange)
   s.writeStorageKind(scalarKind)
   let sBytes = getScalarBytes(scalarKind)
-  s.writeRawBytes(min, sBytes)
-  s.writeRawBytes(max, sBytes)
-  s.writeRawBytes(offset, bytesForRange(max - min))
+  s.writeRawBytes(rangeSize, sBytes)
+  s.writeRawBytes(offset, bytesForRange(rangeSize))
 
 
 proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 =
+  let rangeSize = max - min
   if s.recording:
     let
-      rangeSize = max - min
       valRange =
         if rangeSize == 0: 0'u64
         elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
         else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
 
     result = min + valRange
-    s.recordRange(min, max, valRange, scalarKind)
+    s.recordRange(rangeSize, valRange, scalarKind)
   else:
     let readK = s.readStorageKind()
     if readK == skRange:
       let
         tgtKind = s.readStorageKind()
         sBytes = getScalarBytes(tgtKind)
-        rMin = s.readRawBytes(sBytes)
-        rMax = s.readRawBytes(sBytes)
-        rangeSize = rMax - rMin
-        rVal = s.readRawBytes(bytesForRange(rangeSize))
+        recordedRangeSize = s.readRawBytes(sBytes)
+        rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
         safeVal = if rVal > rangeSize: rangeSize else: rVal
-      result = rMin + safeVal
+      result = min + safeVal
     else:
       result = min
 
@@ -340,46 +334,107 @@ proc chooseRange*(s: Source, min, max: int64, scalarKind: StorageKind): int64 =
   return renumerateUint64ToInt64(chooseRange(s, uMin, uMax, scalarKind))
 
 
-proc readArrayLength*(s: Source): uint32 =
-  ## Parses an array marker and returns its exact length
-  let k = s.readStorageKind()
-  assert k == skArray or (not s.recording and k == skByte),
-         "Expected skArray, got " & $k
-  return uint32(s.readRangeValue())
+proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
+  for i in 0 ..< bytes:
+    assert pos + i < buffer.len, "decodeUint64 buffer ran out before end of scalar"
+    result = result or (uint64(buffer[pos + i]) shl (i * 8))
 
 
-proc beginArray*(s: Source, min, max: uint32): uint32 =
+template skipToRangeOffsetAndGetSize(buffer: seq[byte], pos: var int): uint64 =
+  ## Returns the range size for a range stored in the
+  ## buffer at the given position where the skRange byte has already been
+  ## traversed. Advances `pos` past the rangeSize.
+  doAssert pos < buffer.len, "skipNode buffer ran out before kind for range"
+  let tgtKind = cast[StorageKind](buffer[pos])
+  inc pos
+  let sBytes = getScalarBytes(tgtKind)
+  doAssert pos + sBytes <= buffer.len, "skipNode buffer ran out before rangeSize for range"
+  let rangeSize = decodeUint64(buffer, pos, sBytes)
+  pos += sBytes
+  rangeSize
+
+
+proc skipNode*(buffer: seq[byte], startPos: int): int =
+  ## Parses the structural `StorageKind` at `startPos` and returns the index
+  ## immediately *after* the fully encoded node (including all nested children).
+  doAssert startPos < buffer.len, "skipNode startPos out of bounds"
+
+  let kind = cast[StorageKind](buffer[startPos])
+  var pos = startPos + 1
+
+  case kind
+  of skByte: pos += 1
+  of sk2Bytes: pos += 2
+  of sk4Bytes: pos += 4
+  of sk8Bytes: pos += 8
+  of skNBytes:
+    doAssert pos < buffer.len, "skipNode buffer ran out before n for nbytes for skNBytes"
+    let n = int(buffer[pos])
+    pos += 1 + n
+  of skRange:
+    let rangeSize = skipToRangeOffsetAndGetSize(buffer, pos)
+    pos += bytesForRange(rangeSize)
+  of skArray:
+    pos = skipNode(buffer, pos) # skip the skRange (length)
+    doAssert pos + 4 <= buffer.len, "skipNode buffer ran out before actualLen for array"
+    let n = int(decodeUint64(buffer, pos, 4))
+    pos += 4
+    for _ in 0 ..< n: pos = skipNode(buffer, pos)
+  of skGroup:
+    doAssert pos < buffer.len, "skipNode buffer ran out before n for group"
+    let n = int(buffer[pos])
+    pos += 1
+    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for group"
+    for _ in 0 ..< n: pos = skipNode(buffer, pos)
+
+  doAssert pos <= buffer.len, "skipNode pos out of bounds"
+  return pos
+
+
+proc skipNodes*(s: Source, count: int) =
+  ## Advances the source position past `count` nodes in the stream.
+  for _ in 0 ..< count:
+    s.pos = skipNode(s.buffer, s.pos)
+
+
+proc writeRawBytesAt(s: Source, pos: int, val: uint64, bytes: int) =
+  ## Internal helper to patch the buffer at a specific position.
+  if not s.recording: return
+  for i in 0 ..< bytes:
+    if pos + i < s.buffer.len:
+      s.buffer[pos + i] = byte((val shr (i * 8)) and 0xFF)
+
+
+proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
   ## Marks the beginning of an array of length in the range [min, max] of
-  ## homogeneous elements in the stream, returning the chosen length.
+  ## homogeneous elements in the stream, returning the chosen length, the
+  ## absolute length from the source, and the position of the absolute length
+  ## scalar in the buffer (for patching).
   assert min <= max
   if s.recording:
-    let
-      lenRange = max - min
-      lenBytesNeeded = bytesForRange(lenRange)
-      tgtKind =
-        case bytesForRange(max)
-        of 1: skByte
-        of 2: sk2Bytes
-        of 4: sk4Bytes
-        else: unreachable("array length too big: " & $lenRange)
-      bytesNeeded = 1 #[skArray]# + 1 #[skRange]# + 1 #[scalarKind]# +
-                    (getScalarBytes(tgtKind) * 2) #[min, max]# +
-                    lenBytesNeeded
-      bufLenBefore = s.buffer.len
     s.writeStorageKind(skArray)
-    result = cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), tgtKind))
-    assert s.buffer.len - bufLenBefore == bytesNeeded,
-           "need: " & $bytesNeeded & " got: " & $(s.buffer.len - bufLenBefore) &
-           " min: " & $min & " max: " & $max & " val: " & $result &
-           " tgtKind: " & $tgtKind
+    let
+      tgtKind = if max <= 255: skByte elif max <= 65535: sk2Bytes else: sk4Bytes
+      chosenLen = cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), tgtKind))
+      actualLenPos = s.buffer.len
+    s.writeRawBytes(uint64(chosenLen), 4)
+    result = (chosenLen, chosenLen, actualLenPos)
   else:
-    result = readArrayLength(s)
+    let k = s.readStorageKind()
+    assert k == skArray or (not s.recording and k == skByte),
+           "Expected skArray, got " & $k
+    let
+      tgtKind = if max <= 255: skByte elif max <= 65535: sk2Bytes else: sk4Bytes
+      newLen = cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), tgtKind))
+      actualLenPos = -1 # not used during replay
+      actualLen = uint32(s.readRawBytes(4))
+    result = (newLen, actualLen, actualLenPos)
 
 
-proc beginFixedArray*(s: Source, len: uint32) =
+proc beginFixedArray*(s: Source, len: uint32): (uint32, uint32, int) =
   ## Marks the beginning of a fixed-size array of length `len` of homogeneous
   ## elements in the stream.
-  discard beginArray(s, len, len)
+  beginArray(s, len, len)
 
 
 proc readGroupLength*(s: Source): uint8 =
@@ -508,7 +563,7 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
         chosenIdx = int(randValOrig mod uint32(state.vals.len))
 
       # Record it formally as a range so shrinking works predictably!
-      s.recordRange(0, cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
+      s.recordRange(cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
 
     result = state.vals[chosenIdx]
 
@@ -540,7 +595,7 @@ proc genExhaustiveRange*[T](min: T, rangeSize: uint64): Gen[T] =
         chosenIdx = int(randValOrig mod uint32(len))
 
       # Record it formally as a range so shrinking works predictably!
-      s.recordRange(0, rangeSize, cast[uint64](chosenIdx), tgtK)
+      s.recordRange(rangeSize, cast[uint64](chosenIdx), tgtK)
 
     # Reconstruct the value by addition
     when T is enum:
@@ -762,13 +817,20 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
     else: genEnum[T]().filter((e) => e notin exclude)
 
   return proc(s: Source): set[T] =
-    let
-      len = s.beginArray(minLen, cast[uint32](maxLen))
-      upperLimit = maxLen * 15
-    var i = 0
-    while result.len < int(len) and i < upperLimit:
-      result.incl g(s)
-      inc i
+    let (len, oldLen, actualLenPos) = s.beginArray(uint32(minLen), uint32(maxLen))
+    let upperLimit = int(maxLen) * 15
+    var draws = 0
+    
+    if s.recording:
+      while result.len < int(len) and draws < upperLimit:
+        result.incl g(s)
+        draws.inc
+      s.writeRawBytesAt(actualLenPos, uint64(draws), 4)
+    else:
+      while result.len < int(len) and draws < int(oldLen):
+        result.incl g(s)
+        draws.inc
+      s.skipNodes(int(oldLen) - draws)
 
 
 proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]] =
@@ -776,11 +838,12 @@ proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]
   ## [minLen, maxLen].
   assert maxLen >= minLen
   return proc(s: Source): seq[T] =
-    let len = s.beginArray(minLen, maxLen)
+    let (len, oldLen, _) = s.beginArray(minLen, maxLen)
 
     result = newSeq[T](int(len))
     for i in 0 ..< int(len):
       result[i] = g(s)
+    s.skipNodes(int(oldLen) - int(len))
 
 
 proc genString*(minLen: uint32 = 0, maxLen: uint32 = 100,
@@ -803,82 +866,15 @@ proc genAsciiString*(minLen: uint32 = 0, maxLen: uint32 = 100): Gen[string] =
 
 proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] =
   return proc(s: Source): array[size, T] =
-    s.beginFixedArray(size)
+    let (_, oldLen, _) = s.beginArray(size, size)
     var arr: array[size, T]
     for i in 0 ..< size:
       arr[i] = g(s)
+    s.skipNodes(int(oldLen) - int(size))
     return arr
 
 
 # MARK: Shrinking Strategies ---
-
-proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
-  for i in 0 ..< bytes:
-    assert pos + i < buffer.len, "decodeUint64 buffer ran out before end of scalar"
-    result = result or (uint64(buffer[pos + i]) shl (i * 8))
-
-
-template skipToRangeOffsetAndGetSizeAndMin(buffer: seq[byte], pos: var int): (uint64, uint64) =
-  ## Returns the range size (max - min) and min value for a range stored in the
-  ## buffer at the given position where the skRange byte has already been
-  ## traversed. Advances `pos` past the min and max values.
-  doAssert pos < buffer.len, "skipNode buffer ran out before kind for range"
-  let tgtKind = cast[StorageKind](buffer[pos])
-  inc pos
-  let sBytes = getScalarBytes(tgtKind)
-  doAssert pos + 2 * sBytes <= buffer.len, "skipNode buffer ran out before min and max for range"
-  let rMin = decodeUint64(buffer, pos, sBytes)
-  pos += sBytes
-  let rMax = decodeUint64(buffer, pos, sBytes)
-  pos += sBytes
-  doAssert rMax >= rMin, "rMax must be >= rMin, got: " & $rMax & " >= " & $rMin
-  let rangeSize = rMax - rMin
-  (rangeSize, rMin)
-
-
-proc skipNode*(buffer: seq[byte], startPos: int): int =
-  ## Parses the structural `StorageKind` at `startPos` and returns the index
-  ## immediately *after* the fully encoded node (including all nested children).
-  doAssert startPos < buffer.len, "skipNode startPos out of bounds"
-
-  let kind = cast[StorageKind](buffer[startPos])
-  var pos = startPos + 1
-
-  case kind
-  of skByte: pos += 1
-  of sk2Bytes: pos += 2
-  of sk4Bytes: pos += 4
-  of sk8Bytes: pos += 8
-  of skNBytes:
-    doAssert pos < buffer.len, "skipNode buffer ran out before n for nbytes for skNBytes"
-    let n = int(buffer[pos])
-    pos += 1 + n
-  of skRange:
-    let (rangeSize, _) = skipToRangeOffsetAndGetSizeAndMin(buffer, pos)
-    pos += bytesForRange(rangeSize)
-  of skArray:
-    doAssert pos < buffer.len, "skipNode buffer ran out before n for array"
-    assert buffer[pos] == byte(skRange),
-           "skipNode: Expected skRange, got " & $cast[StorageKind](buffer[pos])
-    inc pos # skip skRange
-    let
-      (rangeSize, rangeMin) = skipToRangeOffsetAndGetSizeAndMin(buffer, pos)
-      rangeBytes = bytesForRange(rangeSize)
-      offset = int(decodeUint64(buffer, pos, rangeBytes))
-      n = int(rangeMin) + offset
-    pos += rangeBytes
-    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for array"
-    for _ in 0 ..< n: pos = skipNode(buffer, pos)
-  of skGroup:
-    doAssert pos < buffer.len, "skipNode buffer ran out before n for group"
-    let n = int(buffer[pos])
-    pos += 1
-    doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for group"
-    for _ in 0 ..< n: pos = skipNode(buffer, pos)
-
-  doAssert pos <= buffer.len, "skipNode pos out of bounds"
-  return pos
-
 
 proc writeUint64(buffer: var seq[byte], pos: int, bytes: int, val: uint64) =
   for i in 0 ..< bytes:
@@ -895,16 +891,15 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
   var p = pos + 1
   case kind
   of skArray:
-    assert buf[p] == byte(skRange),
-           "skipNode: Expected skRange, got " & $cast[StorageKind](buf[pos])
-    inc p
-    let
-      (rangeSize, rangeMin) = skipToRangeOffsetAndGetSizeAndMin(buf, p)
-      rangeBytes = bytesForRange(rangeSize)
-      offset = int(decodeUint64(buf, p, rangeBytes))
-      n = int(rangeMin) + offset
-    p += rangeBytes
-    doAssert p + n <= buf.len, "skipNode buffer ran out before children for array"
+    # skip the skRange node representing the length
+    p = skipNode(buf, p)
+    
+    # Now p is at actualLen scalar (4 bytes)
+    let n = int(decodeUint64(buf, p, 4))
+    p += 4
+    
+    # Now p is at elements
+    doAssert p + n <= buf.len, "collectNodes buffer ran out before children for array"
     for _ in 0 ..< n:
       collectNodes(nodes, buf, p)
       p = skipNode(buf, p)
@@ -948,44 +943,50 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
   # Strategy 1: Array Element Deletion
   for i, (pos, kind) in nodes.pairs:
     if kind == skArray:
+      var p = pos + 2 # skip skArray tag (1) and skRange tag (1)
       let
-        tgtKind = cast[StorageKind](buffer[pos + 2]) # skip skArray and skRange
-        sBytes = getScalarBytes(tgtKind)
-        minElem = decodeUint64(buffer, pos + 3, sBytes)
-        maxElem = decodeUint64(buffer, pos + 3 + sBytes, sBytes)
-        rangeSize = maxElem - minElem
-        offsetBytes = bytesForRange(rangeSize)
-        offsetPos = pos + 3 + 2 * sBytes
+        rangeTgtKind = cast[StorageKind](buffer[p])
+      inc p
+      let
+        sBytes = getScalarBytes(rangeTgtKind)
+        recordedRangeSize = decodeUint64(buffer, p, sBytes)
+      p += sBytes
+      let
+        vBytes = bytesForRange(recordedRangeSize)
+        offsetPos = p
+      p += vBytes
+      let
+        actualLenPos = p
+        numElems = int(decodeUint64(buffer, p, 4))
+      p += 4
 
-      doAssert offsetPos + offsetBytes <= buffer.len
-      let numElems = int(minElem + decodeUint64(buffer, offsetPos, offsetBytes))
       if numElems > 0:
         var
           elemStarts: seq[int] = @[]
-          p = offsetPos + offsetBytes
+          curr = p
         for _ in 0 ..< numElems:
-          elemStarts.add(p)
-          p = skipNode(buffer, p)
-        elemStarts.add(p)
+          elemStarts.add(curr)
+          curr = skipNode(buffer, curr)
+        elemStarts.add(curr)
 
-        # element deletion must not result in less than `minElem` elements
         var k = numElems
         while k > 0:
-          if numElems - k >= int(minElem):
-            var i = 0
-            while i <= numElems - k:
-              var copy = buffer
-              let
-                newElems = numElems - k
-                newOffset = cast[uint64](newElems - int(minElem))
-              writeUint64(copy, offsetPos, offsetBytes, newOffset)
-              let
-                delStart = elemStarts[i]
-                delEnd   = elemStarts[i + k] - 1
-              if delStart <= delEnd:
-                copy.delete(delStart .. delEnd)
-              yield copy
-              i.inc
+          var i = 0
+          while i <= numElems - k:
+            var copy = buffer
+            let
+              newElems = numElems - k
+              oldOffset = decodeUint64(buffer, offsetPos, vBytes)
+              newOffset = if oldOffset >= uint64(k): oldOffset - uint64(k) else: 0'u64
+            writeUint64(copy, actualLenPos, 4, uint64(newElems))
+            writeUint64(copy, offsetPos, vBytes, newOffset)
+            let
+              delStart = elemStarts[i]
+              delEnd   = elemStarts[i + k] - 1
+            if delStart <= delEnd:
+              copy.delete(delStart .. delEnd)
+            yield copy
+            i.inc
           k = k div 2
 
   template numberShrinker(val: uint64, p: int, vBytes: int, buffer: seq[byte]) =
@@ -1010,19 +1011,11 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
   # Strategy 2: Range Binary Search
   for (pos, kind) in nodes:
     if kind == skRange:
-      doAssert pos + 1 < buffer.len
+      var p = pos + 1
       let
-        tgtKind = cast[StorageKind](buffer[pos + 1])
-        sBytes = getScalarBytes(tgtKind)
-      doAssert pos + 2 + 2 * sBytes <= buffer.len
-      let
-        rMin = decodeUint64(buffer, pos + 2, sBytes)
-        rMax = decodeUint64(buffer, pos + 2 + sBytes, sBytes)
-        rangeSize = rMax - rMin
+        rangeSize = skipToRangeOffsetAndGetSize(buffer, p)
         vBytes = bytesForRange(rangeSize)
-      # skip min & max bytes
-      let p = pos + 2 + 2 * sBytes
-      doAssert p + vBytes <= buffer.len
+      # p is now at the offset
       let offset = decodeUint64(buffer, p, vBytes)
       numberShrinker(offset, p, vBytes, buffer)
 
@@ -1067,35 +1060,26 @@ proc treeRepr*(buffer: seq[byte]): string =
     p = pos + 1
     case kind:
       of skArray:
-        inc p # skip skRange
-        let
-          (rangeSize, rangeMin) = skipToRangeOffsetAndGetSizeAndMin(buffer, p)
-          lenBytes = bytesForRange(rangeSize)
-
-        if p + lenBytes <= buffer.len:
-          let
-            nOffset = decodeUint64(buffer, p, lenBytes)
-            n = int(nOffset + rangeMin)
-          result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
-          if n > 0:
-            indent.inc
-            counters.add(n)
-          else:
-            result &= "}"
+        p = skipNode(buffer, p) # skip skRange
+        let n = int(decodeUint64(buffer, p, 4))
+        result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
+        if n > 0:
+          indent.inc
+          counters.add(n)
+        else:
+          result &= "}"
       of skRange:
         let tgtKind = cast[StorageKind](buffer[p])
         inc p
         let sBytes = getScalarBytes(tgtKind)
-        let minVal = decodeUint64(buffer, p, sBytes)
-        inc p, sBytes
-        let maxVal = decodeUint64(buffer, p, sBytes)
-        inc p, sBytes
+        let rangeSize = decodeUint64(buffer, p, sBytes)
+        p += sBytes
         let
-          vBytes = bytesForRange(maxVal - minVal)
+          vBytes = bytesForRange(rangeSize)
           offset = decodeUint64(buffer, p, vBytes)
         result &= "  ".repeat(indent) & $kind & " (kind: " & $tgtKind &
-                  ", min: " & $minVal & ", max: " & $maxVal & ", offset: " &
-                  $offset & ", value: " & $(minVal + offset) & ")"
+                  ", rangeSize: " & $rangeSize & ", offset: " &
+                  $offset & ")"
       of skGroup:
         let n = int(decodeUint64(buffer, p, 1))
         result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
