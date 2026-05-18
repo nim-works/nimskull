@@ -278,12 +278,27 @@ proc readRangeValue*(s: Source): uint64 =
   result = offset
 
 
-proc recordRange*(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
-  s.writeStorageKind(skRange)
+proc recordRangeData*(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
+  ## Writes a naked range (no StorageKind tag) to the source.
   s.writeStorageKind(scalarKind)
   let sBytes = getScalarBytes(scalarKind)
   s.writeRawBytes(rangeSize, sBytes)
   s.writeRawBytes(offset, bytesForRange(rangeSize))
+
+
+proc readRangeData*(s: Source, currentRangeSize: uint64): uint64 =
+  ## Reads a naked range (no StorageKind tag) from the source.
+  let
+    tgtKind = s.readStorageKind()
+    sBytes = getScalarBytes(tgtKind)
+    recordedRangeSize = s.readRawBytes(sBytes)
+    rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
+  result = if rVal > currentRangeSize: currentRangeSize else: rVal
+
+
+proc recordRange*(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
+  s.writeStorageKind(skRange)
+  s.recordRangeData(rangeSize, offset, scalarKind)
 
 
 proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 =
@@ -300,13 +315,7 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
   else:
     let readK = s.readStorageKind()
     if readK == skRange:
-      let
-        tgtKind = s.readStorageKind()
-        sBytes = getScalarBytes(tgtKind)
-        recordedRangeSize = s.readRawBytes(sBytes)
-        rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
-        safeVal = if rVal > rangeSize: rangeSize else: rVal
-      result = min + safeVal
+      result = min + s.readRangeData(rangeSize)
     else:
       result = min
 
@@ -375,7 +384,8 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
     let rangeSize = skipToRangeOffsetAndGetSize(buffer, pos)
     pos += bytesForRange(rangeSize)
   of skArray:
-    pos = skipNode(buffer, pos) # skip the skRange (length)
+    let rangeSize = skipToRangeOffsetAndGetSize(buffer, pos)
+    pos += bytesForRange(rangeSize) # skip the offset
     doAssert pos + 4 <= buffer.len, "skipNode buffer ran out before actualLen for array"
     let n = int(decodeUint64(buffer, pos, 4))
     pos += 4
@@ -411,12 +421,20 @@ proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
   ## absolute length from the source, and the position of the absolute length
   ## scalar in the buffer (for patching).
   assert min <= max
+  let
+    rangeSize = uint64(max - min)
+    tgtKind = if max <= 255: skByte elif max <= 65535: sk2Bytes else: sk4Bytes
+
   if s.recording:
     s.writeStorageKind(skArray)
-    let
-      tgtKind = if max <= 255: skByte elif max <= 65535: sk2Bytes else: sk4Bytes
-      chosenLen = cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), tgtKind))
-      actualLenPos = s.buffer.len
+    let valRange =
+        if rangeSize == 0: 0'u64
+        elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
+        else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
+    
+    s.recordRangeData(rangeSize, valRange, tgtKind)
+    let chosenLen = uint32(uint64(min) + valRange)
+    let actualLenPos = s.buffer.len
     s.writeRawBytes(uint64(chosenLen), 4)
     result = (chosenLen, chosenLen, actualLenPos)
   else:
@@ -424,11 +442,10 @@ proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
     assert k == skArray or (not s.recording and k == skByte),
            "Expected skArray, got " & $k
     let
-      tgtKind = if max <= 255: skByte elif max <= 65535: sk2Bytes else: sk4Bytes
-      newLen = cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), tgtKind))
-      actualLenPos = -1 # not used during replay
+      offset = s.readRangeData(rangeSize)
+      newLen = uint32(uint64(min) + offset)
       actualLen = uint32(s.readRawBytes(4))
-    result = (newLen, actualLen, actualLenPos)
+    result = (newLen, actualLen, -1)
 
 
 proc beginFixedArray*(s: Source, len: uint32): (uint32, uint32, int) =
@@ -891,8 +908,12 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
   var p = pos + 1
   case kind
   of skArray:
-    # skip the skRange node representing the length
-    p = skipNode(buf, p)
+    let
+      rangeSize = skipToRangeOffsetAndGetSize(buf, p)
+    
+    # After skipToRangeOffsetAndGetSize, p is at the offset.
+    # We skip the offset too.
+    p += bytesForRange(rangeSize)
     
     # Now p is at actualLen scalar (4 bytes)
     let n = int(decodeUint64(buf, p, 4))
@@ -943,7 +964,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
   # Strategy 1: Array Element Deletion
   for i, (pos, kind) in nodes.pairs:
     if kind == skArray:
-      var p = pos + 2 # skip skArray tag (1) and skRange tag (1)
+      var p = pos + 1 # skip skArray tag (1). Now at naked range.
       let
         rangeTgtKind = cast[StorageKind](buffer[p])
       inc p
@@ -1060,7 +1081,10 @@ proc treeRepr*(buffer: seq[byte]): string =
     p = pos + 1
     case kind:
       of skArray:
-        p = skipNode(buffer, p) # skip skRange
+        let rangeSize = skipToRangeOffsetAndGetSize(buffer, p)
+        # p is now at offset
+        p += bytesForRange(rangeSize)
+        # p is now at actualLen
         let n = int(decodeUint64(buffer, p, 4))
         result &= "  ".repeat(indent) & $kind & " (size: " & $n & ") {"
         if n > 0:

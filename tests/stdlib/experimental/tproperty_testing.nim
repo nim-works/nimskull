@@ -282,14 +282,15 @@ suite "Structural API & Parser":
     # 3. Array testing
     var sA = newSource(seed = 3)
     discard sA.beginFixedArray(3) 
-    # skArray (1) + skRange (1 + 1 + 1 + 1) [rangeSize=0, offset=0] + actualLen (4) = 7 bytes
+    # skArray (1) + naked range (1 + 1 + 1) [tgtKind, rangeSize=0, offset=0] + actualLen (4) = 7 bytes
+    # wait, 1 + 3 + 4 = 8.
     sA.writeStorageKind(skByte); sA.writeRawByte(1) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(2) # 2 bytes
     sA.writeStorageKind(skByte); sA.writeRawByte(3) # 2 bytes
 
     checkpoint "sA.buffer: " & $sA.buffer
     let endArray = skipNode(sA.buffer, 0)
-    check endArray == 1 + 4 + 4 + 2 + 2 + 2
+    check endArray == 1 + 3 + 4 + 2 + 2 + 2
     check endArray == sA.buffer.len
 
 
@@ -321,8 +322,8 @@ suite "Structural API & Parser":
       seenLengths = newSeq[int]()
     for cand in candidates(sA.buffer):
       yieldsA.inc
-      if cand.len > 5 and cand[0] == byte(skArray):
-        seenLengths.add(int(cand[5]))
+      if cand.len > 4 and cand[0] == byte(skArray):
+        seenLengths.add(int(cand[4]))
     # Expected Array element lengths yielded should include structural truncations
     checkpoint "seenLengths: " & $seenLengths
     check seenLengths.len > 0
