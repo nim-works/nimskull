@@ -1223,8 +1223,9 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             unreachable("SourceLimitExceededError during shrinking shouldn't be possible")
           except CatchableError as e:
             # TODO: capture the exception and add it to the result
+            discard e
             raise
-            cStatus = psFail
+            # cStatus = psFail
 
           if cStatus == psFail:
             # Our candidates iterator uses AST heuristics to generate strictly
