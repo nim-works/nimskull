@@ -515,9 +515,27 @@ proc ordinalToRank*(o: int64): uint64 =
   else: result = (uint64(-o) shl 1) - 1
 
 
-proc rankToOrdinal*(r: uint64): int64 =
-  if (r and 1) == 0: result = cast[int64](r shr 1)
-  else: result = -cast[int64]((r + 1) shr 1)
+proc rankToOrdinal*(r: uint64, minOrd, maxOrd, simplestOrd: int64): int64 =
+  ## Maps a non-negative rank back to an int64 ordinal within [minOrd, maxOrd],
+  ## centering on simplestOrd.
+  let
+    uMin = cast[uint64](minOrd)
+    uMax = cast[uint64](maxOrd)
+    uSimp = cast[uint64](simplestOrd)
+    numBelow = uSimp - uMin
+    numAbove = uMax - uSimp
+    common = min(numBelow, numAbove)
+  
+  var resU: uint64
+  if r <= 2 * common:
+    if (r and 1) != 0: resU = uSimp - ((r + 1) shr 1)
+    else: resU = uSimp + (r shr 1)
+  elif numBelow > numAbove:
+    resU = uSimp - (r - common)
+  else:
+    resU = uSimp + (r - common)
+  
+  return cast[int64](resU)
 
 
 # MARK: Combinators ---
@@ -573,12 +591,56 @@ proc swapAccess[T](s: var openArray[T], a, b: int): T =
     s[a] = result
 
 
-type
-  ExhaustiveRangeState*[T] = ref object
-    min*: T
-    rangeSize*: uint64
-    indices*: seq[int]
-    pos*: int
+proc getSimplest[T: Ordinal](min, max: T): T =
+  let zero = T(0)
+  if min > zero: min
+  elif max < zero: max
+  else: zero
+
+
+proc genExhaustiveRanked[T: uint64 | int64](min, max, simplest: T, kind: StorageKind): Gen[T] =
+  let
+    minO = cast[int64](min)
+    maxO = cast[int64](max)
+    simplestO = cast[int64](simplest)
+    rangeSize = (cast[uint64](simplestO) - cast[uint64](minO)) + (cast[uint64](maxO) - cast[uint64](simplestO))
+    len = int(rangeSize + 1)
+  var
+    indices = toSeq(0 ..< len)
+    pos = 0
+
+  return proc(s: Source): T =
+    var rank: uint64
+    if not s.recording:
+      rank = s.chooseRange(0'u64, rangeSize, kind)
+    else:
+      let rv = s.rngNextUInt32()
+      if pos < indices.len and not s.idempotent:
+        let 
+          remaining = indices.len - pos
+          offset = int(rv mod uint32(remaining))
+        rank = uint64(indices.swapAccess(pos, pos + offset))
+        pos.inc
+      else:
+        rank = uint64(rv mod uint32(rangeSize + 1))
+      s.recordRange(rangeSize, rank, kind)
+    
+    let o = rankToOrdinal(rank, minO, maxO, simplestO)
+    return cast[T](o)
+
+
+proc chooseRanked[T: uint64 | int64](s: Source, min, max, simplest: T, kind: StorageKind): T =
+  let
+    minO = cast[int64](min)
+    maxO = cast[int64](max)
+    simplestO = cast[int64](simplest)
+    rangeSize = (cast[uint64](simplestO) - cast[uint64](minO)) + (cast[uint64](maxO) - cast[uint64](simplestO))
+  
+  if rangeSize == 0: return simplest
+
+  let rank = s.chooseRange(0'u64, rangeSize, kind)
+  let o = rankToOrdinal(rank, minO, maxO, simplestO)
+  return cast[T](o)
 
 
 proc sequenceFromRange*[T](min, max: T): seq[T] =
@@ -591,78 +653,42 @@ proc sequenceFromRange*[T](min, max: T): seq[T] =
 
 
 proc genExhaustive*[T](vals: seq[T]): Gen[T] =
-  ## Creates a generator that exhaustively iterates through `vals` before switching
-  ## to random generation. It shuffles `vals` as it goes to ensure randomness
-  ## within the exhaustive phase too (Simulated via swap access logic or just iteration).
-  ##
-  ## It keeps a `pos` index. It swaps `vals[pos]` with `vals[random index >= pos]`.
-  ## This effectively shuffles the "remaining" items and picks one.
-  ## Once `pos` reaches end, it switches to pure random
-
   let
     indices = toSeq(0 ..< vals.len)
-    state = ExhaustiveState[T](vals: vals, indices: indices, pos: 0)
+  var
+    idx = indices
+    pos = 0
 
   return proc(s: Source): T =
-    let tgtK = if state.vals.len <= 256: skByte
-               elif state.vals.len <= 65536: sk2Bytes
+    let tgtK = if vals.len <= 256: skByte
+               elif vals.len <= 65536: sk2Bytes
                else: sk4Bytes
 
     var chosenIdx: int
 
     if not s.recording:
-      chosenIdx = int(s.chooseRange(0, cast[uint64](state.vals.len - 1), tgtK))
+      chosenIdx = int(s.chooseRange(0, cast[uint64](vals.len - 1), tgtK))
     else:
       let randValOrig = s.rngNextUInt32()
-      if state.pos < state.indices.len and not s.idempotent:
+      if pos < idx.len and not s.idempotent:
         let
-          remaining = state.indices.len - state.pos
+          remaining = idx.len - pos
           offset = int(randValOrig mod uint32(remaining))
-        chosenIdx = state.indices.swapAccess(state.pos, state.pos + offset)
-        state.pos.inc
+        chosenIdx = idx.swapAccess(pos, pos + offset)
+        pos.inc
       else:
-        chosenIdx = int(randValOrig mod uint32(state.vals.len))
+        chosenIdx = int(randValOrig mod uint32(vals.len))
 
       # Record it formally as a range so shrinking works predictably!
-      s.recordRange(cast[uint64](state.vals.len - 1), cast[uint64](chosenIdx), tgtK)
+      s.recordRange(cast[uint64](vals.len - 1), cast[uint64](chosenIdx), tgtK)
 
-    result = state.vals[chosenIdx]
+    result = vals[chosenIdx]
 
 
-proc genExhaustiveRange*[T](min: T, rangeSize: uint64): Gen[T] =
-  let
-    len = int(rangeSize + 1)
-    indices = toSeq(0 ..< len)
-    state = ExhaustiveRangeState[T](min: min, rangeSize: rangeSize, indices: indices, pos: 0)
-
-  return proc(s: Source): T =
-    let tgtK = if len <= 256: skByte
-               elif len <= 65536: sk2Bytes
-               else: sk4Bytes
-
-    var chosenIdx: int
-
-    if not s.recording:
-      chosenIdx = int(s.chooseRange(0, rangeSize, tgtK))
-    else:
-      let randValOrig = s.rngNextUInt32()
-      if state.pos < state.indices.len and not s.idempotent:
-        let
-          remaining = state.indices.len - state.pos
-          offset = int(randValOrig mod uint32(remaining))
-        chosenIdx = state.indices.swapAccess(state.pos, state.pos + offset)
-        state.pos.inc
-      else:
-        chosenIdx = int(randValOrig mod uint32(len))
-
-      # Record it formally as a range so shrinking works predictably!
-      s.recordRange(rangeSize, cast[uint64](chosenIdx), tgtK)
-
-    # Reconstruct the value by addition
-    when T is enum:
-      result = cast[T](cast[uint64](ord(state.min)) + cast[uint64](chosenIdx))
-    else:
-      result = cast[T](cast[uint64](state.min) + cast[uint64](chosenIdx))
+proc genExhaustiveRange*[T: Ordinal](min: T, rangeSize: uint64): Gen[T] =
+  let simplest = getSimplest(min, cast[T](cast[uint64](min) + rangeSize))
+  let g = genExhaustiveRanked(int64(min), int64(min) + int64(rangeSize), int64(simplest), skByte)
+  return proc(s: Source): T = cast[T](g(s))
 
 
 proc genConst*[T](v: T): Gen[T] =
@@ -672,7 +698,8 @@ proc genConst*[T](v: T): Gen[T] =
 
 proc genByte*(): Gen[byte] =
   ## Create a byte generator.
-  return genExhaustiveRange(byte.low, 255'u64)
+  let g = genExhaustiveRanked(0'u64, 255'u64, 0'u64, skByte)
+  return proc(s: Source): byte = cast[byte](g(s))
 
 
 proc genBool*(): Gen[bool] =
@@ -682,8 +709,9 @@ proc genBool*(): Gen[bool] =
 
 proc genChar*(min, max: char): Gen[char] =
   ## create a char arbitrary for the range [min, max].
-  let rangeSize = cast[uint64](ord(max)) - cast[uint64](ord(min))
-  return genExhaustiveRange(min, rangeSize)
+  let simplest = getSimplest(min, max)
+  let g = genExhaustiveRanked(int64(ord(min)), int64(ord(max)), int64(ord(simplest)), skByte)
+  return proc(s: Source): char = cast[char](g(s))
 
 
 proc genChar*(): Gen[char] =
@@ -700,15 +728,12 @@ proc genAsciiChar*(): Gen[char] =
 proc genInt*(min, max: int): Gen[int] =
   ## Create an integer arbitrary for the range [min, max].
   assert max >= min
-  let
-    uMin = renumerateInt64ToUint64(min)
-    uMax = renumerateInt64ToUint64(max)
-    rangeSize = uMax - uMin
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): int =
-      cast[int](s.chooseRange(uMin, uMax, sk8Bytes))
+  let rangeSize = cast[uint64](int64(max)) - cast[uint64](int64(min))
+  let simplest = getSimplest(min, max)
+  if rangeSize <= 255:
+    let g = genExhaustiveRanked(int64(min), int64(max), int64(simplest), skByte)
+    return proc(s: Source): int = cast[int](g(s))
+  return proc(s: Source): int = cast[int](s.chooseRanked(int64(min), int64(max), int64(simplest), sk8Bytes))
 
 
 proc genInt*(): Gen[int] =
@@ -717,17 +742,10 @@ proc genInt*(): Gen[int] =
 
 
 proc genInt8*(min, max: int8): Gen[int8] =
-  ## Create an int8 generator for the range [min, max].
   assert max >= min
-  let
-    uMin = renumerateInt64ToUint64(min)
-    uMax = renumerateInt64ToUint64(max)
-    rangeSize = uMax - uMin
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): int8 =
-      cast[int8](s.chooseRange(uMin, uMax, skByte))
+  let simplest = getSimplest(min, max)
+  let g = genExhaustiveRanked(int64(min), int64(max), int64(simplest), skByte)
+  return proc(s: Source): int8 = cast[int8](g(s))
 
 
 proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
@@ -735,15 +753,12 @@ proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
 
 proc genInt16*(min, max: int16): Gen[int16] =
   assert max >= min
-  let
-    uMin = renumerateInt64ToUint64(min)
-    uMax = renumerateInt64ToUint64(max)
-    rangeSize = uMax - uMin
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): int16 =
-      cast[int16](s.chooseRange(uMin, uMax, sk2Bytes))
+  let rangeSize = cast[uint64](int64(max)) - cast[uint64](int64(min))
+  let simplest = getSimplest(min, max)
+  if rangeSize <= 255:
+    let g = genExhaustiveRanked(int64(min), int64(max), int64(simplest), skByte)
+    return proc(s: Source): int16 = cast[int16](g(s))
+  return proc(s: Source): int16 = cast[int16](s.chooseRanked(int64(min), int64(max), int64(simplest), sk2Bytes))
 
 
 proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
@@ -751,15 +766,12 @@ proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
 
 proc genInt32*(min, max: int32): Gen[int32] =
   assert max >= min
-  let
-    uMin = renumerateInt64ToUint64(min)
-    uMax = renumerateInt64ToUint64(max)
-    rangeSize = uMax - uMin
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): int32 =
-      cast[int32](s.chooseRange(uMin, uMax, sk4Bytes))
+  let rangeSize = cast[uint64](int64(max)) - cast[uint64](int64(min))
+  let simplest = getSimplest(min, max)
+  if rangeSize <= 255:
+    let g = genExhaustiveRanked(int64(min), int64(max), int64(simplest), skByte)
+    return proc(s: Source): int32 = cast[int32](g(s))
+  return proc(s: Source): int32 = cast[int32](s.chooseRanked(int64(min), int64(max), int64(simplest), sk4Bytes))
 
 
 proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
@@ -767,15 +779,11 @@ proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
 
 proc genInt64*(min, max: int64): Gen[int64] =
   assert max >= min
-  let
-    uMin = renumerateInt64ToUint64(min)
-    uMax = renumerateInt64ToUint64(max)
-    rangeSize = uMax - uMin
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): int64 =
-      cast[int64](s.chooseRange(uMin, uMax, sk8Bytes))
+  let rangeSize = cast[uint64](max) - cast[uint64](min)
+  let simplest = getSimplest(min, max)
+  if rangeSize <= 255:
+    return genExhaustiveRanked(min, max, simplest, skByte)
+  return proc(s: Source): int64 = s.chooseRanked(min, max, simplest, sk8Bytes)
 
 
 proc genInt64*(): Gen[int64] = genInt64(low(int64), high(int64))
@@ -783,12 +791,8 @@ proc genInt64*(): Gen[int64] = genInt64(low(int64), high(int64))
 
 proc genUint8*(min, max: uint8): Gen[uint8] =
   assert max >= min
-  let rangeSize = cast[uint64](max) - cast[uint64](min)
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): uint8 =
-      cast[uint8](s.chooseRange(cast[uint64](min), cast[uint64](max), skByte))
+  let g = genExhaustiveRanked(uint64(min), uint64(max), uint64(min), skByte)
+  return proc(s: Source): uint8 = cast[uint8](g(s))
 
 
 proc genUint8*(): Gen[uint8] = genUint8(low(uint8), high(uint8))
@@ -797,11 +801,10 @@ proc genUint8*(): Gen[uint8] = genUint8(low(uint8), high(uint8))
 proc genUint16*(min, max: uint16): Gen[uint16] =
   assert max >= min
   let rangeSize = cast[uint64](max) - cast[uint64](min)
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): uint16 =
-      cast[uint16](s.chooseRange(cast[uint64](min), cast[uint64](max), sk2Bytes))
+  if rangeSize <= 255:
+    let g = genExhaustiveRanked(uint64(min), uint64(max), uint64(min), skByte)
+    return proc(s: Source): uint16 = cast[uint16](g(s))
+  return proc(s: Source): uint16 = cast[uint16](s.chooseRanked(uint64(min), uint64(max), uint64(min), sk2Bytes))
 
 
 proc genUint16*(): Gen[uint16] = genUint16(low(uint16), high(uint16))
@@ -810,11 +813,10 @@ proc genUint16*(): Gen[uint16] = genUint16(low(uint16), high(uint16))
 proc genUint32*(min, max: uint32): Gen[uint32] =
   assert max >= min
   let rangeSize = cast[uint64](max) - cast[uint64](min)
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): uint32 =
-      cast[uint32](s.chooseRange(cast[uint64](min), cast[uint64](max), sk4Bytes))
+  if rangeSize <= 255:
+    let g = genExhaustiveRanked(uint64(min), uint64(max), uint64(min), skByte)
+    return proc(s: Source): uint32 = cast[uint32](g(s))
+  return proc(s: Source): uint32 = cast[uint32](s.chooseRanked(uint64(min), uint64(max), uint64(min), sk4Bytes))
 
 
 proc genUint32*(): Gen[uint32] = genUint32(low(uint32), high(uint32))
@@ -823,11 +825,8 @@ proc genUint32*(): Gen[uint32] = genUint32(low(uint32), high(uint32))
 proc genUint64*(min, max: uint64): Gen[uint64] =
   assert max >= min
   let rangeSize = max - min
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    return proc(s: Source): uint64 =
-      cast[uint64](s.chooseRange(min, max, sk8Bytes))
+  if rangeSize <= 255: return genExhaustiveRanked(min, max, min, skByte)
+  return proc(s: Source): uint64 = s.chooseRanked(min, max, min, sk8Bytes)
 
 
 proc genUint64*(): Gen[uint64] = genUint64(low(uint64), high(uint64))
@@ -836,31 +835,15 @@ proc genUint64*(): Gen[uint64] = genUint64(low(uint64), high(uint64))
 proc genEnum*[T: enum](min, max: T): Gen[T] =
   assert max >= min
   let rangeSize = cast[uint64](ord(max)) - cast[uint64](ord(min))
-  if rangeSize <= 255'u64:
-    return genExhaustiveRange(min, rangeSize)
-  else:
-    let rangeK = if enumLen(T) <= 256: skByte
-                 elif enumLen(T) <= 65536: sk2Bytes
-                 else: sk4Bytes
-    return proc(s: Source): T =
-      cast[T](s.chooseRange(cast[uint64](min), cast[uint64](max), rangeK))
+  if rangeSize <= 255:
+    let g = genExhaustiveRanked(int64(ord(min)), int64(ord(max)), int64(ord(min)), skByte)
+    return proc(s: Source): T = cast[T](g(s))
+  let rangeK = if enumLen(T) <= 65536: sk2Bytes else: sk4Bytes
+  return proc(s: Source): T = cast[T](s.chooseRanked(int64(ord(min)), int64(ord(max)), int64(ord(min)), rangeK))
 
 
 proc genEnum*[T: enum](): Gen[T] =
-  assert enumLen(T) < int(uint16.high), "oversized enum"
-  let vals = toSeq(T.items)
-  if enumLen(T) <= 256:
-    return genExhaustive(vals)
-  else:
-    let rangeK = if enumLen(T) <= 256: skByte
-                 elif enumLen(T) <= 65536: sk2Bytes
-                 else: sk4Bytes
-    let
-      minIdx = 0
-      maxIdx = vals.len - 1
-    return proc(s: Source): T =
-      let idx = int(s.chooseRange(cast[uint64](minIdx), cast[uint64](maxIdx), rangeK))
-      result = vals[idx]
+  genEnum[T](T.low, T.high)
 
 
 proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =

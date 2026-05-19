@@ -20,6 +20,11 @@ type
 
   E = enum A, B, C
 
+  HoleyEnum = enum
+    H1 = 1
+    H10 = 10
+    H100 = 100
+
 
 const defaultSeed: uint32 = 1
 
@@ -536,7 +541,104 @@ suite "Primitive Generators":
   # TODO: test genEnum for larger than 8 bit enums
 
 
-# MARK: Collection Generators
+# MARK: Generator Constraints & Shrinking
+suite "Generator Constraints and Shrinking":
+
+  test "genInt shrinks towards zero if zero is in range":
+    let prop = Property[int](
+      gen: genInt(-100, 100),
+      check: proc(x: int): PropertyStatus =
+        if x == 0: psFail else: psPass
+    )
+    let res = runProperty(prop, trials=250)
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.get() == 0
+
+
+  test "genInt shrinks towards min if min > 0":
+    let prop = Property[int](
+      gen: genInt(100, 200),
+      check: proc(x: int): PropertyStatus =
+        if x == 100: psFail else: psPass
+    )
+    let res = runProperty(prop, trials=150)
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.get() == 100
+
+
+  test "genInt shrinks towards max if max < 0":
+    let prop = Property[int](
+      gen: genInt(-200, -100),
+      check: proc(x: int): PropertyStatus =
+        if x == -100: psFail else: psPass
+    )
+    let res = runProperty(prop, trials=150)
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.get() == -100
+
+
+  test "genInt handles full int64 range boundaries":
+    let prop = Property[int64](
+      gen: genInt64(low(int64), high(int64)),
+      check: proc(x: int64): PropertyStatus = psPass
+    )
+    let res = runProperty(prop, trials=1000)
+    check res.status == psPass
+
+
+  test "genUint64 handles full range boundaries":
+    let prop = Property[uint64](
+      gen: genUint64(low(uint64), high(uint64)),
+      check: proc(x: uint64): PropertyStatus = psPass
+    )
+    let res = runProperty(prop, trials=1000)
+    check res.status == psPass
+
+
+  test "genInt handles large ranges crossing zero":
+    let prop = Property[int](
+      gen: genInt(low(int), high(int)),
+      check: proc(x: int): PropertyStatus =
+        if x > 1000: psFail else: psPass
+    )
+    # This should fail and shrink to the smallest value > 1000, which is 1001.
+    let res = runProperty(prop, trials=1000, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.get() == 1001
+
+
+  test "genEnum handles holey enums (generates ordinals in range)":
+    let vals = getSamples(genEnum[HoleyEnum]())
+    for v in vals:
+      check ord(v) >= ord(H1) and ord(v) <= ord(H100)
+
+
+  test "genUint64 shrinks towards zero":
+    let prop = Property[uint64](
+      gen: genUint64(0, high(uint64)),
+      check: proc(x: uint64): PropertyStatus =
+        if x > 1000'u64: psFail else: psPass
+    )
+    let res = runProperty(prop, trials=1000, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.get() == 1001'u64
+
+
+  test "genInt8 handles small negative ranges correctly":
+    checkExhaustive(genInt8(-10, -1), toSeq(-10'i8 .. -1'i8))
+
+
+  test "genUint16 handles large ranges":
+    let vals = getSamples(genUint16(40000, 50000))
+    for v in vals:
+      check v >= 40000'u16 and v <= 50000'u16
+
+
 suite "Collection Generators":
 
   test "Set generator":
