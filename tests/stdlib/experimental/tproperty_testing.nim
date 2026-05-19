@@ -1,8 +1,8 @@
 discard """
   targets: "c js vm"
-  knownIssue.vm: '''
+  knownIssue.vm js: '''
     the vm doesn't support random number generation
-    the js target doesn't support uint64
+    the js target needs work, like a better rng
   '''
 """
 
