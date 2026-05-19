@@ -442,7 +442,7 @@ proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
         if rangeSize == 0: 0'u64
         elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
         else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
-    
+
     s.recordRangeData(rangeSize, valRange, tgtKind)
     let chosenLen = uint32(uint64(min) + valRange)
     let actualLenPos = s.buffer.len
@@ -525,7 +525,7 @@ proc rankToOrdinal*(r: uint64, minOrd, maxOrd, simplestOrd: int64): int64 =
     numBelow = uSimp - uMin
     numAbove = uMax - uSimp
     common = min(numBelow, numAbove)
-  
+
   var resU: uint64
   if r <= 2 * common:
     if (r and 1) != 0: resU = uSimp - ((r + 1) shr 1)
@@ -534,7 +534,7 @@ proc rankToOrdinal*(r: uint64, minOrd, maxOrd, simplestOrd: int64): int64 =
     resU = uSimp - (r - common)
   else:
     resU = uSimp + (r - common)
-  
+
   return cast[int64](resU)
 
 
@@ -616,7 +616,7 @@ proc genExhaustiveRanked[T: uint64 | int64](min, max, simplest: T, kind: Storage
     else:
       let rv = s.rngNextUInt32()
       if pos < indices.len and not s.idempotent:
-        let 
+        let
           remaining = indices.len - pos
           offset = int(rv mod uint32(remaining))
         rank = uint64(indices.swapAccess(pos, pos + offset))
@@ -624,7 +624,7 @@ proc genExhaustiveRanked[T: uint64 | int64](min, max, simplest: T, kind: Storage
       else:
         rank = uint64(rv mod uint32(rangeSize + 1))
       s.recordRange(rangeSize, rank, kind)
-    
+
     let o = rankToOrdinal(rank, minO, maxO, simplestO)
     return cast[T](o)
 
@@ -635,7 +635,7 @@ proc chooseRanked[T: uint64 | int64](s: Source, min, max, simplest: T, kind: Sto
     maxO = cast[int64](max)
     simplestO = cast[int64](simplest)
     rangeSize = (cast[uint64](simplestO) - cast[uint64](minO)) + (cast[uint64](maxO) - cast[uint64](simplestO))
-  
+
   if rangeSize == 0: return simplest
 
   let rank = s.chooseRange(0'u64, rangeSize, kind)
@@ -864,7 +864,7 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
     let (len, oldLen, actualLenPos) = s.beginArray(uint32(minLen), uint32(maxLen))
     let upperLimit = int(maxLen) * 15
     var draws = 0
-    
+
     if s.recording:
       while result.len < int(len) and draws < upperLimit:
         result.incl g(s)
@@ -918,20 +918,20 @@ proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] =
     return arr
 
 
-proc genFloat64*(min, max: float64 = NaN, 
-                 allowNaN: bool = false, allowInf: bool = true, 
+proc genFloat64*(min, max: float64 = NaN,
+                 allowNaN: bool = false, allowInf: bool = true,
                  allowSubnormal: bool = true): Gen[float64] =
   return proc(s: Source): float64 =
     # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
     var classes: seq[int] = @[0, 1]
     if allowInf: classes.add(2); classes.add(3)
     if allowNaN: classes.add(4)
-    
+
     let choice = s.chooseRange(0'u64, 100'u64, skByte)
     var cls = 0
     if choice > 90 and classes.len > 1:
       cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
-    
+
     case cls
     of 1: return -0.0
     of 2: return Inf
@@ -946,11 +946,11 @@ proc genFloat64*(min, max: float64 = NaN,
         maxOrd = float64ToOrdinal(actualMax)
         simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: 0.0
         simplestOrd = float64ToOrdinal(simplest)
-        
+
         numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
         numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
         rangeSize = numBelow + numAbove
-      
+
       let rank = s.chooseRange(0'u64, rangeSize, sk8Bytes)
       var o: int64
       let common = min(numBelow, numAbove)
@@ -961,25 +961,25 @@ proc genFloat64*(min, max: float64 = NaN,
         o = simplestOrd - cast[int64](rank - common)
       else:
         o = simplestOrd + cast[int64](rank - common)
-      
+
       result = ordinalToFloat64(o)
       if not allowSubnormal and classify(result) == fcSubnormal: return 0.0
 
 
-proc genFloat32*(min, max: float32 = NaN, 
-                 allowNaN: bool = false, allowInf: bool = true, 
+proc genFloat32*(min, max: float32 = NaN,
+                 allowNaN: bool = false, allowInf: bool = true,
                  allowSubnormal: bool = true): Gen[float32] =
   return proc(s: Source): float32 =
     # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
     var classes: seq[int] = @[0, 1]
     if allowInf: classes.add(2); classes.add(3)
     if allowNaN: classes.add(4)
-    
+
     let choice = s.chooseRange(0'u64, 100'u64, skByte)
     var cls = 0
     if choice > 90 and classes.len > 1:
       cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
-    
+
     case cls
     of 1: return -0.0f
     of 2: return Inf.float32
@@ -997,7 +997,7 @@ proc genFloat32*(min, max: float32 = NaN,
         numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
         numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
         rangeSize = numBelow + numAbove
-      
+
       let rank = s.chooseRange(0'u64, rangeSize, sk4Bytes)
       var o: int64
       let common = min(numBelow, numAbove)
@@ -1008,13 +1008,13 @@ proc genFloat32*(min, max: float32 = NaN,
         o = simplestOrd - cast[int64](rank - common)
       else:
         o = simplestOrd + cast[int64](rank - common)
-      
+
       result = ordinalToFloat32(int32(o))
       if not allowSubnormal and classify(result) == fcSubnormal: return 0.0f
 
 
-proc genFloat*(min, max: float = NaN, 
-               allowNaN: bool = false, allowInf: bool = true, 
+proc genFloat*(min, max: float = NaN,
+               allowNaN: bool = false, allowInf: bool = true,
                allowSubnormal: bool = true): Gen[float] =
   let g = genFloat64(float64(min), float64(max), allowNaN, allowInf, allowSubnormal)
   return proc(s: Source): float = float(g(s))
@@ -1039,15 +1039,15 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
   of skArray:
     let
       rangeSize = skipToRangeOffsetAndGetSize(buf, p)
-    
+
     # After skipToRangeOffsetAndGetSize, p is at the offset.
     # We skip the offset too.
     p += bytesForRange(rangeSize)
-    
+
     # Now p is at actualLen scalar (4 bytes)
     let n = int(decodeUint64(buf, p, 4))
     p += 4
-    
+
     # Now p is at elements
     doAssert p + n <= buf.len, "collectNodes buffer ran out before children for array"
     for _ in 0 ..< n:
@@ -1405,7 +1405,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             cStatus = psFail
             cErrorMsg = some(e.msg)
           except:
-            # Defect or other weirdness. 
+            # Defect or other weirdness.
             # In shrinking, this usually means we corrupted the stream.
             # Don't accept this as an improvement.
             continue
@@ -1420,7 +1420,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             improved = true
             result.shrunk = true
             break # Restart candidates iterator with new bestBuffer
-        
+
         if attempts > 100000: break
 
       result.shrunkBuffer = bestBuffer

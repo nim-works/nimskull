@@ -286,7 +286,7 @@ suite "Structural API & Parser":
 
     # 3. Array testing
     var sA = newSource(seed = 3)
-    discard sA.beginFixedArray(3) 
+    discard sA.beginFixedArray(3)
     # skArray (1) + naked range (1 + 1 + 1) [tgtKind, rangeSize=0, offset=0] + actualLen (4) = 7 bytes
     # wait, 1 + 3 + 4 = 8.
     sA.writeStorageKind(skByte); sA.writeRawByte(1) # 2 bytes
@@ -337,29 +337,29 @@ suite "Structural API & Parser":
 
   test "Structural Buffer Parser - skipNodes":
     var s = newSource(seed = 1)
-    
+
     # Write 3 nodes
     s.writeStorageKind(skByte); s.writeRawByte(10)
     s.writeStorageKind(sk2Bytes); s.writeRawBytes(1000, 2)
     s.writeStorageKind(skByte); s.writeRawByte(20)
-    
+
     let buf = s.buffer
     var s2 = newSource(buf)
-    
+
     # Skip 2 nodes
     s2.skipNodes(2)
-    
+
     # Should be at the 3rd node
     check s2.readStorageKind() == skByte
     check s2.readRawByte() == 20
-    
+
     # Test nested skipNodes
     var s3 = newSource(seed = 2)
     discard s3.beginFixedArray(2)
     s3.writeStorageKind(skByte); s3.writeRawByte(1)
     s3.writeStorageKind(skByte); s3.writeRawByte(2)
     s3.writeStorageKind(skByte); s3.writeRawByte(3) # After array
-    
+
     var s4 = newSource(s3.buffer)
     s4.skipNodes(1) # Skip the entire array
     check s4.readStorageKind() == skByte
@@ -370,16 +370,16 @@ suite "Structural API & Parser":
     var s = newSource(seed = 1)
     # Recorded with rangeSize 100, offset 50
     s.recordRange(100, 50, skByte)
-    
+
     let buf = s.buffer
-    
+
     # Replay with rangeSize 20 (max-min)
     var s2 = newSource(buf)
     let val = s2.chooseRange(10'u64, 30'u64, skByte)
-    # offset 50 clamped to rangeSize 20 -> 20. 
+    # offset 50 clamped to rangeSize 20 -> 20.
     # result = min (10) + 20 = 30.
     check val == 30
-    
+
     # Replay with rangeSize 200
     var s3 = newSource(buf)
     let val2 = s3.chooseRange(0'u64, 200'u64, skByte)
@@ -1243,7 +1243,7 @@ suite "Floating Point Support":
       elif (cast[uint64](v) and 0x8000000000000000'u64) != 0:
         if v == 0.0: seenNegZero = true
         elif classify(v) == fcNegZero: seenNegZero = true
-    
+
     check seenNaN and seenInf and seenNegInf and seenNegZero
 
 
