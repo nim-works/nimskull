@@ -78,14 +78,7 @@ import std/private/since
 include system/inclrtl
 {.push debugger: off.}
 
-when defined(js):
-  type Ui = uint32
-
-  const randMax = 4_294_967_295u32
-else:
-  type Ui = uint64
-
-  const randMax = 18_446_744_073_709_551_615u64
+const randMax = 18_446_744_073_709_551_615u64
 
 type
   Rand* = object ## State of a random number generator.
@@ -101,19 +94,14 @@ type
                  ## Many procs have two variations: one that takes in a Rand parameter and
                  ## another that uses the default generator. The procs that use the default
                  ## generator are **not** thread-safe!
-    a0, a1: Ui
+    a0, a1: uint64
 
-when defined(js):
-  var state = Rand(
-    a0: 0x69B4C98Cu32,
-    a1: 0xFED1DD30u32) # global for backwards compatibility
-else:
-  const DefaultRandSeed = Rand(
-    a0: 0x69B4C98CB8530805u64,
-    a1: 0xFED1DD3004688D67CAu64)
+const DefaultRandSeed = Rand(
+  a0: 0x69B4C98CB8530805u64,
+  a1: 0xFED1DD3004688D67CAu64)
 
-  # racy for multi-threading but good enough for now:
-  var state = DefaultRandSeed # global for backwards compatibility
+# racy for multi-threading but good enough for now:
+var state = DefaultRandSeed # global for backwards compatibility
 
 func isValid(r: Rand): bool {.inline.} =
   ## Check whether state of `r` is valid.
@@ -128,8 +116,8 @@ since (1, 5):
     ## Useful for module authors.
     state
 
-proc rotl(x, k: Ui): Ui =
-  result = (x shl k) or (x shr (Ui(64) - k))
+proc rotl(x, k: uint64): uint64 =
+  result = (x shl k) or (x shr (64'u64 - k))
 
 proc next*(r: var Rand): uint64 =
   ## Computes a random `uint64` number using the given state.
@@ -178,16 +166,13 @@ proc skipRandomNumbers*(s: var Rand) =
   ## **See also:**
   ## * `next proc<#next,Rand>`_
 
-  when defined(js):
-    const helper = [0xbeac0467u32, 0xd86b048bu32]
-  else:
-    const helper = [0xbeac0467eba5facbu64, 0xd86b048b86aa9922u64]
+  const helper = [0xbeac0467eba5facbu64, 0xd86b048b86aa9922u64]
   var
-    s0 = Ui 0
-    s1 = Ui 0
+    s0 = 0'u64
+    s1 = 0'u64
   for i in 0..high(helper):
     for b in 0 ..< 64:
-      if (helper[i] and (Ui(1) shl Ui(b))) != 0:
+      if (helper[i] and (1'u64 shl uint64(b))) != 0:
         s0 = s0 xor s.a0
         s1 = s1 xor s.a1
       discard next(s)
@@ -260,11 +245,8 @@ proc rand*(r: var Rand; max: range[0.0 .. high(float)]): float {.benign.} =
     let f = r.rand(1.0) # 8.717181376738381e-07
 
   let x = next(r)
-  when defined(js):
-    result = (float(x) / float(high(uint32))) * max
-  else:
-    let u = (0x3FFu64 shl 52u64) or (x shr 12u64)
-    result = (cast[float](u) - 1.0) * max
+  let u = (0x3FFu64 shl 52u64) or (x shr 12u64)
+  result = (cast[float](u) - 1.0) * max
 
 proc rand*(max: float): float {.benign.} =
   ## Returns a random floating point number in the range `0.0..max`.
@@ -307,10 +289,7 @@ proc rand*[T: Ordinal or SomeFloat](r: var Rand; x: HSlice[T, T]): T =
   when T is SomeFloat:
     result = rand(r, x.b - x.a) + x.a
   else: # Integers and Enum types
-    when defined(js):
-      result = cast[T](rand(r, cast[uint](x.b) - cast[uint](x.a)) + cast[uint](x.a))
-    else:
-      result = cast[T](rand(r, cast[uint64](x.b) - cast[uint64](x.a)) + cast[uint64](x.a))
+    result = cast[T](rand(r, cast[uint64](x.b) - cast[uint64](x.a)) + cast[uint64](x.a))
 
 proc rand*[T: Ordinal or SomeFloat](x: HSlice[T, T]): T =
   ## For a slice `a..b`, returns a value in the range `a..b`.
@@ -543,8 +522,8 @@ proc initRand*(seed: int64): Rand =
     var r2 = initRand(now.toUnix * 1_000_000_000 + now.nanosecond)
   const seedFallback0 = int32.high # arbitrary
   let seed = if seed != 0: seed else: seedFallback0 # because 0 is a fixed point
-  result.a0 = Ui(seed shr 16)
-  result.a1 = Ui(seed and 0xffff)
+  result.a0 = uint64(seed shr 16)
+  result.a1 = uint64(seed and 0xffff)
   when not defined(nimLegacyRandomInitRand):
     # calling `discard next(result)` (even a few times) would still produce
     # skewed numbers for the 1st call to `rand()`.
@@ -635,14 +614,14 @@ when not defined(standalone):
     ## * `randomize proc<#randomize>`_ that initializes the default RNG using the current time
     ## * `randomize proc<#randomize,int64>`_ that accepts a seed for the default RNG
     when defined(js):
-      let time = int64(times.epochTime() * 1000) and 0x7fff_ffff
+      let time = int64(times.epochTime() * 1000)
       result = initRand(time)
     else:
       proc getRandomState(): Rand =
         when defined(nimscript):
           result = Rand(
-            a0: CompileTime.hash.Ui,
-            a1: CompileDate.hash.Ui)
+            a0: CompileTime.hash.uint64,
+            a1: CompileDate.hash.uint64)
           if not result.isValid:
             result = DefaultRandSeed
         else:

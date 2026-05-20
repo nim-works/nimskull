@@ -25,7 +25,7 @@ type
     H100 = 100
 
 
-const defaultSeed: uint32 = 0
+const defaultSeed: uint32 = 1
 
 
 # Helper to check for generator properties
@@ -314,7 +314,7 @@ suite "Structural API & Parser":
     check yieldsS == 12
 
     # 2. Array Deletion Validation
-    var sA = newSource(seed = 6)
+    var sA = newSource(seed = 2)
     let (length, _, _) = sA.beginArray(0, 4)
     check length == 4
     for i in 0 ..< length:

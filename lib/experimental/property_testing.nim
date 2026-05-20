@@ -101,9 +101,8 @@ import std/[
     macros,   # sigh
     math,
     options,
+    random,
   ]
-
-import experimental/pcg
 
 from std/hashes import hash
 from std/sequtils import delete, mapIt, toSeq
@@ -130,7 +129,7 @@ type
   ScalarBytes* = range[skByte..sk8Bytes] # xxx: should this include skNBytes?
 
   Source* = ref object
-    rng: Pcg
+    rng: Rand
     buffer*: seq[byte]
     pos: int
     recording: bool
@@ -179,7 +178,7 @@ proc lexLess(a, b: seq[byte]): bool =
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
                 idempotent: bool = false, debug: bool = false): Source =
   new(result)
-  result.rng = initPcg(uint64(seed))
+  result.rng = initRand(int64(seed))
   result.buffer = @[]
   result.pos = 0
   result.recording = true
@@ -191,7 +190,7 @@ proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
 proc newSource*(buffer: seq[byte]): Source =
   ## Create a source for replaying/shrinking with a fixed buffer
   new(result)
-  result.rng = initPcg(0)
+  result.rng = initRand(0)
   result.buffer = buffer # Not used when not recording
   result.pos = 0
   result.recording = false
@@ -252,24 +251,15 @@ proc getScalarBytes*(kind: StorageKind): int =
 
 
 proc rngNextBytes*(s: Source, bytes: int): uint64 =
-  # Always draw in 32-bit increments for backend stability
-  if bytes <= 4:
-    result = uint64(s.rng.next())
-    if bytes < 4:
-      let mask = (1'u64 shl (uint64(bytes) * 8)) - 1
-      result = result and mask
-  else:
-    # 5-8 bytes
-    let low = uint64(s.rng.next())
-    let high = uint64(s.rng.next())
-    result = low or (high shl 32)
-    if bytes < 8:
-      let mask = (1'u64 shl (uint64(bytes) * 8)) - 1
-      result = result and mask
+  var val: uint64 = s.rng.next()
+  if bytes < 8:
+    let mask = (1'u64 shl (bytes * 8)) - 1
+    val = val and mask
+  return val
 
 
 proc rngNextUInt32(s: Source): uint32 =
-  s.rng.next()
+  uint32(s.rng.next() and 0xFFFFFFFF'u64)
 
 
 proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
@@ -1333,7 +1323,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
   let mainSeed = if seed == 0: uint32(getTime().toUnix() and 0xFFFFFFFF)
                  else:         seed
 
-  var rng = initPcg(uint64(mainSeed))
+  var rng = initRand(int64(mainSeed))
 
   result.status = psPass
   result.runCount = 0
