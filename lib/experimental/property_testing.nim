@@ -101,8 +101,9 @@ import std/[
     macros,   # sigh
     math,
     options,
-    random,
   ]
+
+import experimental/pcg
 
 from std/hashes import hash
 from std/sequtils import delete, mapIt, toSeq
@@ -129,7 +130,7 @@ type
   ScalarBytes* = range[skByte..sk8Bytes] # xxx: should this include skNBytes?
 
   Source* = ref object
-    rng: Rand
+    rng: Pcg
     buffer*: seq[byte]
     pos: int
     recording: bool
@@ -178,7 +179,7 @@ proc lexLess(a, b: seq[byte]): bool =
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
                 idempotent: bool = false, debug: bool = false): Source =
   new(result)
-  result.rng = initRand(int64(seed))
+  result.rng = initPcg(uint64(seed))
   result.buffer = @[]
   result.pos = 0
   result.recording = true
@@ -190,7 +191,7 @@ proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
 proc newSource*(buffer: seq[byte]): Source =
   ## Create a source for replaying/shrinking with a fixed buffer
   new(result)
-  result.rng = initRand(0)
+  result.rng = initPcg(0)
   result.buffer = buffer # Not used when not recording
   result.pos = 0
   result.recording = false
@@ -251,15 +252,24 @@ proc getScalarBytes*(kind: StorageKind): int =
 
 
 proc rngNextBytes*(s: Source, bytes: int): uint64 =
-  var val: uint64 = s.rng.next()
-  if bytes < 8:
-    let mask = (1'u64 shl (bytes * 8)) - 1
-    val = val and mask
-  return val
+  # Always draw in 32-bit increments for backend stability
+  if bytes <= 4:
+    result = uint64(s.rng.next())
+    if bytes < 4:
+      let mask = (1'u64 shl (uint64(bytes) * 8)) - 1
+      result = result and mask
+  else:
+    # 5-8 bytes
+    let low = uint64(s.rng.next())
+    let high = uint64(s.rng.next())
+    result = low or (high shl 32)
+    if bytes < 8:
+      let mask = (1'u64 shl (uint64(bytes) * 8)) - 1
+      result = result and mask
 
 
 proc rngNextUInt32(s: Source): uint32 =
-  uint32(s.rng.next() and 0xFFFFFFFF'u64)
+  s.rng.next()
 
 
 proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
@@ -686,9 +696,16 @@ proc genExhaustive*[T](vals: seq[T]): Gen[T] =
 
 
 proc genExhaustiveRange*[T: Ordinal](min: T, rangeSize: uint64): Gen[T] =
-  let simplest = getSimplest(min, cast[T](cast[uint64](min) + rangeSize))
-  let g = genExhaustiveRanked(int64(min), int64(min) + int64(rangeSize), int64(simplest), skByte)
-  return proc(s: Source): T = cast[T](g(s))
+  let
+    minOrd = int64(ord(min))
+    simplestOrd = if minOrd > 0: minOrd
+                  elif minOrd + int64(rangeSize) < 0: minOrd + int64(rangeSize)
+                  else: 0'i64
+    simplest = cast[T](int(simplestOrd))
+    g = genExhaustiveRanked(minOrd, minOrd + int64(rangeSize), simplestOrd, skByte)
+  return proc(s: Source): T =
+    when T is enum: cast[T](int(g(s)))
+    else: cast[T](g(s))
 
 
 proc genConst*[T](v: T): Gen[T] =
@@ -837,9 +854,9 @@ proc genEnum*[T: enum](min, max: T): Gen[T] =
   let rangeSize = cast[uint64](ord(max)) - cast[uint64](ord(min))
   if rangeSize <= 255:
     let g = genExhaustiveRanked(int64(ord(min)), int64(ord(max)), int64(ord(min)), skByte)
-    return proc(s: Source): T = cast[T](g(s))
+    return proc(s: Source): T = cast[T](int(g(s)))
   let rangeK = if enumLen(T) <= 65536: sk2Bytes else: sk4Bytes
-  return proc(s: Source): T = cast[T](s.chooseRanked(int64(ord(min)), int64(ord(max)), int64(ord(min)), rangeK))
+  return proc(s: Source): T = cast[T](int(s.chooseRanked(int64(ord(min)), int64(ord(max)), int64(ord(min)), rangeK)))
 
 
 proc genEnum*[T: enum](): Gen[T] =
@@ -1146,7 +1163,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
       yield copy
 
     # Delta shrinking (Hits thresholds precisely)
-    var step = 1'u64 shl 63
+    var step = 1'u64 shl (uint64(vBytes) * 8 - 1)
     while step > 0:
       if step <= val:
         let cand = val - step
@@ -1316,7 +1333,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
   let mainSeed = if seed == 0: uint32(getTime().toUnix() and 0xFFFFFFFF)
                  else:         seed
 
-  var rng = initRand(int64(mainSeed))
+  var rng = initPcg(uint64(mainSeed))
 
   result.status = psPass
   result.runCount = 0

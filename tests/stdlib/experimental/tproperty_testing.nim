@@ -1,8 +1,7 @@
 discard """
   targets: "c js vm"
-  knownIssue.vm js: '''
+  knownIssue.vm: '''
     the vm doesn't support random number generation
-    the js target needs work, like a better rng
   '''
 """
 
@@ -26,7 +25,7 @@ type
     H100 = 100
 
 
-const defaultSeed: uint32 = 1
+const defaultSeed: uint32 = 0
 
 
 # Helper to check for generator properties
@@ -315,7 +314,7 @@ suite "Structural API & Parser":
     check yieldsS == 12
 
     # 2. Array Deletion Validation
-    var sA = newSource(seed = 2)
+    var sA = newSource(seed = 6)
     let (length, _, _) = sA.beginArray(0, 4)
     check length == 4
     for i in 0 ..< length:
