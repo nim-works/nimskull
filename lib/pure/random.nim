@@ -600,7 +600,7 @@ when not defined(standalone):
         var baseSeedLock: Lock
         baseSeedLock.initLock
 
-    var baseState: Rand
+  var baseState: Rand
 
   proc initRand(): Rand =
     ## Initializes a new Rand state.
@@ -613,42 +613,41 @@ when not defined(standalone):
     ## * `initRand proc<#initRand,int64>`_ that accepts a seed for a new Rand state
     ## * `randomize proc<#randomize>`_ that initializes the default RNG using the current time
     ## * `randomize proc<#randomize,int64>`_ that accepts a seed for the default RNG
-    when defined(js):
-      let time = int64(times.epochTime() * 1000)
-      result = initRand(time)
-    else:
-      proc getRandomState(): Rand =
-        when defined(nimscript):
-          result = Rand(
-            a0: CompileTime.hash.uint64,
-            a1: CompileDate.hash.uint64)
-          if not result.isValid:
-            result = DefaultRandSeed
-        else:
-          var urand: array[sizeof(Rand), byte]
-
-          for i in 0 .. 7:
-            if sysrand.urandom(urand):
-              copyMem(result.addr, urand[0].addr, sizeof(Rand))
-              if result.isValid:
-                break
-
-          if not result.isValid:
-            # Don't try to get alternative random values from other source like time or process/thread id,
-            # because such code would be never tested and is a liability for security.
-            quit("Failed to initializes baseState in random module as sysrand.urandom doesn't work.")
-
-      when compileOption("threads"):
-        baseSeedLock.withLock:
-          if not baseState.isValid:
-            baseState = getRandomState()
-          result = baseState
-          baseState.skipRandomNumbers
+    proc getRandomState(): Rand =
+      when defined(js):
+        let time = int64(times.epochTime() * 1000)
+        result = initRand(time)
+      elif defined(nimscript):
+        result = Rand(
+          a0: CompileTime.hash.uint64,
+          a1: CompileDate.hash.uint64)
+        if not result.isValid:
+          result = DefaultRandSeed
       else:
+        var urand: array[sizeof(Rand), byte]
+
+        for i in 0 .. 7:
+          if sysrand.urandom(urand):
+            copyMem(result.addr, urand[0].addr, sizeof(Rand))
+            if result.isValid:
+              break
+
+        if not result.isValid:
+          # Don't try to get alternative random values from other source like time or process/thread id,
+          # because such code would be never tested and is a liability for security.
+          quit("Failed to initializes baseState in random module as sysrand.urandom doesn't work.")
+
+    when not defined(js) and compileOption("threads"):
+      baseSeedLock.withLock:
         if not baseState.isValid:
           baseState = getRandomState()
         result = baseState
         baseState.skipRandomNumbers
+    else:
+      if not baseState.isValid:
+        baseState = getRandomState()
+      result = baseState
+      baseState.skipRandomNumbers
 
   since (1, 5, 1):
     export initRand
