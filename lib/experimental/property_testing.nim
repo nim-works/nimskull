@@ -141,12 +141,6 @@ type
 
   Gen*[T] = proc(s: Source): T
 
-  # Helper for exhaustive generation state
-  ExhaustiveState[T] = ref object
-    vals: seq[T]
-    indices: seq[int]
-    pos: int
-
   PropertyStatus* = enum
     psPass,
     psFail,
@@ -277,7 +271,7 @@ proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
       result = 0
 
 
-proc readRangeValue*(s: Source): uint64 =
+proc readRangeValue(s: Source): uint64 =
   let k = s.readStorageKind()
   assert k == skRange or (not s.recording and k == skByte),
          "Expected skRange, got " & $k
@@ -289,7 +283,7 @@ proc readRangeValue*(s: Source): uint64 =
   result = offset
 
 
-proc recordRangeData*(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
+proc recordRangeData(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
   ## Writes a naked range (no StorageKind tag) to the source.
   s.writeStorageKind(scalarKind)
   let sBytes = getScalarBytes(scalarKind)
@@ -297,7 +291,7 @@ proc recordRangeData*(s: Source, rangeSize, offset: uint64, scalarKind: StorageK
   s.writeRawBytes(offset, bytesForRange(rangeSize))
 
 
-proc readRangeData*(s: Source, currentRangeSize: uint64): uint64 =
+proc readRangeData(s: Source, currentRangeSize: uint64): uint64 =
   ## Reads a naked range (no StorageKind tag) from the source.
   let
     tgtKind = s.readStorageKind()
@@ -541,10 +535,15 @@ proc rankToOrdinal*(r: uint64, minOrd, maxOrd, simplestOrd: int64): int64 =
 # MARK: Combinators ---
 
 proc map*[T, U](g: Gen[T], f: proc(x: T): U): Gen[U] =
+  ## Create a new generator based on `g`, using `f` to map values of the base
+  ## generator.
   return proc(s: Source): U = f(g(s))
 
 
 proc filter*[T](g: Gen[T], pred: proc(x: T): bool, maxRetries: int = 100): Gen[T] =
+  ## Create a new generator based on `g`, that filters output based on the
+  ## predicate procedure (`proc`), with `maxRetries` per filter attempt,
+  ## raising a `FilterExhaustedError` if exceeded.
   return proc(s: Source): T =
     # This loop requires care to avoid infinite loops.
     # We should probably limit retries.
@@ -574,6 +573,8 @@ proc flatMap*[T, U](g: Gen[T], f: proc(x: T): Gen[U]): Gen[U] =
 
 
 proc sample*[T](g: Gen[T], source: Source, count: int): seq[T] =
+  ## Sample a generator, `g`, with a given `source` for a `count` number of
+  ## elements, returning a sequence of that length.
   result = newSeq[T](count)
   for i in 0 ..< count:
     result[i] = g(source)
