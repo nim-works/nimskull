@@ -643,15 +643,6 @@ proc chooseRanked[T: uint64 | int64](s: Source, min, max, simplest: T, kind: Sto
   return cast[T](o)
 
 
-proc sequenceFromRange*[T](min, max: T): seq[T] =
-  result = newSeq[T]()
-  var curr = min
-  while true:
-    result.add(curr)
-    if curr == max: break
-    inc curr
-
-
 proc genExhaustive*[T](vals: seq[T]): Gen[T] =
   let
     indices = toSeq(0 ..< vals.len)
