@@ -167,10 +167,10 @@ type
     mnkSub ## signed integer and float subtraction (for ints, overflow is UB)
     mnkMul ## signed integer and float multiplication (for ints, overflow is
            ##  UB)
-    mnkDiv ## signed integer and float division (for ints, division by zero is
-           ## UB)
-    mnkModI ## compute the remainder of an integer division (division by zero
-            ## is UB)
+    mnkDiv ## signed/unsigned integer and float division (for ints, division by
+           ## zero is UB)
+    mnkModI ## compute the remainder of an signed/unsigned integer division
+            ## (division by zero is UB)
     # future direction: the arithmetic operations should also apply to
     # unsigned integers
 

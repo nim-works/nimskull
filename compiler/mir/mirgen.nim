@@ -1061,6 +1061,19 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic) =
         genArgExpression(c, n[1], sink=false)
         genArgExpression(c, n[2], sink=false)
 
+  of mDivU, mModU:
+    # division-by-zero checks (enabled by overflow checks) are also enabled for
+    # unsigned division
+    if optOverflowCheck in c.userOptions:
+      c.buildDefectMagicCall m, rtyp:
+        arg n[1]
+        arg n[2]
+    else:
+      const Map = [mDivU: mnkDiv, mModU: mnkModI]
+      c.buildTree Map[m], rtyp:
+        genArgExpression(c, n[1], sink=false)
+        genArgExpression(c, n[2], sink=false)
+
   of mUnaryMinusI, mUnaryMinusI64:
     # negation can cause overflows too
     if optOverflowCheck in c.userOptions:
