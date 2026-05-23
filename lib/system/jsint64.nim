@@ -310,6 +310,18 @@ proc checkedModInt64(a, b: Int64): Int64 {.compilerproc.} =
   else:
     modInt64(a, b)
 
+proc checkedDivUInt64(a, b: Int64): Int64 {.compilerproc.} =
+  if (b.lo == 0 and b.hi == 0):
+    raiseDivByZero()
+  else:
+    divUInt64(a, b)
+
+proc checkedModUInt64(a, b: Int64): Int64 {.compilerproc.} =
+  if (b.lo == 0 and b.hi == 0):
+    raiseDivByZero()
+  else:
+    modUInt64(a, b)
+
 # MARK: cast operations
 
 proc castFloatToInt64(val: float32): Int64 {.compilerproc, asmNoStackFrame.} =
