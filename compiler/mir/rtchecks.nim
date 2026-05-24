@@ -516,6 +516,34 @@ proc emitCheckedBinaryIntOp(tree; call; graph; env; bu): Value =
       bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseOverflow")):
         discard
 
+proc emitCheckedDivOp(tree; call; graph; env; bu): Value =
+  ## Emits the lowered version of a checked unsigned division operation,
+  ## looking like this (for division):
+  ##   def _1 = eqI(arg b, arg 0)
+  ##   if _2:
+  ##     raiseDivByZero()
+  ##   result = divU(arg a, arg b)
+  let
+    magic = tree[tree.callee(call)].magic
+    a = NodePosition tree.argument(call, 0)
+    b = NodePosition tree.argument(call, 1)
+
+  let cond = bu.wrapTemp BoolType:
+    bu.buildMagicCall mEqI, BoolType:
+      bu.subTree mnkArg:
+        bu.emitFrom(tree, b)
+      bu.emitByVal literal(mnkIntLit, env.getOrIncl(0), tree[b].typ)
+
+  bu.buildIf cond:
+    bu.emitCall(tree, call, env.addCompilerProc(graph, "raiseDivByZero")):
+      discard
+
+  const Map = [mDivU: mnkDiv, mModU: mnkModI]
+  bu.wrapTemp tree[call].typ:
+    bu.subTree Map[magic], tree[call].typ:
+      bu.emitFrom(tree, a)
+      bu.emitFrom(tree, b)
+
 proc emitUnaryOverflowCheck(tree; call; graph; env; bu) =
   ## Emits the overflow check for an integer negation operation:
   ##   if x == low(x):
@@ -638,6 +666,13 @@ proc lowerChecks*(body; graph; env; changes: var Changeset) =
         var tmp: Value
         changes.insert(tree, tree.parent(call), call, bu):
           tmp = emitCheckedBinaryIntOp(tree, call, graph, env, bu)
+        changes.replaceMulti(tree, call, bu):
+          bu.use tmp
+      of mDivU, mModU:
+        let call = tree.parent(i)
+        var tmp: Value
+        changes.insert(tree, tree.parent(call), call, bu):
+          tmp = emitCheckedDivOp(tree, call, graph, env, bu)
         changes.replaceMulti(tree, call, bu):
           bu.use tmp
       of mUnaryMinusI, mUnaryMinusI64:
