@@ -1,8 +1,9 @@
 discard """
-  labels: "js arithmetic int"
+  labels: "arithmetic int"
   description: '''
-    . Fix div uint64 without truncation for JS.
+    Tests to make sure division works as intended.
   '''
+  knownIssue.vm: "Defects cannot be caught, not even for testing purpose"
 """
 
 
@@ -19,3 +20,30 @@ block divUint64:
 
   divTest()
 
+block unsigned_integer_division_by_zero:
+  proc op[T](a, b: T): T {.noinline.} = a div b
+
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u8, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u16, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u32, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u64, 0)
+
+block unsigned_integer_modulo_by_zero:
+  proc op[T](a, b: T): T {.noinline.} = a mod b
+
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u8, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u16, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u32, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u, 0)
+  doAssertRaises DivByZeroDefect:
+    discard op(1'u64, 0)

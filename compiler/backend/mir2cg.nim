@@ -1626,9 +1626,8 @@ proc magicToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
         ^c.genInt(env, 0, UInt8Type, bu)))
   of mUnaryPlusI, mUnaryPlusF64:
     wrapAsgn ^arg(0)
-  of mAddU, mSubU, mMulU, mDivU, mModU:
-    const Map = [mAddU: cnkAdd, mSubU: cnkSub,
-                 mMulU: cnkMul, mDivU: cnkDiv, mModU: cnkMod]
+  of mAddU, mSubU, mMulU:
+    const Map = [mAddU: cnkAdd, mSubU: cnkSub, mMulU: cnkMul]
     wrapAsgn (Map[tree[n, 1].magic])(
       ^tree[n].typ, ^arg(0), ^arg(1))
   of mBitandI:
