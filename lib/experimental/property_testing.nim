@@ -819,7 +819,7 @@ proc genEnum*[T: enum](): Gen[T] =
 
 
 proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
-  ## create a set generator for the enum type `T` excluding the values in
+  ## Create a set generator for the enum type `T` excluding the values in
   ## `exclude`.
   let vals = getEnumMembers(T.low, T.high, exclude)
   let maxLen = vals.len
@@ -845,7 +845,7 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
 
 
 proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]] =
-  ## create a sequence generator with element type `T` and length in the range
+  ## Create a sequence generator with element type `T` and length in the range
   ## [minLen, maxLen].
   assert maxLen >= minLen
   return proc(s: Source): seq[T] =
@@ -859,30 +859,29 @@ proc genSeq*[T](g: Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]
 
 proc genString*(minLen: uint32 = 0, maxLen: uint32 = 100,
                 charGen: Gen[char] = genChar()): Gen[string] =
-  ## create a string generator for the range [minLen, maxLen] using the given
+  ## Create a string generator for the range [minLen, maxLen] using the given
   ## char generator.
   assert maxLen >= minLen
-  let g = genSeq(charGen, minLen, maxLen)
   return proc(s: Source): string =
-    let sSeq = g(s)
-    result = newString(sSeq.len)
-    for i, c in sSeq:
-      result[i] = c
+    let (len, oldLen, _) = s.beginArray(minLen, maxLen)
+    result = newString(int(len))
+    for i in 0 ..< int(len):
+      result[i] = charGen(s)
+    s.skipNodes(int(oldLen) - int(len))
 
 
 proc genAsciiString*(minLen: uint32 = 0, maxLen: uint32 = 100): Gen[string] =
-  ## create an ASCII string generator.
+  ## Create an ASCII string generator.
   genString(minLen, maxLen, genAsciiChar())
 
 
 proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] =
+  ## Create an array generator with element type `T` and static size `size`.
   return proc(s: Source): array[size, T] =
     let (_, oldLen, _) = s.beginArray(size, size)
-    var arr: array[size, T]
-    for i in 0 ..< size:
-      arr[i] = g(s)
+    for i in 0'u32 ..< size:
+      result[i] = g(s)
     s.skipNodes(int(oldLen) - int(size))
-    return arr
 
 
 proc genFloatScalar[T: SomeFloat](min, max: T,
