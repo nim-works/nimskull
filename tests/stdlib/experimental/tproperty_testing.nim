@@ -24,6 +24,10 @@ type
     H10 = 10
     H100 = 100
 
+  HoleyLargeEnum = enum
+    HL1 = 1
+    HL1000 = 1000
+
 
 const defaultSeed: uint32 = 1
 
@@ -610,10 +614,16 @@ suite "Generator Constraints and Shrinking":
     check res.shrunkValue.get() == 1001
 
 
-  test "genEnum handles holey enums (generates ordinals in range)":
+  test "genEnum handles holey enums (only valid members)":
     let vals = getSamples(genEnum[HoleyEnum]())
     for v in vals:
-      check ord(v) >= ord(H1) and ord(v) <= ord(H100)
+      check ord(v) in {ord(H1), ord(H10), ord(H100)}
+
+
+  test "genEnum handles holey enums with large ordinals (only valid members)":
+    let vals = getSamples(genEnum[HoleyLargeEnum]())
+    for v in vals:
+      check ord(v) in {ord(HL1), ord(HL1000)}
 
 
   test "genUint64 shrinks towards zero":
