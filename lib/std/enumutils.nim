@@ -12,7 +12,7 @@ from std/typetraits import OrdinalEnum, HoleyEnum
 
 macro enumFullRange(a: typed): untyped =
   let typ = getTypeImpl(getType(a)[1]) # the ``nnkEnumTy`` AST
-  newNimNode(nnkCurly).add(typ[1..^1])
+  nnkPrefix.newTree(ident"@", newNimNode(nnkBracket).add(typ[1..^1]))
 
 # xxx `genEnumCaseStmt` needs tests and runnableExamples
 
@@ -88,7 +88,8 @@ iterator items*[T: HoleyEnum](E: typedesc[T]): T =
     from std/sequtils import toSeq
     assert A.toSeq == [a0, a1, a2]
     assert B[float].toSeq == [B[float].b0, B[float].b1]
-  for a in enumFullRange(E): yield a
+  for a in enumFullRange(E):
+    yield a
 
 func span(T: typedesc[HoleyEnum]): int =
   (T.high.ord - T.low.ord) + 1
