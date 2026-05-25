@@ -399,6 +399,47 @@ suite "Primitive Generators":
       check val == 42
 
 
+  test "FromList generator - produces values from the list":
+    let vals = @["A", "B", "C"]
+    let samples = getSamples(genFromList(vals))
+    for s in samples:
+      check s in vals
+
+
+  test "FromList generator shrinks towards simplestIdx 0":
+    let vals = @["A", "B", "C"]
+    let prop = Property[string](
+      gen: genFromList(vals, 0),
+      check: proc(s: string): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=10)
+    check res.status == psFail
+    check res.shrunkValue.get() == "A"
+
+
+  test "FromList generator shrinks towards simplestIdx 2":
+    let vals = @["A", "B", "C"]
+    let prop = Property[string](
+      gen: genFromList(vals, 2),
+      check: proc(s: string): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=10)
+    check res.status == psFail
+    check res.shrunkValue.get() == "C"
+
+
+  test "FromList generator shrinks towards simplestIdx in large lists":
+    var vals: seq[int] = @[]
+    for i in 0 .. 500: vals.add(i)
+    let prop = Property[int](
+      gen: genFromList(vals, 250),
+      check: proc(x: int): PropertyStatus = psFail
+    )
+    let res = runProperty(prop, trials=10)
+    check res.status == psFail
+    check res.shrunkValue.get() == 250
+
+
   test "Byte generator gives exhaustive range in random order":
     checkExhaustive(genByte(), toSeq(byte.low .. byte.high))
 

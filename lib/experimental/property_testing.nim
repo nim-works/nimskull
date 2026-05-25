@@ -627,7 +627,7 @@ proc genExhaustiveRanked[T: Ordinal](min, max, simplest: T): Gen[T] =
     rangeSize = cast[uint64](maxO) - cast[uint64](minO)
 
   genExhaustive(rangeSize + 1,
-                rank => (let o = rankToOrdinal(rank, minO, maxO, simplestO); 
+                rank => (let o = rankToOrdinal(rank, minO, maxO, simplestO);
                          when T is SomeInteger: cast[T](o) else: cast[T](int(o))))
 
 
@@ -645,10 +645,31 @@ proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T, kind: StorageKin
   return when T is SomeInteger: cast[T](o) else: cast[T](int(o))
 
 
-proc genEnumImpl[T: enum](vals: sink seq[T]): Gen[T] =
-  ## Internal helper to handle the common logic for enum generators.
+proc genFromList*[T](vals: sink seq[T], simplestIdx: int = 0): Gen[T] =
+  ## Create a generator that draws from a fixed list of values, `vals`, with
+  ## ranked shrinking targeting the `simplestIdx`.
   if vals.len == 0: return proc(s: Source): T = default(T)
 
+  let len = vals.len
+  if len <= 256:
+    let g = genExhaustiveRanked(0, len - 1, simplestIdx)
+    return proc(s: Source): T = vals[int(g(s))]
+
+  let rangeK = if len <= 65536: sk2Bytes else: sk4Bytes
+  return proc(s: Source): T =
+    let idx = s.chooseRanked(0, len - 1, simplestIdx, rangeK)
+    vals[int(idx)]
+
+
+proc getEnumMembers[T: enum](min, max: T, exclude: set[T] = {}): seq[T] =
+  ## Internal helper to collect valid enum members in a range with an exclusion set.
+  for v in T.items:
+    if v >= min and v <= max and v notin exclude:
+      result.add(v)
+
+
+proc genEnumImpl[T: enum](vals: sink seq[T]): Gen[T] =
+  ## Internal helper to handle the common logic for enum generators.
   var
     minDist = uint64.high
     simplestIdx = 0
@@ -658,14 +679,7 @@ proc genEnumImpl[T: enum](vals: sink seq[T]): Gen[T] =
       minDist = uint64(d)
       simplestIdx = i
 
-  if vals.len <= 256:
-    let g = genExhaustiveRanked(0, vals.len - 1, simplestIdx)
-    return proc(s: Source): T = vals[int(g(s))]
-
-  let rangeK = if vals.len <= 65536: sk2Bytes else: sk4Bytes
-  return proc(s: Source): T =
-    let idx = s.chooseRanked(0, vals.len - 1, simplestIdx, rangeK)
-    vals[int(idx)]
+  genFromList(vals, simplestIdx)
 
 
 proc genExhaustive*[T](vals: sink seq[T]): Gen[T] =
@@ -797,12 +811,7 @@ proc genEnum*[T: enum](min, max: T): Gen[T] =
   when T is OrdinalEnum:
     return genScalar(min, max)
   else:
-    # holey enums
-    var vals: seq[T] = @[]
-    for v in T.items:
-      if v >= min and v <= max:
-        vals.add(v)
-    genEnumImpl(vals)
+    genEnumImpl(getEnumMembers(min, max))
 
 
 proc genEnum*[T: enum](): Gen[T] =
@@ -812,16 +821,11 @@ proc genEnum*[T: enum](): Gen[T] =
 proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
   ## create a set generator for the enum type `T` excluding the values in
   ## `exclude`.
-  let maxLen = enumLen(T) - exclude.len
+  let vals = getEnumMembers(T.low, T.high, exclude)
+  let maxLen = vals.len
   assert minLen <= uint16(maxLen), "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
 
-  # TODO: rework this so we generate enum values the same way we generate
-  #       exhaustive enums, that way we don't use up too much recorded entropy
-  #       when generating shrunken sets.
-
-  let g =
-    if exclude.len == 0: genEnum[T]()
-    else: genEnum[T]().filter((e) => e notin exclude)
+  let g = genEnumImpl(vals)
 
   return proc(s: Source): set[T] =
     let (len, oldLen, actualLenPos) = s.beginArray(uint32(minLen), uint32(maxLen))
