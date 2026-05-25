@@ -1229,6 +1229,24 @@ type
 const defaultTrials* = 1024 ## number of trials to run per property
 
 
+proc evaluate[T](p: Property[T], s: Source): (PropertyStatus, T, Option[string]) =
+  ## Internal helper to run a generator and check its property status,
+  ## capturing any exceptions.
+  try:
+    result[1] = p.gen(s)
+    result[0] = p.check(result[1])
+  except FilterExhaustedError:
+    result[0] = psDiscard
+  except SourceLimitExceededError:
+    result[0] = psDiscard
+  except CatchableError as e:
+    result[0] = psFail
+    result[2] = some(e.msg)
+  except Exception as e:
+    result[0] = psFail
+    result[2] = some(e.msg)
+
+
 proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
                      seed: uint32 = 0, maxDiscards: int = -1,
                      debug: bool = false): TestResult[T] =
@@ -1259,27 +1277,8 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
     let runSeed = uint32(rng.next() and 0xFFFFFFFF'u64)
     result.seed = runSeed
 
-    var
-      s = newSource(runSeed)
-      val: T
-      status: PropertyStatus
-      valErrorMsg: Option[string]
-
-    try:
-      val = p.gen(s)
-      status = p.check(val)
-    except FilterExhaustedError:
-      # Filter failed too many times, discard this run
-      status = psDiscard
-    except SourceLimitExceededError:
-      # General generation error (limit exceeded perhaps)
-      status = psDiscard
-    except CatchableError as e:
-      status = psFail
-      valErrorMsg = some(e.msg)
-    except Exception as e:
-      status = psFail
-      valErrorMsg = some(e.msg)
+    var s = newSource(runSeed)
+    let (status, val, valErrorMsg) = p.evaluate(s)
 
     if status == psDiscard:
       discardCount.inc
@@ -1311,30 +1310,13 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
           attempts.inc
           if attempts > 100000: break # Safety break
 
-          # Shortlex ordering: strictly shorter or same length but lexicographically smaller
+          # Shortlex ordering: strictly shorter or same length but lexicographical smaller
           if cand.len > bestBuffer.len: continue
           if cand.len == bestBuffer.len and not lexLess(cand, bestBuffer): continue
 
           # Try candidate
-          var
-            sCand = newSource(cand)
-            cVal: T
-            cStatus: PropertyStatus
-            cErrorMsg: Option[string]
-
-          try:
-            cVal = p.gen(sCand)
-            cStatus = p.check(cVal)
-          except SourceLimitExceededError:
-            cStatus = psDiscard
-          except CatchableError as e:
-            cStatus = psFail
-            cErrorMsg = some(e.msg)
-          except:
-            # Defect or other weirdness.
-            # In shrinking, this usually means we corrupted the stream.
-            # Don't accept this as an improvement.
-            continue
+          var sCand = newSource(cand)
+          let (cStatus, cVal, cErrorMsg) = p.evaluate(sCand)
 
           if cStatus == psFail:
             # Our candidates iterator uses AST heuristics to generate strictly
