@@ -885,13 +885,15 @@ proc genArray*[T](g: Gen[T], size: static uint32): Gen[array[size, T]] =
     return arr
 
 
-proc genFloat64*(min, max: float64 = NaN,
-                 allowNaN: bool = false, allowInf: bool = true,
-                 allowSubnormal: bool = true): Gen[float64] =
-  return proc(s: Source): float64 =
+proc genFloatScalar[T: SomeFloat](min, max: T,
+                                  allowNaN, allowInf,
+                                  allowSubnormal: bool): Gen[T] =
+  return proc(s: Source): T =
     # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
     var classes: seq[int] = @[0, 1]
-    if allowInf: classes.add(2); classes.add(3)
+    if allowInf:
+      classes.add(2)
+      classes.add(3)
     if allowNaN: classes.add(4)
 
     let choice = s.chooseRange(0'u64, 100'u64, skByte)
@@ -900,91 +902,49 @@ proc genFloat64*(min, max: float64 = NaN,
       cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
 
     case cls
-    of 1: return -0.0
-    of 2: return Inf
-    of 3: return -Inf
-    of 4: return NaN
+    of 1: return T(-0.0)
+    of 2: return T(Inf)
+    of 3: return T(-Inf)
+    of 4: return T(NaN)
     else:
       let
-        fHigh = 1.7976931348623157e+308
-        actualMin = if classify(min) == fcNaN: (if allowInf: -Inf else: -fHigh) else: min
-        actualMax = if classify(max) == fcNaN: (if allowInf: Inf else: fHigh) else: max
-        minOrd = float64ToOrdinal(actualMin)
-        maxOrd = float64ToOrdinal(actualMax)
-        simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: 0.0
-        simplestOrd = float64ToOrdinal(simplest)
+        fHigh = when T is float64: 1.7976931348623157e+308 else: 3.4028235e+38f
+        actualMin = if classify(min) == fcNaN: (if allowInf: T(-Inf) else: T(-fHigh)) else: min
+        actualMax = if classify(max) == fcNaN: (if allowInf: T(Inf) else: T(fHigh)) else: max
+        minOrd = when T is float64: float64ToOrdinal(actualMin) else: int64(float32ToOrdinal(actualMin))
+        maxOrd = when T is float64: float64ToOrdinal(actualMax) else: int64(float32ToOrdinal(actualMax))
+        simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: T(0.0)
+        simplestOrd = when T is float64: float64ToOrdinal(simplest) else: int64(float32ToOrdinal(simplest))
 
         numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
         numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
         rangeSize = numBelow + numAbove
+        tgtKind = when T is float64: sk8Bytes else: sk4Bytes
 
-      let rank = s.chooseRange(0'u64, rangeSize, sk8Bytes)
-      var o: int64
-      let common = min(numBelow, numAbove)
-      if rank <= 2 * common:
-        if (rank and 1) != 0: o = simplestOrd - cast[int64]((rank + 1) shr 1)
-        else: o = simplestOrd + cast[int64](rank shr 1)
-      elif numBelow > numAbove:
-        o = simplestOrd - cast[int64](rank - common)
-      else:
-        o = simplestOrd + cast[int64](rank - common)
+      let rank = s.chooseRange(0'u64, rangeSize, tgtKind)
+      let o = rankToOrdinal(rank, minOrd, maxOrd, simplestOrd)
 
-      result = ordinalToFloat64(o)
-      if not allowSubnormal and classify(result) == fcSubnormal: return 0.0
+      let res = when T is float64: ordinalToFloat64(o) else: T(ordinalToFloat32(int32(o)))
+      if not allowSubnormal and classify(res) == fcSubnormal: return T(0.0)
+      return res
+
+
+proc genFloat64*(min, max: float64 = NaN,
+                 allowNaN: bool = false, allowInf: bool = true,
+                 allowSubnormal: bool = true): Gen[float64] =
+  genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
 proc genFloat32*(min, max: float32 = NaN,
                  allowNaN: bool = false, allowInf: bool = true,
                  allowSubnormal: bool = true): Gen[float32] =
-  return proc(s: Source): float32 =
-    # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
-    var classes: seq[int] = @[0, 1]
-    if allowInf: classes.add(2); classes.add(3)
-    if allowNaN: classes.add(4)
-
-    let choice = s.chooseRange(0'u64, 100'u64, skByte)
-    var cls = 0
-    if choice > 90 and classes.len > 1:
-      cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
-
-    case cls
-    of 1: return -0.0f
-    of 2: return Inf.float32
-    of 3: return -Inf.float32
-    of 4: return NaN.float32
-    else:
-      let
-        fHigh = 3.4028235e+38f
-        actualMin = if classify(min) == fcNaN: (if allowInf: -Inf.float32 else: -fHigh) else: min
-        actualMax = if classify(max) == fcNaN: (if allowInf: Inf.float32 else: fHigh) else: max
-        minOrd = int64(float32ToOrdinal(actualMin))
-        maxOrd = int64(float32ToOrdinal(actualMax))
-        simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: 0.0f
-        simplestOrd = int64(float32ToOrdinal(simplest))
-        numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
-        numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
-        rangeSize = numBelow + numAbove
-
-      let rank = s.chooseRange(0'u64, rangeSize, sk4Bytes)
-      var o: int64
-      let common = min(numBelow, numAbove)
-      if rank <= 2 * common:
-        if (rank and 1) != 0: o = simplestOrd - cast[int64]((rank + 1) shr 1)
-        else: o = simplestOrd + cast[int64](rank shr 1)
-      elif numBelow > numAbove:
-        o = simplestOrd - cast[int64](rank - common)
-      else:
-        o = simplestOrd + cast[int64](rank - common)
-
-      result = ordinalToFloat32(int32(o))
-      if not allowSubnormal and classify(result) == fcSubnormal: return 0.0f
+  genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
 proc genFloat*(min, max: float = NaN,
                allowNaN: bool = false, allowInf: bool = true,
                allowSubnormal: bool = true): Gen[float] =
-  let g = genFloat64(float64(min), float64(max), allowNaN, allowInf, allowSubnormal)
-  return proc(s: Source): float = float(g(s))
+  genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
 # MARK: Shrinking Strategies ---
