@@ -271,18 +271,6 @@ proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
       result = 0
 
 
-proc readRangeValue(s: Source): uint64 =
-  let k = s.readStorageKind()
-  assert k == skRange or (not s.recording and k == skByte),
-         "Expected skRange, got " & $k
-  let
-    tgtKind = s.readStorageKind()
-    sBytes = getScalarBytes(tgtKind)
-    recordedRangeSize = s.readRawBytes(sBytes)
-    offset = s.readRawBytes(bytesForRange(recordedRangeSize))
-  result = offset
-
-
 proc recordRangeData(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
   ## Writes a naked range (no StorageKind tag) to the source.
   s.writeStorageKind(scalarKind)
@@ -599,96 +587,78 @@ proc getSimplest[T: Ordinal](min, max: T): T =
   else: zero
 
 
-proc genExhaustiveRanked[T: uint64 | int64](min, max, simplest: T, kind: StorageKind): Gen[T] =
-  let
-    minO = cast[int64](min)
-    maxO = cast[int64](max)
-    simplestO = cast[int64](simplest)
-    rangeSize = (cast[uint64](simplestO) - cast[uint64](minO)) + (cast[uint64](maxO) - cast[uint64](simplestO))
-    len = int(rangeSize + 1)
+proc genExhaustive[T](num: uint64, gen: sink proc(val: uint64): T): Gen[T] =
+  ## Creates a generator that delegates producing the actual value to `gen`,
+  ## the latter which is invoked with values in the range [0, num).
   var
-    indices = toSeq(0 ..< len)
+    indices = toSeq(0 ..< num)
     pos = 0
 
   return proc(s: Source): T =
-    var rank: uint64
+    let kind =
+      if   num <= high(uint8):  skByte
+      elif num <= high(uint16): sk2Bytes
+      elif num <= high(uint32): sk4Bytes
+      else:                     sk8Bytes
+    var index: uint64
     if not s.recording:
-      rank = s.chooseRange(0'u64, rangeSize, kind)
+      index = s.chooseRange(0'u64, num - 1, kind)
     else:
       let rv = s.rngNextUInt32()
       if pos < indices.len and not s.idempotent:
         let
           remaining = indices.len - pos
           offset = int(rv mod uint32(remaining))
-        rank = uint64(indices.swapAccess(pos, pos + offset))
-        pos.inc
+        index = uint64(indices.swapAccess(pos, pos + offset))
+        inc pos
       else:
-        rank = uint64(rv mod uint32(rangeSize + 1))
-      s.recordRange(rangeSize, rank, kind)
+        index = uint64(rv mod uint32(num))
+      s.recordRange(num - 1, index, kind)
 
-    let o = rankToOrdinal(rank, minO, maxO, simplestO)
-    return cast[T](o)
+    result = gen(index)
 
 
-proc chooseRanked[T: uint64 | int64](s: Source, min, max, simplest: T, kind: StorageKind): T =
+proc genExhaustiveRanked[T: uint64 | int64](min, max, simplest: T, kind: StorageKind): Gen[T] =
   let
     minO = cast[int64](min)
     maxO = cast[int64](max)
     simplestO = cast[int64](simplest)
+    rangeSize = (cast[uint64](simplestO) - cast[uint64](minO)) +
+                (cast[uint64](maxO) - cast[uint64](simplestO))
+
+  genExhaustive(rangeSize + 1,
+                rank => (let o = rankToOrdinal(rank, minO, maxO, simplestO); when T is enum: cast[T](int(o)) else: cast[T](o)))
+
+
+proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T, kind: StorageKind): T =
+  let
+    minO = when T is SomeInteger: cast[int64](min) else: cast[int64](ord(min))
+    maxO = when T is SomeInteger: cast[int64](max) else: cast[int64](ord(max))
+    simplestO = when T is SomeInteger: cast[int64](simplest) else: cast[int64](ord(simplest))
     rangeSize = (cast[uint64](simplestO) - cast[uint64](minO)) + (cast[uint64](maxO) - cast[uint64](simplestO))
 
   if rangeSize == 0: return simplest
 
   let rank = s.chooseRange(0'u64, rangeSize, kind)
   let o = rankToOrdinal(rank, minO, maxO, simplestO)
-  return cast[T](o)
+  return when T is enum: cast[T](int(o)) else: cast[T](o)
 
 
-proc genExhaustive*[T](vals: seq[T]): Gen[T] =
-  let
-    indices = toSeq(0 ..< vals.len)
-  var
-    idx = indices
-    pos = 0
-
-  return proc(s: Source): T =
-    let tgtK = if vals.len <= 256: skByte
-               elif vals.len <= 65536: sk2Bytes
-               else: sk4Bytes
-
-    var chosenIdx: int
-
-    if not s.recording:
-      chosenIdx = int(s.chooseRange(0, cast[uint64](vals.len - 1), tgtK))
-    else:
-      let randValOrig = s.rngNextUInt32()
-      if pos < idx.len and not s.idempotent:
-        let
-          remaining = idx.len - pos
-          offset = int(randValOrig mod uint32(remaining))
-        chosenIdx = idx.swapAccess(pos, pos + offset)
-        pos.inc
-      else:
-        chosenIdx = int(randValOrig mod uint32(vals.len))
-
-      # Record it formally as a range so shrinking works predictably!
-      s.recordRange(cast[uint64](vals.len - 1), cast[uint64](chosenIdx), tgtK)
-
-    result = vals[chosenIdx]
+proc genExhaustive*[T](vals: sink seq[T]): Gen[T] =
+  ## Creates a generator producing values that are part of `vals`.
+  genExhaustive(vals.len.uint64, (idx) => vals[idx])
 
 
 proc genExhaustiveRange*[T: Ordinal](min: T, rangeSize: uint64): Gen[T] =
   let
-    minOrd = int64(ord(min))
+    minOrd = when T is SomeInteger: cast[int64](min) else: cast[int64](ord(min))
     simplestOrd = if minOrd > 0: minOrd
                   elif minOrd + int64(rangeSize) < 0: minOrd + int64(rangeSize)
                   else: 0'i64
-    simplest = cast[T](int(simplestOrd))
-    g = genExhaustiveRanked(minOrd, minOrd + int64(rangeSize), simplestOrd, skByte)
+    g = genExhaustiveRanked(minOrd, minOrd + int64(rangeSize), simplestOrd)
   return proc(s: Source): T =
     when T is enum: cast[T](int(g(s)))
     else: cast[T](g(s))
-
 
 proc genConst*[T](v: T): Gen[T] =
   ## Create a generator that always returns `v`.
