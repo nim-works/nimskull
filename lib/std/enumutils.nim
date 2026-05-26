@@ -88,8 +88,7 @@ iterator items*[T: HoleyEnum](E: typedesc[T]): T =
     from std/sequtils import toSeq
     assert A.toSeq == [a0, a1, a2]
     assert B[float].toSeq == [B[float].b0, B[float].b1]
-  for a in enumFullRange(E):
-    yield a
+  for a in enumFullRange(E): yield a
 
 func span(T: typedesc[HoleyEnum]): int =
   (T.high.ord - T.low.ord) + 1
