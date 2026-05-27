@@ -169,25 +169,28 @@ proc lexLess(a, b: seq[byte]): bool =
 
 proc newSource*(seed: uint32, limit: int = DefaultSourceLimit,
                 idempotent: bool = false, debug: bool = false): Source =
-  new(result)
-  result.rng = initRand(int64(seed))
-  result.buffer = @[]
-  result.pos = 0
-  result.recording = true
-  result.limit = limit
-  result.idempotent = idempotent
-  result.debug = debug
+  ## Creates a source for recording.
+  Source(
+    rng: initRand(int64(seed)),
+    buffer: @[],
+    pos: 0,
+    recording: true,
+    limit: limit,
+    idempotent: idempotent,
+    debug: debug
+  )
 
 
-proc newSource*(buffer: seq[byte]): Source =
-  ## Create a source for replaying/shrinking with a fixed buffer
-  new(result)
-  result.rng = initRand(0)
-  result.buffer = buffer # Not used when not recording
-  result.pos = 0
-  result.recording = false
-  result.limit = buffer.len
-  result.idempotent = false
+proc newSource*(buffer: sink seq[byte]): Source =
+  ## Creates a source for replaying/shrinking with a fixed buffer.
+  Source(
+    rng: initRand(0),
+    limit: buffer.len,
+    buffer: buffer, # Not used when not recording
+    pos: 0,
+    recording: false,
+    idempotent: false
+  )
 
 
 proc writeRawByte*(s: Source, b: byte) =
@@ -233,13 +236,12 @@ proc readRawBytes*(s: Source, bytes: int): uint64 =
     result = result or (uint64(s.readRawByte()) shl (i * 8))
 
 
-proc getScalarBytes*(kind: StorageKind): int =
+proc getScalarBytes*(kind: ScalarStorageKind): int =
   case kind
   of skByte:   1
   of sk2Bytes: 2
   of sk4Bytes: 4
   of sk8Bytes: 8
-  else:        unreachable("getScalarBytes: invalid StorageKind got: " & $kind)
 
 
 proc rngNextBytes*(s: Source, bytes: int): uint64 =
@@ -262,11 +264,8 @@ proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
     s.writeRawBytes(result, bytes)
   else:
     let readK = s.readStorageKind()
-    if readK == kind:
-      result = s.readRawBytes(bytes)
-    else:
-      discard s.readRawBytes(bytes)
-      result = 0
+    assert readK == kind
+    result = s.readRawBytes(bytes)
 
 
 proc recordRangeData(s: Source, rangeSize, offset: uint64,
@@ -281,8 +280,7 @@ proc readRangeData(s: Source, currentRangeSize: uint64): uint64 =
   ## Reads a naked range (no StorageKind tag) from the source.
   let
     tgtKind = s.readStorageKind()
-    sBytes = getScalarBytes(tgtKind)
-    recordedRangeSize = s.readRawBytes(sBytes)
+    recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
     rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
   result = if rVal > currentRangeSize: currentRangeSize else: rVal
 
@@ -650,12 +648,11 @@ proc genFromList*[T](vals: sink seq[T], simplestIdx: int = 0): Gen[T] =
   let len = vals.len
   if len <= 256:
     let g = genExhaustiveRanked(0, len - 1, simplestIdx)
-    return proc(s: Source): T = vals[int(g(s))]
+    return proc(s: Source): T = vals[g(s)]
 
   let rangeK = if len <= 65536: sk2Bytes else: sk4Bytes
   return proc(s: Source): T =
-    let idx = s.chooseRanked(0, len - 1, simplestIdx, rangeK)
-    vals[int(idx)]
+    vals[s.chooseRanked(0, len - 1, simplestIdx, rangeK)]
 
 
 proc getEnumMembers[T: enum](min, max: T, exclude: set[T] = {}): seq[T] =
@@ -718,7 +715,7 @@ proc genByte*(): Gen[byte] =
 
 proc genBool*(): Gen[bool] =
   ## Create a boolean generator.
-  return genScalar(false, true)
+  genScalar(false, true)
 
 
 proc genChar*(min, max: char): Gen[char] =
@@ -804,9 +801,9 @@ proc genUint64*(): Gen[uint64] = genUint64(low(uint64), high(uint64))
 
 
 proc genEnum*[T: enum](min, max: T): Gen[T] =
-  assert max >= min
+  assert min <= max
   when T is OrdinalEnum:
-    return genScalar(min, max)
+    genScalar(min, max)
   else:
     genEnumImpl(getEnumMembers(min, max))
 
@@ -884,13 +881,15 @@ proc genArray*[T](g: sink Gen[T], size: static uint32): Gen[array[size, T]] =
 proc genFloatScalar[T: SomeFloat](min, max: T,
                                   allowNaN, allowInf,
                                   allowSubnormal: bool): Gen[T] =
+  # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
+  var classes: seq[int] = @[0, 1]
+  if allowInf:
+    classes.add(2)
+    classes.add(3)
+  if allowNaN:
+    classes.add(4)
+
   return proc(s: Source): T =
-    # Classes: 0:normal, 1:-0.0, 2:Inf, 3:-Inf, 4:NaN
-    var classes: seq[int] = @[0, 1]
-    if allowInf:
-      classes.add(2)
-      classes.add(3)
-    if allowNaN: classes.add(4)
 
     let choice = s.chooseRange(0'u64, 100'u64, skByte)
     var cls = 0
@@ -1580,12 +1579,13 @@ macro genVoidProcN*(T: varargs[typedesc]): untyped =
     error("genVoidProcN: too many arguments, max: " & $names.len)
 
   for i, t in T.pairs:
-    args.add(nnkIdentDefs.newTree(genSym(names[i]), t, newEmptyNode()))
+    args.add(nnkIdentDefs.newTree(ident(names[i]), t, newEmptyNode()))
 
-  let prc = newProc(params = args, pragmas = nnkPragma.newTree(ident"closure"))
+  let prc = newProc(params = args)
+  let typ = nnkProcTy.newTree(copyNimTree(prc.params), newEmptyNode())
 
   result = quote do:
-    genConst(`prc`)
+    genConst(`typ`(`prc`))
 
 
 # MARK: Property Helpers
