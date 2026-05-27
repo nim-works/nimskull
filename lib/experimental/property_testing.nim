@@ -124,7 +124,7 @@ type
                    ## immediately following bytes and elements thereafter
     skGroup        ## Group of values, with size stored in the next byte
 
-  ScalarBytes* = range[skByte..sk8Bytes] # xxx: should this include skNBytes?
+  ScalarStorageKind = range[skByte..sk8Bytes]
 
   Source* = ref object
     rng: Rand
@@ -256,7 +256,7 @@ proc rngNextUInt32(s: Source): uint32 =
   uint32(s.rng.next() and 0xFFFFFFFF'u64)
 
 
-proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
+proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
   let bytes = getScalarBytes(kind)
   if s.recording:
     result = s.rngNextBytes(bytes)
@@ -285,12 +285,14 @@ proc readRangeData(s: Source, currentRangeSize: uint64): uint64 =
   result = if rVal > currentRangeSize: currentRangeSize else: rVal
 
 
-proc recordRange*(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
+proc recordRange*(s: Source, rangeSize, offset: uint64,
+                  kind: ScalarStorageKind) =
   s.writeStorageKind(skRange)
-  s.recordRangeData(rangeSize, offset, scalarKind)
+  s.recordRangeData(rangeSize, offset, kind)
 
 
-proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 =
+proc chooseRange*(s: Source, min, max: uint64,
+                  kind: ScalarStorageKind): uint64 =
   let rangeSize = max - min
   if s.recording:
     let
@@ -300,13 +302,11 @@ proc chooseRange*(s: Source, min, max: uint64, scalarKind: StorageKind): uint64 
         else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
 
     result = min + valRange
-    s.recordRange(rangeSize, valRange, scalarKind)
+    s.recordRange(rangeSize, valRange, kind)
   else:
     let readK = s.readStorageKind()
-    if readK == skRange:
-      result = min + s.readRangeData(rangeSize)
-    else:
-      result = min
+    assert readK == skRange
+    result = min + s.readRangeData(rangeSize)
 
 
 template renumerateInt64ToUint64(x: int64): uint64 =
@@ -338,7 +338,7 @@ proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
     result = result or (uint64(buffer[pos + i]) shl (i * 8))
 
 
-template skipToRangeOffsetAndGetSize(buffer: seq[byte], pos: var int): uint64 =
+proc skipToRangeOffsetAndGetSize(buffer: seq[byte], pos: var int): uint64 =
   ## Returns the range size for a range stored in the
   ## buffer at the given position where the skRange byte has already been
   ## traversed. Advances `pos` past the rangeSize.
@@ -626,7 +626,8 @@ proc genExhaustiveRanked[T: Ordinal](min, max, simplest: T): Gen[T] =
                          when T is SomeInteger: cast[T](o) else: cast[T](int(o))))
 
 
-proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T, kind: StorageKind): T =
+proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T,
+                              kind: ScalarStorageKind): T =
   let
     minO = when T is SomeInteger: cast[int64](min) else: cast[int64](ord(min))
     maxO = when T is SomeInteger: cast[int64](max) else: cast[int64](ord(max))
