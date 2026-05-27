@@ -285,7 +285,7 @@ proc recordRangeData(s: Source, rangeSize, offset: uint64,
 proc readRangeData(s: Source, currentRangeSize: uint64): uint64 =
   ## Reads a naked range (no StorageKind tag) from the source.
   let
-    tgtKind = s.readStorageKind()
+    tgtKind = cast[ScalarStorageKind](s.readStorageKind())
     recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
     rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
   result = if rVal > currentRangeSize: currentRangeSize else: rVal
@@ -331,7 +331,8 @@ template renumerateUint64ToInt64(x: uint64): int64 =
   cast[int64](x - (1u64 shl 63))
 
 
-proc chooseRange*(s: Source, min, max: int64, scalarKind: StorageKind): int64 =
+proc chooseRange*(s: Source, min, max: int64,
+                  scalarKind: ScalarStorageKind): int64 =
   let
     uMin = renumerateInt64ToUint64(min)
     uMax = renumerateInt64ToUint64(max)
@@ -349,7 +350,7 @@ proc skipToRangeOffsetAndGetSize(buffer: seq[byte], pos: var int): uint64 =
   ## buffer at the given position where the skRange byte has already been
   ## traversed. Advances `pos` past the rangeSize.
   doAssert pos < buffer.len, "skipNode buffer ran out before kind for range"
-  let tgtKind = cast[StorageKind](buffer[pos])
+  let tgtKind = cast[ScalarStorageKind](buffer[pos])
   inc pos
   let sBytes = getScalarBytes(tgtKind)
   doAssert pos + sBytes <= buffer.len, "skipNode buffer ran out before rangeSize for range"
@@ -1027,8 +1028,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
   for i, (pos, kind) in nodes.pairs:
     if kind == skArray:
       var p = pos + 1 # skip skArray tag (1). Now at naked range.
-      let
-        rangeTgtKind = cast[StorageKind](buffer[p])
+      let rangeTgtKind = cast[ScalarStorageKind](buffer[p])
       inc p
       let
         sBytes = getScalarBytes(rangeTgtKind)
@@ -1180,7 +1180,7 @@ proc treeRepr*(buffer: seq[byte]): string =
         else:
           result &= "}"
       of skRange:
-        let tgtKind = cast[StorageKind](buffer[p])
+        let tgtKind = cast[ScalarStorageKind](buffer[p])
         inc p
         let sBytes = getScalarBytes(tgtKind)
         let rangeSize = decodeUint64(buffer, p, sBytes)
