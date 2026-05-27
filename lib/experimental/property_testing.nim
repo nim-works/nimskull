@@ -89,12 +89,9 @@ runnableExamples:
 
 
 # MARK: Future Development TODOs:
-# - increase default number of scenario runs to 1000
-# - rename to `property_testing`
 # - separate core and api modules
 # - allow pluggable random number generators
 # - integrate with unittest runner
-# - improve performance for JS by easing up on the 64-bit math
 
 
 import std/[
@@ -137,7 +134,7 @@ type
     limit*: int       ## Max bytes to generate before stopping/erroring
     idempotent*: bool ## whether the generator consuming this source should
                       ## be able to produce the same value given the same
-                      ## source state, i.e.: disabling exhausitiveness
+                      ## source state, i.e.: disabling exhaustiveness
     debug*: bool      ## used for debugging
 
   Gen*[T] = proc(s: Source): T
@@ -272,11 +269,11 @@ proc chooseScalarRaw*(s: Source, kind: StorageKind): uint64 =
       result = 0
 
 
-proc recordRangeData(s: Source, rangeSize, offset: uint64, scalarKind: StorageKind) =
+proc recordRangeData(s: Source, rangeSize, offset: uint64,
+                     kind: ScalarStorageKind) =
   ## Writes a naked range (no StorageKind tag) to the source.
-  s.writeStorageKind(scalarKind)
-  let sBytes = getScalarBytes(scalarKind)
-  s.writeRawBytes(rangeSize, sBytes)
+  s.writeStorageKind(kind)
+  s.writeRawBytes(rangeSize, getScalarBytes(kind))
   s.writeRawBytes(offset, bytesForRange(rangeSize))
 
 
@@ -521,7 +518,7 @@ proc rankToOrdinal*(r: uint64, minOrd, maxOrd, simplestOrd: int64): int64 =
   return cast[int64](resU)
 
 
-# MARK: Combinators ---
+# MARK: Combinators
 
 proc map*[T, U](g: sink Gen[T], f: sink proc(x: T): U): Gen[U] =
   ## Create a new generator based on `g`, using `f` to map values of the base
@@ -531,7 +528,7 @@ proc map*[T, U](g: sink Gen[T], f: sink proc(x: T): U): Gen[U] =
 
 proc filter*[T](g: sink Gen[T], pred: sink proc(x: T): bool, maxRetries: int = 100): Gen[T] =
   ## Create a new generator based on `g`, that filters output based on the
-  ## predicate procedure (`proc`), with `maxRetries` per filter attempt,
+  ## predicate procedure (`pred`), with `maxRetries` per filter attempt,
   ## raising a `FilterExhaustedError` if exceeded.
   return proc(s: Source): T =
     # This loop requires care to avoid infinite loops.
@@ -946,7 +943,7 @@ proc genFloat*(min, max: float = NaN,
   genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
-# MARK: Shrinking Strategies ---
+# MARK: Shrinking Strategies
 
 proc writeUint64(buffer: var seq[byte], pos: int, bytes: int, val: uint64) =
   for i in 0 ..< bytes:
@@ -963,8 +960,7 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
   var p = pos + 1
   case kind
   of skArray:
-    let
-      rangeSize = skipToRangeOffsetAndGetSize(buf, p)
+    let rangeSize = skipToRangeOffsetAndGetSize(buf, p)
 
     # After skipToRangeOffsetAndGetSize, p is at the offset.
     # We skip the offset too.
@@ -975,13 +971,16 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
     p += 4
 
     # Now p is at elements
-    doAssert p + n <= buf.len, "collectNodes buffer ran out before children for array"
+    doAssert p + n <= buf.len,
+             "collectNodes buffer ran out before children for array"
     for _ in 0 ..< n:
       collectNodes(nodes, buf, p)
       p = skipNode(buf, p)
   of skGroup:
     let lenBytes = 1
-    doAssert(lenBytes == 0 or (p + lenBytes - 1) < buf.len, "buffer is too short, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes)
+    doAssert lenBytes == 0 or (p + lenBytes - 1) < buf.len,
+             "buffer is too short, buf.len: " & $buf.len & " p: " & $p &
+             " lenBytes: " & $lenBytes
 
     if lenBytes > 0 and (p + lenBytes - 1) < buf.len:
       let n = int(decodeUint64(buf, p, lenBytes))
@@ -989,7 +988,9 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
       doAssert(lenBytes > 0 or n == 0, "lenBytes was 0 and n was > 0")
 
       p += lenBytes
-      doAssert(p < buf.len or n == 0, "buffer is too short after reading length, buf.len: " & $buf.len & " p: " & $p & " lenBytes: " & $lenBytes & " n: " & $n)
+      doAssert p < buf.len or n == 0,
+               "buffer is too short after reading length, buf.len: " &
+               $buf.len & " p: " & $p & " lenBytes: " & $lenBytes & " n: " & $n
       let currentlyCollectedNodeCount = nodes.len
       for _ in 0 ..< n:
         doAssert(lenBytes > 0, "len bytes was 0")
@@ -1642,11 +1643,7 @@ macro forAll*(gens: untyped, check: untyped): untyped =
       ))
     procBody.add(check)
 
-  let checkProc = newProc(
-    params = procArgs,
-    pragmas = newTree(nnkPragma, ident("closure")),
-    body = procBody
-  )
+  let checkProc = newProc(params = procArgs, body = procBody)
 
   let genArg = if genExprs.len == 1:
                  genExprs[0]
