@@ -39,15 +39,12 @@ proc main() =
 main()
 
 block:
-  when not defined(js):
-    doAssert almostEqual(rand(12.5), 7.355175342026979)
-    doAssert almostEqual(rand(2233.3322), 499.342386778917)
+  doAssert almostEqual(rand(12.5), 7.355175342026979)
+  doAssert almostEqual(rand(2233.3322), 499.342386778917)
 
   type DiceRoll = range[0..6]
-  when not defined(js):
-    doAssert rand(DiceRoll).int == 3
-  else:
-    doAssert rand(DiceRoll).int == 6
+  let result = rand(DiceRoll).int
+  doAssert result == 3
 
 var rs: RunningStat
 for j in 1..5:
@@ -208,10 +205,8 @@ block: # bug #16360
   when withUint:
     test cast[uint](int.high)
     test cast[uint](int.high) + 1
-    when not defined(js):
-      # pending bug #16411
-      test uint64.high
-      test uint64.high - 1
+    test uint64.high
+    test uint64.high - 1
     test uint.high - 2
     test uint.high - 1
     test uint.high
@@ -239,36 +234,29 @@ block: # bug #16296
   test(int.low .. -1)
   test(int.low .. 1)
   test(int64.low .. 1'i64)
-  when not defined(js):
-    # pending bug #16411
-    test(10'u64 .. uint64.high)
+  test(10'u64 .. uint64.high)
 
 block: # bug #17670
-  when not defined(js):
-    # pending bug #16411
-    type UInt48 = range[0'u64..2'u64^48-1]
-    let x = rand(UInt48)
-    doAssert x is UInt48
+  type UInt48 = range[0'u64..2'u64^48-1]
+  let x = rand(UInt48)
+  doAssert x is UInt48
 
 block: # bug #17898
   # Checks whether `initRand()` generates unique states.
   # size should be 2^64, but we don't have time and space.
+  const size = 1000
+  var
+    rands: array[size, Rand]
+    randSet: HashSet[Rand]
+  for i in 0..<size:
+    rands[i] = initRand()
+    randSet.incl rands[i]
 
-  # Disable this test for js until js gets proper skipRandomNumbers.
-  when not defined(js):
-    const size = 1000
-    var
-      rands: array[size, Rand]
-      randSet: HashSet[Rand]
-    for i in 0..<size:
-      rands[i] = initRand()
-      randSet.incl rands[i]
+  doAssert randSet.len == size, "randSet.len: " & $randSet.len & " is not equal to size: " & $size
 
-    doAssert randSet.len == size
-
-    # Checks random number sequences overlapping.
-    const numRepeat = 100
-    for i in 0..<size:
-      for j in 0..<numRepeat:
-        discard rands[i].next
-        doAssert rands[i] notin randSet
+  # Checks random number sequences overlapping.
+  const numRepeat = 100
+  for i in 0..<size:
+    for j in 0..<numRepeat:
+      discard rands[i].next
+      doAssert rands[i] notin randSet
