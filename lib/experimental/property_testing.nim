@@ -98,6 +98,7 @@ runnableExamples:
 # - separate core and api modules
 # - allow pluggable random number generators
 # - integrate with unittest runner
+# - implement skNBytes
 
 
 import std/[
