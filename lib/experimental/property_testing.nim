@@ -227,9 +227,13 @@ proc writeStorageKind*(s: Source, kind: StorageKind) =
   s.writeRawByte(byte(ord(kind)))
 
 
+proc readStorageKind*(s: Source, expected: StorageKind): StorageKind =
   ## Reads the current byte as a `StorageKind` and advances to the next byte.
   ## If the buffer is not exhausted, it asserts that the read kind matches
   ## `expected`.
+  result = cast[StorageKind](s.readRawByte())
+  if s.pos <= s.buffer.len:
+    assert result == expected, "Expected " & $expected & ", got " & $result
 
 
 func bytesForRange*(rangeSize: uint64): int =
@@ -293,8 +297,7 @@ proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
     s.writeStorageKind(kind)
     s.writeRawBytes(result, bytes)
   else:
-    let readK = s.readStorageKind()
-    assert readK == kind
+    discard s.readStorageKind(kind)
     result = s.readRawBytes(bytes)
 
 
@@ -306,10 +309,15 @@ proc recordRangeData(s: Source, rangeSize, offset: uint64,
   s.writeRawBytes(offset, bytesForRange(rangeSize))
 
 
-proc readRangeData(s: Source, currentRangeSize: uint64): uint64 =
-  ## Reads a naked range (no StorageKind tag) from the source.
+proc readRangeData(s: Source, currentRangeSize: uint64,
+                   kind: ScalarStorageKind): uint64 =
+  ## Reads a range from the source, expecting `kind` sized storage.
+  # Naked ranges are always preceded by their scalar storage kind tag.
+  # We read this tag and then use it to decode the range size and offset.
+  # Since we don't know the exact kind ahead of time (it depends on the
+  # recorded range), we read it as a generic ScalarStorageKind.
   let
-    tgtKind = cast[ScalarStorageKind](s.readStorageKind())
+    tgtKind = cast[ScalarStorageKind](s.readStorageKind(kind))
     recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
     rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
   result = if rVal > currentRangeSize: currentRangeSize else: rVal
@@ -339,9 +347,8 @@ proc chooseRange*(s: Source, min, max: uint64,
     result = min + valRange
     s.recordRange(rangeSize, valRange, kind)
   else:
-    let readK = s.readStorageKind()
-    assert readK == skRange
-    result = min + s.readRangeData(rangeSize)
+    discard s.readStorageKind(skRange)
+    result = min + s.readRangeData(rangeSize, kind)
 
 
 template renumerateInt64ToUint64(x: int64): uint64 =
@@ -374,7 +381,8 @@ proc chooseRange*(s: Source, min, max: int64,
 proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
   ## Reads `bytes` worth of bytes from `buffer` at position `pos` as a uint64.
   for i in 0 ..< bytes:
-    assert pos + i < buffer.len, "decodeUint64 buffer ran out before end of scalar"
+    assert pos + i < buffer.len,
+           "decodeUint64 buffer ran out before end of scalar"
     result = result or (uint64(buffer[pos + i]) shl (i * 8))
 
 
@@ -467,11 +475,9 @@ proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
     s.writeRawBytes(uint64(chosenLen), 4)
     result = (chosenLen, chosenLen, actualLenPos)
   else:
-    let k = s.readStorageKind()
-    assert k == skArray or (not s.recording and k == skByte),
-           "Expected skArray, got " & $k
+    discard s.readStorageKind(skArray)
     let
-      offset = s.readRangeData(rangeSize)
+      offset = s.readRangeData(rangeSize, tgtKind)
       newLen = uint32(uint64(min) + offset)
       actualLen = uint32(s.readRawBytes(4))
     result = (newLen, actualLen, -1)
@@ -485,9 +491,7 @@ proc beginFixedArray*(s: Source, len: uint32): (uint32, uint32, int) =
 
 proc readGroupLength*(s: Source): uint8 =
   ## Parses a group marker and returns the number of fields
-  let k = s.readStorageKind()
-  assert k == skGroup or (not s.recording and k == skByte),
-         "Expected skGroup, got " & $k
+  discard s.readStorageKind(skGroup)
   result = uint8(s.readRawBytes(1))
 
 

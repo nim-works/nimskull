@@ -109,11 +109,11 @@ suite "Core Storage API":
     check s.buffer == @[byte(ord(skByte)), byte(ord(skRange)), byte(ord(skGroup))]
 
     let sReplay = newSource(s.buffer)
-    check sReplay.readStorageKind() == skByte
-    check sReplay.readStorageKind() == skRange
-    check sReplay.readStorageKind() == skGroup
+    check sReplay.readStorageKind(skByte) == skByte
+    check sReplay.readStorageKind(skRange) == skRange
+    check sReplay.readStorageKind(skGroup) == skGroup
     # Overflow reads skByte by default as it's ord(0)
-    check sReplay.readStorageKind() == skByte
+    check sReplay.readStorageKind(skByte) == skByte
 
 
   test "Multi-byte Serialization - bytesForRange and getScalarBytes":
@@ -353,7 +353,7 @@ suite "Structural API & Parser":
     s2.skipNodes(2)
 
     # Should be at the 3rd node
-    check s2.readStorageKind() == skByte
+    check s2.readStorageKind(skByte) == skByte
     check s2.readRawByte() == 20
 
     # Test nested skipNodes
@@ -365,7 +365,7 @@ suite "Structural API & Parser":
 
     var s4 = newSource(s3.buffer)
     s4.skipNodes(1) # Skip the entire array
-    check s4.readStorageKind() == skByte
+    check s4.readStorageKind(skByte) == skByte
     check s4.readRawByte() == 3
 
 
