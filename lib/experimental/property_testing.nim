@@ -201,6 +201,7 @@ proc newSource*(buffer: sink seq[byte]): Source =
 
 
 proc writeRawByte*(s: Source, b: byte) =
+  # When recording writes the byte `b` to the buffer, otherwise ignores it.
   if s.recording:
     if s.buffer.len >= s.limit:
       raise newException(SourceLimitExceededError, "Source limit exceeded")
@@ -209,6 +210,8 @@ proc writeRawByte*(s: Source, b: byte) =
 
 
 proc readRawByte*(s: Source): byte =
+  ## Read the current byte and advances to the next byte, if there are no more
+  ## recorded buffer given the position, it returns zero.
   if s.pos < s.buffer.len:
     result = s.buffer[s.pos]
   else:
@@ -219,14 +222,19 @@ proc readRawByte*(s: Source): byte =
 
 
 proc writeStorageKind*(s: Source, kind: StorageKind) =
+  ## Writes the storage kind, `kind`, to the buffer and advances to the next
+  ## byte.
   s.writeRawByte(byte(ord(kind)))
 
 
-proc readStorageKind*(s: Source): StorageKind =
-  cast[StorageKind](s.readRawByte())
+  ## Reads the current byte as a `StorageKind` and advances to the next byte.
+  ## If the buffer is not exhausted, it asserts that the read kind matches
+  ## `expected`.
 
 
 func bytesForRange*(rangeSize: uint64): int =
+  ## Determines the number of bytes required to store a range of size
+  ## `rangeSize`.
   if rangeSize <= 0xFF'u64: 1
   elif rangeSize <= 0xFFFF'u64: 2
   elif rangeSize <= 0xFFFFFFFF'u64: 4
@@ -234,16 +242,25 @@ func bytesForRange*(rangeSize: uint64): int =
 
 
 proc writeRawBytes*(s: Source, val: uint64, bytes: int) =
+  ## Writes upto `bytes` worth of bytes from `val`.
+  # TODO: use an int range type from 1-8 for `bytes`
+  assert bytes >= 1, "bytes less than 1: " & $bytes
+  assert bytes <= sizeof(val), "bytes greater than 8: " & $bytes
   for i in 0 ..< bytes:
     s.writeRawByte(byte((val shr (i * 8)) and 0xFF))
 
 
 proc readRawBytes*(s: Source, bytes: int): uint64 =
+  ## Read upto `bytes` worth of bytes and returns them.
+  # TODO: use an int range type from 1-8 for `bytes`
+  assert bytes >= 1, "bytes less than 1: " & $bytes
+  assert bytes <= sizeof(result), "bytes greater than 8: " & $bytes
   for i in 0 ..< bytes:
     result = result or (uint64(s.readRawByte()) shl (i * 8))
 
 
 proc getScalarBytes*(kind: ScalarStorageKind): int =
+  ## Determines the number of bytes that `kind` requires.
   case kind
   of skByte:   1
   of sk2Bytes: 2
@@ -252,6 +269,10 @@ proc getScalarBytes*(kind: ScalarStorageKind): int =
 
 
 proc rngNextBytes*(s: Source, bytes: int): uint64 =
+  ## Generate and return `bytes` worth RNG bytes.
+  # TODO: use an int range type from 1-8 for `bytes`
+  assert bytes >= 1, "bytes less than 1: " & $bytes
+  assert bytes <= sizeof(result), "bytes greater than 8: " & $bytes
   var val: uint64 = s.rng.next()
   if bytes < 8:
     let mask = (1'u64 shl (bytes * 8)) - 1
@@ -264,6 +285,8 @@ proc rngNextUInt32(s: Source): uint32 =
 
 
 proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
+  ## When the Source `s`, is recording, produces a random scalar of `kind`,
+  ## otherwise reads a scalar of `kind` from the buffer.
   let bytes = getScalarBytes(kind)
   if s.recording:
     result = s.rngNextBytes(bytes)
@@ -294,12 +317,17 @@ proc readRangeData(s: Source, currentRangeSize: uint64): uint64 =
 
 proc recordRange*(s: Source, rangeSize, offset: uint64,
                   kind: ScalarStorageKind) =
+  ## Records the range specified by `rangeSize`, `offset`, and `kind into the
+  ## Source `s`.
   s.writeStorageKind(skRange)
   s.recordRangeData(rangeSize, offset, kind)
 
 
 proc chooseRange*(s: Source, min, max: uint64,
                   kind: ScalarStorageKind): uint64 =
+  ## Reads a scalar of size `kind` into a uint64 between `min` and `max` from
+  ## Source `s`. When recording, this inserts random numbers into the Source
+  ## buffer, otherwise it reads from the buffer.
   let rangeSize = max - min
   if s.recording:
     let
@@ -334,6 +362,9 @@ template renumerateUint64ToInt64(x: uint64): int64 =
 
 proc chooseRange*(s: Source, min, max: int64,
                   scalarKind: ScalarStorageKind): int64 =
+  ## Reads a scalar of size `kind` into a int64 between `min` and `max` from
+  ## Source `s`. When recording, this inserts random numbers into the Source
+  ## buffer, otherwise it reads from the buffer.
   let
     uMin = renumerateInt64ToUint64(min)
     uMax = renumerateInt64ToUint64(max)
@@ -341,6 +372,7 @@ proc chooseRange*(s: Source, min, max: int64,
 
 
 proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
+  ## Reads `bytes` worth of bytes from `buffer` at position `pos` as a uint64.
   for i in 0 ..< bytes:
     assert pos + i < buffer.len, "decodeUint64 buffer ran out before end of scalar"
     result = result or (uint64(buffer[pos + i]) shl (i * 8))
@@ -479,11 +511,13 @@ proc float64ToOrdinal*(f: float64): int64 =
 
 
 proc ordinalToFloat64*(o: int64): float64 =
+  ## Converts ordinal value `o` to a float64.
   if o >= 0: result = cast[float64](cast[uint64](o))
   else: result = cast[float64](cast[uint64](-o) or 0x8000000000000000'u64)
 
 
 proc float32ToOrdinal*(f: float32): int32 =
+  ## Converts float `f` to an `int32` ordinal.
   let bits = cast[uint32](f)
   if (bits and 0x80000000'u32) == 0:
     result = cast[int32](bits)
@@ -492,11 +526,13 @@ proc float32ToOrdinal*(f: float32): int32 =
 
 
 proc ordinalToFloat32*(o: int32): float32 =
+  ## Converts ordinal value `o` to a float32.
   if o >= 0: result = cast[float32](cast[uint32](o))
   else: result = cast[float32](cast[uint32](-o) or 0x80000000'u32)
 
 
 proc ordinalToRank*(o: int64): uint64 =
+  ## Converts an ordinal `o` to an uint64.
   if o >= 0: result = uint64(o) shl 1
   else: result = (uint64(-o) shl 1) - 1
 
@@ -532,7 +568,6 @@ proc filter*[T](g: sink Gen[T], pred: sink proc(x: T): bool, maxRetries: int = 1
   ## raising a `FilterExhaustedError` if exceeded.
   return proc(s: Source): T =
     # This loop requires care to avoid infinite loops.
-    # We should probably limit retries.
 
     # Try first attempt
     result = g(s)
@@ -756,62 +791,79 @@ proc genInt*(): Gen[int] =
 
 
 proc genInt8*(min, max: int8): Gen[int8] =
+  ## Generate an int8 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genInt8*(): Gen[int8] = genInt8(low(int8), high(int8))
+  ## Create an int8 arbitrary for the full int8 range.
 
 
 proc genInt16*(min, max: int16): Gen[int16] =
+  ## Generate an int16 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genInt16*(): Gen[int16] = genInt16(low(int16), high(int16))
+  ## Create an int16 arbitrary for the full int16 range.
 
 
 proc genInt32*(min, max: int32): Gen[int32] =
+  ## Generate an int32 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genInt32*(): Gen[int32] = genInt32(low(int32), high(int32))
+  ## Create an int32 arbitrary for the full int32 range.
 
 
 proc genInt64*(min, max: int64): Gen[int64] =
+  ## Generate an int64 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genInt64*(): Gen[int64] = genInt64(low(int64), high(int64))
+  ## Create an int64 arbitrary for the full int64 range.
 
 
 proc genUint8*(min, max: uint8): Gen[uint8] =
+  ## Generate an uint8 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genUint8*(): Gen[uint8] = genUint8(low(uint8), high(uint8))
+  ## Create an uint8 arbitrary for the full uint8 range.
 
 
 proc genUint16*(min, max: uint16): Gen[uint16] =
+  ## Generate an uint16 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genUint16*(): Gen[uint16] = genUint16(low(uint16), high(uint16))
+  ## Create an uint16 arbitrary for the full uint16 range.
 
 
 proc genUint32*(min, max: uint32): Gen[uint32] =
+  ## Generate an uint32 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genUint32*(): Gen[uint32] = genUint32(low(uint32), high(uint32))
+  ## Create an uint32 arbitrary for the full uint32 range.
 
 
 proc genUint64*(min, max: uint64): Gen[uint64] =
+  ## Generate an uint64 arbitrary for the range [min, max].
   genScalar(min, max)
 
 
 proc genUint64*(): Gen[uint64] = genUint64(low(uint64), high(uint64))
+  ## Create an uint64 arbitrary for the full uint64 range.
 
 
 proc genEnum*[T: enum](min, max: T): Gen[T] =
+  ## Generate an enum arbitrary of type `T` for the range [min, max].
   assert min <= max
   when T is OrdinalEnum:
     genScalar(min, max)
@@ -820,6 +872,7 @@ proc genEnum*[T: enum](min, max: T): Gen[T] =
 
 
 proc genEnum*[T: enum](): Gen[T] =
+  ## Create an enum arbitrary of type `T` for the full uint64 range.
   genEnum[T](T.low, T.high)
 
 
@@ -941,18 +994,24 @@ proc genFloatScalar[T: SomeFloat](min, max: T,
 proc genFloat64*(min, max: float64 = NaN,
                  allowNaN: bool = false, allowInf: bool = true,
                  allowSubnormal: bool = true): Gen[float64] =
+  ## Generate an float64 arbitrary for the range [min, max], with flags to
+  ## control whether NaN, Inf, and Subnormal values are allowed.
   genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
 proc genFloat32*(min, max: float32 = NaN,
                  allowNaN: bool = false, allowInf: bool = true,
                  allowSubnormal: bool = true): Gen[float32] =
+  ## Generate an float32 arbitrary for the range [min, max], with flags to
+  ## control whether NaN, Inf, and Subnormal values are allowed.
   genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
 proc genFloat*(min, max: float = NaN,
                allowNaN: bool = false, allowInf: bool = true,
                allowSubnormal: bool = true): Gen[float] =
+  ## Generate an float arbitrary for the range [min, max], with flags to
+  ## control whether NaN, Inf, and Subnormal values are allowed.
   genFloatScalar(min, max, allowNaN, allowInf, allowSubnormal)
 
 
@@ -1019,6 +1078,8 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
     discard
 
 iterator candidates*(buffer: seq[byte]): seq[byte] =
+  ## Take the `buffer` and produces a set of candidate buffers that are shrinks
+  ## of the original. 
   if buffer.len > 0:
     yield @[]
 
