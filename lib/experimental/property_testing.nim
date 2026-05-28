@@ -687,9 +687,9 @@ proc genExhaustiveRanked[T: Ordinal](min, max, simplest: T): Gen[T] =
 proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T,
                               kind: ScalarStorageKind): T =
   let
-    minO = when T is SomeInteger: cast[int64](min) else: cast[int64](ord(min))
-    maxO = when T is SomeInteger: cast[int64](max) else: cast[int64](ord(max))
-    simplestO = when T is SomeInteger: cast[int64](simplest) else: cast[int64](ord(simplest))
+    minO = cast[int64](min)
+    maxO = cast[int64](max)
+    simplestO = cast[int64](simplest)
     uMin = renumerateInt64ToUint64(minO)
     uMax = renumerateInt64ToUint64(maxO)
     uSimp = renumerateInt64ToUint64(simplestO)
@@ -700,7 +700,7 @@ proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T,
   let rank = s.chooseRange(0'u64, rangeSize, kind)
   let uRes = rankToOrdinal(rank, uMin, uMax, uSimp)
   let o = renumerateUint64ToInt64(uRes)
-  return when T is SomeInteger: cast[T](o) else: cast[T](int(o))
+  return cast[T](o)
 
 
 proc genFromList*[T](vals: sink seq[T], simplestIdx: int = 0): Gen[T] =
