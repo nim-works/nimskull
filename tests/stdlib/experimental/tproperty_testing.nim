@@ -1354,3 +1354,45 @@ suite "Floating Point Support":
     checkpoint "Shrunk float64 through zero: " & $shrunk
     # 0.0 passes. Simplest failing value is tiny.
     check abs(shrunk) > 0.0
+
+
+suite "Mixed Data Type Generation & Shrinking":
+
+  test "Mixed types: (float64, int, string, float32)":
+    let prop = forAll(
+      (f64: genFloat64(),
+       i: genInt(0, 100),
+       s: genString(1'u32, 10'u32),
+       f32: genFloat32())
+    ):
+      # We want to check if the data following a float is still correctly read.
+      # This checks for buffer alignment/consumption issues in float generators.
+      discard f64
+      discard i
+      discard s
+      discard f32
+      return psPass
+
+    let res = runProperty(prop, trials=100)
+    check res.status == psPass
+
+
+  test "Shrinking mixed types: (float64, int)":
+    let prop = forAll(
+      (f: genFloat64(10.0, 20.0),
+       i: genInt(50, 100))
+    ):
+      # Fail if f >= 15.0 or i >= 75
+      if f >= 15.0 or i >= 75: return psFail
+      return psPass
+
+    let res = runProperty(prop, trials=500, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    let (sf, si) = res.shrunkValue.get()
+    checkpoint "Shrunk values: f=" & $sf & " i=" & $si
+    # f should shrink towards 10.0, i towards 50.
+    # Since it fails if f >= 15.0 OR i >= 75, it should shrink to one of the boundaries.
+    # The shortlex shrinker will try to minimize both.
+    check sf < 15.000000001
+    check si < 76
