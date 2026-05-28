@@ -148,7 +148,8 @@ type
   PropertyStatus* = enum
     psPass,
     psFail,
-    psDiscard # Discard is for preconditions not met
+    psDiscard, # Discard is for preconditions not met
+    psError    # Error is for unexpected generator crashes
 
   Property*[T] = object
     gen*: Gen[T]
@@ -1241,17 +1242,21 @@ proc evaluate[T](p: Property[T], s: Source): (PropertyStatus, T, Option[string])
   ## capturing any exceptions.
   try:
     result[1] = p.gen(s)
-    result[0] = p.check(result[1])
   except FilterExhaustedError:
-    result[0] = psDiscard
+    return (psDiscard, default(T), none(string))
   except SourceLimitExceededError:
-    result[0] = psDiscard
-  except CatchableError as e:
+    return (psDiscard, default(T), none(string))
+  except:
+    let e = getCurrentException()
+    return (psError, default(T), some(if e != nil: e.msg
+                                      else: "Unknown error during generation"))
+
+  try:
+    result[0] = p.check(result[1])
+  except:
+    let e = getCurrentException()
     result[0] = psFail
-    result[2] = some(e.msg)
-  except Exception as e:
-    result[0] = psFail
-    result[2] = some(e.msg)
+    result[2] = some(if e != nil: e.msg else: "Unknown error during check")
 
 
 proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
@@ -1292,6 +1297,13 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       continue
 
     result.runCount.inc
+
+    if status == psError:
+      result.status = psFail
+      result.failingValue = some(val)
+      result.failingBuffer = s.buffer
+      result.errorMsg = valErrorMsg
+      return
 
     if status == psFail:
       # Found failure!
