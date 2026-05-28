@@ -501,27 +501,21 @@ proc ordinalToRank*(o: int64): uint64 =
   else: result = (uint64(-o) shl 1) - 1
 
 
-proc rankToOrdinal*(r: uint64, minOrd, maxOrd, simplestOrd: int64): int64 =
-  ## Maps a non-negative rank back to an int64 ordinal within [minOrd, maxOrd],
-  ## centering on simplestOrd.
+proc rankToOrdinal*(r: uint64, uMin, uMax, uSimp: uint64): uint64 =
+  ## Maps a non-negative rank back to a uint64 value within [uMin, uMax],
+  ## centering on uSimp.
   let
-    uMin = cast[uint64](minOrd)
-    uMax = cast[uint64](maxOrd)
-    uSimp = cast[uint64](simplestOrd)
     numBelow = uSimp - uMin
     numAbove = uMax - uSimp
     common = min(numBelow, numAbove)
 
-  var resU: uint64
   if r <= 2 * common:
-    if (r and 1) != 0: resU = uSimp - ((r + 1) shr 1)
-    else: resU = uSimp + (r shr 1)
+    if (r and 1) != 0: result = uSimp - ((r + 1) shr 1)
+    else: result = uSimp + (r shr 1)
   elif numBelow > numAbove:
-    resU = uSimp - (r - common)
+    result = uSimp - (r - common)
   else:
-    resU = uSimp + (r - common)
-
-  return cast[int64](resU)
+    result = uSimp + (r - common)
 
 
 # MARK: Combinators
@@ -627,10 +621,14 @@ proc genExhaustiveRanked[T: Ordinal](min, max, simplest: T): Gen[T] =
     minO = when T is SomeInteger: cast[int64](min) else: cast[int64](ord(min))
     maxO = when T is SomeInteger: cast[int64](max) else: cast[int64](ord(max))
     simplestO = when T is SomeInteger: cast[int64](simplest) else: cast[int64](ord(simplest))
-    rangeSize = cast[uint64](maxO) - cast[uint64](minO)
+    uMin = renumerateInt64ToUint64(minO)
+    uMax = renumerateInt64ToUint64(maxO)
+    uSimp = renumerateInt64ToUint64(simplestO)
+    rangeSize = uMax - uMin
 
   genExhaustive(rangeSize + 1,
-                rank => (let o = rankToOrdinal(rank, minO, maxO, simplestO);
+                rank => (let uRes = rankToOrdinal(rank, uMin, uMax, uSimp);
+                         let o = renumerateUint64ToInt64(uRes);
                          when T is SomeInteger: cast[T](o) else: cast[T](int(o))))
 
 
@@ -640,12 +638,16 @@ proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T,
     minO = when T is SomeInteger: cast[int64](min) else: cast[int64](ord(min))
     maxO = when T is SomeInteger: cast[int64](max) else: cast[int64](ord(max))
     simplestO = when T is SomeInteger: cast[int64](simplest) else: cast[int64](ord(simplest))
-    rangeSize = cast[uint64](maxO) - cast[uint64](minO)
+    uMin = renumerateInt64ToUint64(minO)
+    uMax = renumerateInt64ToUint64(maxO)
+    uSimp = renumerateInt64ToUint64(simplestO)
+    rangeSize = uMax - uMin
 
   if rangeSize == 0: return simplest
 
   let rank = s.chooseRange(0'u64, rangeSize, kind)
-  let o = rankToOrdinal(rank, minO, maxO, simplestO)
+  let uRes = rankToOrdinal(rank, uMin, uMax, uSimp)
+  let o = renumerateUint64ToInt64(uRes)
   return when T is SomeInteger: cast[T](o) else: cast[T](int(o))
 
 
@@ -926,7 +928,10 @@ proc genFloatScalar[T: SomeFloat](min, max: T,
         tgtKind = when T is float64: sk8Bytes else: sk4Bytes
 
       let rank = s.chooseRange(0'u64, rangeSize, tgtKind)
-      let o = rankToOrdinal(rank, minOrd, maxOrd, simplestOrd)
+      let uRes = rankToOrdinal(rank, renumerateInt64ToUint64(minOrd),
+                                     renumerateInt64ToUint64(maxOrd),
+                                     renumerateInt64ToUint64(simplestOrd))
+      let o = renumerateUint64ToInt64(uRes)
 
       let res = when T is float64: ordinalToFloat64(o) else: T(ordinalToFloat32(int32(o)))
       if not allowSubnormal and classify(res) == fcSubnormal: return T(0.0)
