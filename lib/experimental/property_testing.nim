@@ -304,7 +304,7 @@ proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
   ##
   ## Structural Verification:
   ## During replay, this uses `readStorageKind(kind)` to ensure the buffer
-  ## is structurally compatible. If the buffer is exhausted, it returns a 
+  ## is structurally compatible. If the buffer is exhausted, it returns a
   ## safe default (0) without crashing.
   let bytes = getScalarBytes(kind)
   if s.recording:
@@ -1020,6 +1020,7 @@ proc genFloatScalar[T: SomeFloat](min, max: T,
         if not allowSubnormal and classify(res) == fcSubnormal: T(0.0)
         else: res
 
+
 proc genFloat64*(min, max: float64 = NaN,
                  allowNaN: bool = false, allowInf: bool = true,
                  allowSubnormal: bool = true): Gen[float64] =
@@ -1108,7 +1109,7 @@ proc collectNodes(nodes: var seq[(int, StorageKind)], buf: seq[byte], pos: int) 
 
 iterator candidates*(buffer: seq[byte]): seq[byte] =
   ## Take the `buffer` and produces a set of candidate buffers that are shrinks
-  ## of the original. 
+  ## of the original.
   if buffer.len > 0:
     yield @[]
 

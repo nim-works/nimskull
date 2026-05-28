@@ -778,6 +778,7 @@ suite "Collection Generators":
       for e in s:
         check e in {E.low .. E.high}
 
+
 # MARK: Shrinking Engine & Internals
 suite "Shrinking Engine & Internals":
 
@@ -1069,6 +1070,7 @@ suite "Combinators":
       check res.status == psFail
       check res.shrunkValue.get().len == 3
       check res.shrunkValue.get() == @[byte(0), byte(0), byte(0)]
+
 
 # MARK: Tuples & Procedures
 suite "Tuples & Procedures":
@@ -1403,11 +1405,11 @@ suite "Mixed Data Type Generation & Shrinking":
       (f: genFloat64(allowInf = true),
        i: genInt(100, 100)) # Always 100
     ):
-      # Fail if float is Infinity. 
+      # Fail if float is Infinity.
       # This forces the shrinker to explore the 'Inf' branch of genFloatScalar.
       # If the stream is corrupted, reading 'i' will fail or get a wrong value.
-      if f.classify == fcInf: 
-        if i != 100: 
+      if f.classify == fcInf:
+        if i != 100:
           return psError # Stream corruption
         return psFail
       return psPass
