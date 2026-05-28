@@ -741,7 +741,7 @@ proc genEnumImpl[T: enum](vals: sink seq[T]): Gen[T] =
 
 proc genExhaustive*[T](vals: sink seq[T]): Gen[T] =
   ## Creates a generator producing values that are part of `vals`.
-  genExhaustive(uint64(vals.len), (idx) => vals[int(idx)])
+  genExhaustive(uint64(vals.len), (idx) => vals[idx])
 
 
 proc genScalar[T: Ordinal](min, max: T): Gen[T] =
@@ -1154,7 +1154,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
               copy.delete(delStart .. delEnd)
             yield copy
             i.inc
-          k = k div 2
+          k.dec
 
   template numberShrinker(val: uint64, p: int, vBytes: int, buffer: seq[byte]) =
     if val != 0:

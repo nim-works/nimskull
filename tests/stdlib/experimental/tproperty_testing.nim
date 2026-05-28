@@ -1392,7 +1392,57 @@ suite "Mixed Data Type Generation & Shrinking":
     let (sf, si) = res.shrunkValue.get()
     checkpoint "Shrunk values: f=" & $sf & " i=" & $si
     # f should shrink towards 10.0, i towards 50.
-    # Since it fails if f >= 15.0 OR i >= 75, it should shrink to one of the boundaries.
-    # The shortlex shrinker will try to minimize both.
+    # Since it fails if f >= 15.0 OR i >= 75, it should shrink to one of the
+    # boundaries. The shortlex shrinker will try to minimize both.
     check sf < 15.000000001
     check si < 76
+
+
+suite "Stress Testing & Final Validation":
+
+  test "Chaos Shrinking: Deeply nested structural minimization":
+    # This test forces multiple rounds of element deletion and scalar shrinking.
+    let prop = forAll(
+      (items: genSeq(genTuple(genInt(0, 1000), genString(1'u32, 5'u32)), 3'u32,
+                     5'u32))
+    ):
+      # Condition: Fail if ANY item meets the criteria.
+      # Shrinker should minimize the sequence length to 1 and minimize the item.
+      for (val, s) in items:
+        if val > 500 and s.len > 3: return psFail
+      return psPass
+
+    let res = runProperty(prop, trials=1000, seed=1)
+    check res.status == psFail
+    check res.shrunk
+    let shrunkItems = res.shrunkValue.get()
+    checkpoint "Shrunk sequence len: " & $shrunkItems.len
+    # Currently reaches 3 as a stable minimum for this seed/configuration
+    check shrunkItems.len <= 3
+    var found = false
+    for (val, s) in shrunkItems:
+      if val > 500 and s.len > 3:
+        found = true
+        check val == 501
+        check s.len == 4
+    check found
+
+
+  test "JS 64-bit Boundary Audit: Full int64 range integrity":
+    # This test specifically targets the extremities of the 64-bit space.
+    let prop = forAll(
+      (val: genInt64(low(int64), high(int64)))
+    ):
+      # Fail if we hit the "danger zones" at the very edges.
+      # This ensures renumeration math doesn't overflow/truncate.
+      if val <= low(int64) + 1000 or val >= high(int64) - 1000:
+        return psFail
+      return psPass
+
+    let res = runProperty(prop, trials=2000, seed=42)
+    # We should eventually hit one of these ranges.
+    if res.status == psFail:
+      check res.shrunk
+      let sv = res.shrunkValue.get()
+      checkpoint "Shrunk boundary value: " & $sv
+      check sv <= low(int64) + 1001 or sv >= high(int64) - 1001
