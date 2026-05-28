@@ -1398,6 +1398,30 @@ suite "Mixed Data Type Generation & Shrinking":
     check si < 76
 
 
+  test "Float stream alignment: (float64, int) shrinking":
+    let prop = forAll(
+      (f: genFloat64(allowInf = true),
+       i: genInt(100, 100)) # Always 100
+    ):
+      # Fail if float is Infinity. 
+      # This forces the shrinker to explore the 'Inf' branch of genFloatScalar.
+      # If the stream is corrupted, reading 'i' will fail or get a wrong value.
+      if f.classify == fcInf: 
+        if i != 100: 
+          return psError # Stream corruption
+        return psFail
+      return psPass
+
+    let res = runProperty(prop, trials=1000, seed=2)
+    # Depending on seed, we might hit Inf.
+    if res.status == psFail:
+      check res.shrunk
+      let (sf, si) = res.shrunkValue.get()
+      checkpoint "Shrunk float: " & $sf & " int: " & $si
+      if sf.classify == fcInf:
+        check si == 100
+
+
 suite "Stress Testing & Final Validation":
 
   test "Chaos Shrinking: Deeply nested structural minimization":

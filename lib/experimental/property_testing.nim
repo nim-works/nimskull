@@ -977,27 +977,30 @@ proc genFloatScalar[T: SomeFloat](min, max: T,
     if choice > 90 and classes.len > 1:
       cls = classes[int((choice - 91) mod uint64(classes.len - 1)) + 1]
 
+    let
+      fHigh = when T is float64: 1.7976931348623157e+308 else: 3.4028235e+38f
+      actualMin = if classify(min) == fcNaN: (if allowInf: T(-Inf) else: T(-fHigh)) else: min
+      actualMax = if classify(max) == fcNaN: (if allowInf: T(Inf) else: T(fHigh)) else: max
+      minOrd = when T is float64: float64ToOrdinal(actualMin) else: int64(float32ToOrdinal(actualMin))
+      maxOrd = when T is float64: float64ToOrdinal(actualMax) else: int64(float32ToOrdinal(actualMax))
+      simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: T(0.0)
+      simplestOrd = when T is float64: float64ToOrdinal(simplest) else: int64(float32ToOrdinal(simplest))
+
+      numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
+      numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
+      rangeSize = numBelow + numAbove
+      tgtKind = when T is float64: sk8Bytes else: sk4Bytes
+
+    # always pick a rank, so that the same number of bytes written/read
+    # is the same every time
+    let rank = s.chooseRange(0'u64, rangeSize, tgtKind)
+
     case cls
     of 1: return T(-0.0)
     of 2: return T(Inf)
     of 3: return T(-Inf)
     of 4: return T(NaN)
     else:
-      let
-        fHigh = when T is float64: 1.7976931348623157e+308 else: 3.4028235e+38f
-        actualMin = if classify(min) == fcNaN: (if allowInf: T(-Inf) else: T(-fHigh)) else: min
-        actualMax = if classify(max) == fcNaN: (if allowInf: T(Inf) else: T(fHigh)) else: max
-        minOrd = when T is float64: float64ToOrdinal(actualMin) else: int64(float32ToOrdinal(actualMin))
-        maxOrd = when T is float64: float64ToOrdinal(actualMax) else: int64(float32ToOrdinal(actualMax))
-        simplest = if actualMin > 0: actualMin elif actualMax < 0: actualMax else: T(0.0)
-        simplestOrd = when T is float64: float64ToOrdinal(simplest) else: int64(float32ToOrdinal(simplest))
-
-        numBelow = cast[uint64](simplestOrd) - cast[uint64](minOrd)
-        numAbove = cast[uint64](maxOrd) - cast[uint64](simplestOrd)
-        rangeSize = numBelow + numAbove
-        tgtKind = when T is float64: sk8Bytes else: sk4Bytes
-
-      let rank = s.chooseRange(0'u64, rangeSize, tgtKind)
       let uRes = rankToOrdinal(rank, renumerateInt64ToUint64(minOrd),
                                      renumerateInt64ToUint64(maxOrd),
                                      renumerateInt64ToUint64(simplestOrd))
