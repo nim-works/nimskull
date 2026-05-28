@@ -1325,6 +1325,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
         bestVal = val
         bestErrorMsg = valErrorMsg
         attempts = 0
+        validProbes = false
 
       # Shrink loop
       var improved = true
@@ -1342,6 +1343,9 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
           var sCand = newSource(cand)
           let (cStatus, cVal, cErrorMsg) = p.evaluate(sCand)
 
+          if cStatus != psError:
+            validProbes = true
+
           if cStatus == psFail:
             # Our candidates iterator uses AST heuristics to generate strictly
             # smaller or simpler candidate buffers.
@@ -1354,6 +1358,9 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             break # Restart candidates iterator with new bestBuffer
 
         if attempts > 100000: break
+
+      if validProbes:
+        result.shrunk = true
 
       result.shrunkBuffer = bestBuffer
       result.shrunkValue = some(bestVal)
