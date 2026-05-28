@@ -120,6 +120,7 @@ from std/strutils import repeat
 
 type
   StorageKind* = enum
+    ## Defines the different types of data storage in the source buffer.
     skByte         ## 1 byte
     sk2Bytes       ## 2 bytes
     sk4Bytes       ## 4 bytes
@@ -133,6 +134,7 @@ type
   ScalarStorageKind = range[skByte..sk8Bytes]
 
   Source* = ref object
+    ## A source of randomness and a record of choices made by generators.
     rng: Rand
     buffer*: seq[byte]
     pos: int
@@ -146,17 +148,23 @@ type
   Gen*[T] = proc(s: Source): T
 
   PropertyStatus* = enum
+    ## Represents the result of a single property test execution.
     psPass,
     psFail,
     psDiscard, # Discard is for preconditions not met
     psError    # Error is for unexpected generator crashes
 
   Property*[T] = object
+    ## Represents a property to be tested, consisting of a generator and a
+    ## predicate function.
     gen*: Gen[T]
     check*: proc(x: T): PropertyStatus
 
   SourceLimitExceededError* = object of CatchableError
+    ## Error raised when a source exceeds its allocated byte limit.
   FilterExhaustedError* = object of CatchableError
+    ## Error raised when a filter fails to find a valid value after its maximum
+    ## number of retries.
 
 
 # MARK: Source Implementation
@@ -201,7 +209,7 @@ proc newSource*(buffer: sink seq[byte]): Source =
 
 
 proc writeRawByte*(s: Source, b: byte) =
-  # When recording writes the byte `b` to the buffer, otherwise ignores it.
+  ## When recording writes the byte `b` to the buffer, otherwise ignores it.
   if s.recording:
     if s.buffer.len >= s.limit:
       raise newException(SourceLimitExceededError, "Source limit exceeded")
@@ -1308,6 +1316,8 @@ proc treeRepr*(buffer: seq[byte]): string =
 
 type
   TestResult*[T] = object
+    ## The results of running a property test, including failure details and
+    ## shrinking results if a failure was found.
     status*: PropertyStatus
     runCount*: int
     seed*: uint32
@@ -1550,6 +1560,8 @@ proc hashArg[T](x: T): uint32 =
 
 
 proc genProc*[R](retGen: sink Gen[R]): Gen[proc(): R] =
+  ## Create a generator for a procedure that takes no arguments and returns a
+  ## value of type R produced by retGen.
   return proc(s: Source): proc(): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(): R =
@@ -1559,6 +1571,8 @@ proc genProc*[R](retGen: sink Gen[R]): Gen[proc(): R] =
       return retGen(src)
 
 proc genProc1*[T1, R](retGen: sink Gen[R]): Gen[proc(a: T1): R] =
+  ## Create a generator for a procedure that takes one argument of type T1 and
+  ## returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1): R =
@@ -1568,6 +1582,8 @@ proc genProc1*[T1, R](retGen: sink Gen[R]): Gen[proc(a: T1): R] =
       return retGen(src)
 
 proc genProc2*[T1, T2, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2): R] =
+  ## Create a generator for a procedure that takes two arguments of types T1
+  ## and T2, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2): R =
@@ -1578,6 +1594,8 @@ proc genProc2*[T1, T2, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2): R] =
       return retGen(src)
 
 proc genProc3*[T1, T2, T3, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R] =
+  ## Create a generator for a procedure that takes three arguments of types T1,
+  ## T2, and T3, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3): R =
@@ -1589,6 +1607,8 @@ proc genProc3*[T1, T2, T3, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3
       return retGen(src)
 
 proc genProc4*[T1, T2, T3, T4, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4): R] =
+  ## Create a generator for a procedure that takes four arguments of types T1,
+  ## T2, T3, and T4, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4): R =
@@ -1601,6 +1621,8 @@ proc genProc4*[T1, T2, T3, T4, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c
       return retGen(src)
 
 proc genProc5*[T1, T2, T3, T4, T5, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5): R] =
+  ## Create a generator for a procedure that takes five arguments of types T1,
+  ## T2, T3, T4, and T5, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
@@ -1614,6 +1636,8 @@ proc genProc5*[T1, T2, T3, T4, T5, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T
       return retGen(src)
 
 proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R] =
+  ## Create a generator for a procedure that takes six arguments of types T1
+  ## through T6, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
@@ -1625,6 +1649,8 @@ proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: sink Gen[R]): Gen[proc(a: T1, 
       return retGen(src)
 
 proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R] =
+  ## Create a generator for a procedure that takes seven arguments of types T1
+  ## through T7, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
@@ -1637,6 +1663,8 @@ proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: sink Gen[R]): Gen[proc(a: 
       return retGen(src)
 
 proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R] =
+  ## Create a generator for a procedure that takes eight arguments of types T1
+  ## through T8, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
@@ -1649,6 +1677,8 @@ proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: sink Gen[R]): Gen[proc
       return retGen(src)
 
 proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R] =
+  ## Create a generator for a procedure that takes nine arguments of types T1
+  ## through T9, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
@@ -1662,6 +1692,8 @@ proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: sink Gen[R]): Gen[
       return retGen(src)
 
 proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R] =
+  ## Create a generator for a procedure that takes ten arguments of types T1
+  ## through T10, and returns a value of type R produced by retGen.
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
@@ -1678,6 +1710,8 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: sink Gen[R])
 # Void return variants
 
 proc genVoidProc*(): Gen[proc()] =
+  ## Create a generator for a procedure that takes no arguments and returns
+  ## nothing.
   return proc(s: Source): proc() =
     # Function with no return value and no args doesn't need to do anything
     # other than exist.
@@ -1688,6 +1722,8 @@ proc genVoidProc*(): Gen[proc()] =
 # They are essentially sinks.
 
 macro genVoidProcN*(T: varargs[typedesc]): untyped =
+  ## Create a generator for a procedure that takes arguments of types specified
+  ## by T and returns nothing.
   var args = @[bindSym"void"]
 
   let names = toSeq('a'..'z').mapIt($it)
