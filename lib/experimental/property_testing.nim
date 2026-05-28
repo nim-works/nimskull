@@ -229,8 +229,11 @@ proc writeStorageKind*(s: Source, kind: StorageKind) =
 
 proc readStorageKind*(s: Source, expected: StorageKind): StorageKind =
   ## Reads the current byte as a `StorageKind` and advances to the next byte.
+  ##
+  ## Structural Resilience:
   ## If the buffer is not exhausted, it asserts that the read kind matches
-  ## `expected`.
+  ## `expected`. If the buffer is exhausted, it returns `expected` without
+  ## asserting, allowing the caller to return a safe default value.
   result = cast[StorageKind](s.readRawByte())
   if s.pos <= s.buffer.len:
     assert result == expected, "Expected " & $expected & ", got " & $result
@@ -289,8 +292,13 @@ proc rngNextUInt32(s: Source): uint32 =
 
 
 proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
-  ## When the Source `s`, is recording, produces a random scalar of `kind`,
-  ## otherwise reads a scalar of `kind` from the buffer.
+  ## Produces a random scalar of `kind` when recording, otherwise reads a
+  ## scalar of `kind` from the buffer.
+  ##
+  ## Structural Verification:
+  ## During replay, this uses `readStorageKind(kind)` to ensure the buffer
+  ## is structurally compatible. If the buffer is exhausted, it returns a 
+  ## safe default (0) without crashing.
   let bytes = getScalarBytes(kind)
   if s.recording:
     result = s.rngNextBytes(bytes)
@@ -303,7 +311,8 @@ proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
 
 proc recordRangeData(s: Source, rangeSize, offset: uint64,
                      kind: ScalarStorageKind) =
-  ## Writes a naked range (no StorageKind tag) to the source.
+  ## Writes a naked range (no `skRange` tag) to the source, using `kind` to
+  ## size the rangeSize field.
   s.writeStorageKind(kind)
   s.writeRawBytes(rangeSize, getScalarBytes(kind))
   s.writeRawBytes(offset, bytesForRange(rangeSize))
@@ -311,11 +320,11 @@ proc recordRangeData(s: Source, rangeSize, offset: uint64,
 
 proc readRangeData(s: Source, currentRangeSize: uint64,
                    kind: ScalarStorageKind): uint64 =
-  ## Reads a range from the source, expecting `kind` sized storage.
-  # Naked ranges are always preceded by their scalar storage kind tag.
-  # We read this tag and then use it to decode the range size and offset.
-  # Since we don't know the exact kind ahead of time (it depends on the
-  # recorded range), we read it as a generic ScalarStorageKind.
+  ## Reads a naked range (no `skRange` tag) from the source, expecting `kind`
+  ## sized storage for the rangeSize.
+  ##
+  ## Structural Resilience:
+  ## If the buffer is exhausted, it returns a safe default offset (0).
   let
     tgtKind = cast[ScalarStorageKind](s.readStorageKind(kind))
     recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
@@ -325,17 +334,18 @@ proc readRangeData(s: Source, currentRangeSize: uint64,
 
 proc recordRange*(s: Source, rangeSize, offset: uint64,
                   kind: ScalarStorageKind) =
-  ## Records the range specified by `rangeSize`, `offset`, and `kind into the
-  ## Source `s`.
+  ## Records a structural range marker (`skRange`) followed by its metadata.
   s.writeStorageKind(skRange)
   s.recordRangeData(rangeSize, offset, kind)
 
 
 proc chooseRange*(s: Source, min, max: uint64,
                   kind: ScalarStorageKind): uint64 =
-  ## Reads a scalar of size `kind` into a uint64 between `min` and `max` from
-  ## Source `s`. When recording, this inserts random numbers into the Source
-  ## buffer, otherwise it reads from the buffer.
+  ## Produces a random uint64 between `min` and `max` when recording,
+  ## otherwise reads it from the buffer.
+  ##
+  ## Structural Verification:
+  ## Replay-phase reads verify structural compatibility via `skRange` tags.
   let rangeSize = max - min
   if s.recording:
     let
@@ -369,9 +379,12 @@ template renumerateUint64ToInt64(x: uint64): int64 =
 
 proc chooseRange*(s: Source, min, max: int64,
                   scalarKind: ScalarStorageKind): int64 =
-  ## Reads a scalar of size `kind` into a int64 between `min` and `max` from
-  ## Source `s`. When recording, this inserts random numbers into the Source
-  ## buffer, otherwise it reads from the buffer.
+  ## Produces a random int64 between `min` and `max` when recording,
+  ## otherwise reads it from the buffer.
+  ##
+  ## Mapping:
+  ## Uses monotonic renumeration to map the signed range to an unsigned space
+  ## centering 0.0 for high-quality shrinking.
   let
     uMin = renumerateInt64ToUint64(min)
     uMax = renumerateInt64ToUint64(max)
@@ -1308,8 +1321,12 @@ const defaultTrials* = 1024 ## number of trials to run per property
 
 
 proc evaluate[T](p: Property[T], s: Source): (PropertyStatus, T, Option[string]) =
-  ## Internal helper to run a generator and check its property status,
-  ## capturing any exceptions.
+  ## Internal helper to run a generator and check its property status.
+  ##
+  ## Error Handling:
+  ## Distinguishes between generator crashes (`psError`) and property
+  ## violations (`psFail`). This separation is critical for the shrinker
+  ## to avoid pursuing corrupted buffer states.
   try:
     result[1] = p.gen(s)
   except FilterExhaustedError:
