@@ -133,6 +133,8 @@ type
 
   ScalarStorageKind = range[skByte..sk8Bytes]
 
+  ScalarBytes* = range[1..8] ## The number of bytes used to store a scalar value.
+
   Source* = ref object
     ## A source of randomness and a record of choices made by generators.
     rng: Rand
@@ -247,7 +249,7 @@ proc readStorageKind*(s: Source, expected: StorageKind): StorageKind =
     assert result == expected, "Expected " & $expected & ", got " & $result
 
 
-func bytesForRange*(rangeSize: uint64): int =
+func bytesForRange*(rangeSize: uint64): ScalarBytes =
   ## Determines the number of bytes required to store a range of size
   ## `rangeSize`.
   if rangeSize <= 0xFF'u64: 1
@@ -256,25 +258,19 @@ func bytesForRange*(rangeSize: uint64): int =
   else: 8
 
 
-proc writeRawBytes*(s: Source, val: uint64, bytes: int) =
+proc writeRawBytes*(s: Source, val: uint64, bytes: ScalarBytes) =
   ## Writes upto `bytes` worth of bytes from `val`.
-  # TODO: use an int range type from 1-8 for `bytes`
-  assert bytes >= 1, "bytes less than 1: " & $bytes
-  assert bytes <= sizeof(val), "bytes greater than 8: " & $bytes
   for i in 0 ..< bytes:
     s.writeRawByte(byte((val shr (i * 8)) and 0xFF))
 
 
-proc readRawBytes*(s: Source, bytes: int): uint64 =
+proc readRawBytes*(s: Source, bytes: ScalarBytes): uint64 =
   ## Read upto `bytes` worth of bytes and returns them.
-  # TODO: use an int range type from 1-8 for `bytes`
-  assert bytes >= 1, "bytes less than 1: " & $bytes
-  assert bytes <= sizeof(result), "bytes greater than 8: " & $bytes
   for i in 0 ..< bytes:
     result = result or (uint64(s.readRawByte()) shl (i * 8))
 
 
-proc getScalarBytes*(kind: ScalarStorageKind): int =
+proc getScalarBytes*(kind: ScalarStorageKind): ScalarBytes =
   ## Determines the number of bytes that `kind` requires.
   case kind
   of skByte:   1
@@ -283,11 +279,8 @@ proc getScalarBytes*(kind: ScalarStorageKind): int =
   of sk8Bytes: 8
 
 
-proc rngNextBytes*(s: Source, bytes: int): uint64 =
+proc rngNextBytes*(s: Source, bytes: ScalarBytes): uint64 =
   ## Generate and return `bytes` worth RNG bytes.
-  # TODO: use an int range type from 1-8 for `bytes`
-  assert bytes >= 1, "bytes less than 1: " & $bytes
-  assert bytes <= sizeof(result), "bytes greater than 8: " & $bytes
   result = s.rng.next()
   if bytes < 8:
     let mask = (1'u64 shl (bytes * 8)) - 1
@@ -398,7 +391,7 @@ proc chooseRange*(s: Source, min, max: int64,
   renumerateUint64ToInt64(chooseRange(s, uMin, uMax, scalarKind))
 
 
-proc decodeUint64*(buffer: seq[byte], pos: int, bytes: int): uint64 =
+proc decodeUint64*(buffer: seq[byte], pos: int, bytes: ScalarBytes): uint64 =
   ## Reads `bytes` worth of bytes from `buffer` at position `pos` as a uint64.
   for i in 0 ..< bytes:
     assert pos + i < buffer.len,
