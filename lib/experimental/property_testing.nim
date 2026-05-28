@@ -1437,61 +1437,61 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
 
 # MARK: Tuple Generators
 
-proc genTuple*[T](g: Gen[T]): Gen[(T,)] =
+proc genTuple*[T](g: sink Gen[T]): Gen[(T,)] =
   ## Generates a tuple of a single element.
   return proc(s: Source): (T,) =
     discard s.beginGroup(1)
     (g(s),)
 
-proc genTuple*[T1, T2](g1: Gen[T1], g2: Gen[T2]): Gen[(T1, T2)] =
+proc genTuple*[T1, T2](g1: sink Gen[T1], g2: sink Gen[T2]): Gen[(T1, T2)] =
   ## Generates a tuple of two elements.
   return proc(s: Source): (T1, T2) =
     discard s.beginGroup(2)
     (g1(s), g2(s))
 
-proc genTuple*[T1, T2, T3](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3]): Gen[(T1, T2, T3)] =
+proc genTuple*[T1, T2, T3](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3]): Gen[(T1, T2, T3)] =
   ## Generates a tuple of three elements.
   return proc(s: Source): (T1, T2, T3) =
     discard s.beginGroup(3)
     (g1(s), g2(s), g3(s))
 
-proc genTuple*[T1, T2, T3, T4](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4]): Gen[(T1, T2, T3, T4)] =
+proc genTuple*[T1, T2, T3, T4](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4]): Gen[(T1, T2, T3, T4)] =
   ## Generates a tuple of four elements.
   return proc(s: Source): (T1, T2, T3, T4) =
     discard s.beginGroup(4)
     (g1(s), g2(s), g3(s), g4(s))
 
-proc genTuple*[T1, T2, T3, T4, T5](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5]): Gen[(T1, T2, T3, T4, T5)] =
+proc genTuple*[T1, T2, T3, T4, T5](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5]): Gen[(T1, T2, T3, T4, T5)] =
   ## Generates a tuple of five elements.
   return proc(s: Source): (T1, T2, T3, T4, T5) =
     discard s.beginGroup(5)
     (g1(s), g2(s), g3(s), g4(s), g5(s))
 
-proc genTuple*[T1, T2, T3, T4, T5, T6](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6]): Gen[(T1, T2, T3, T4, T5, T6)] =
+proc genTuple*[T1, T2, T3, T4, T5, T6](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6]): Gen[(T1, T2, T3, T4, T5, T6)] =
   ## Generates a tuple of six elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6) =
     discard s.beginGroup(6)
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s))
 
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7]): Gen[(T1, T2, T3, T4, T5, T6, T7)] =
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7]): Gen[(T1, T2, T3, T4, T5, T6, T7)] =
   ## Generates a tuple of seven elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7) =
     discard s.beginGroup(7)
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s))
 
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8)] =
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7], g8: sink Gen[T8]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8)] =
   ## Generates a tuple of eight elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8) =
     discard s.beginGroup(8)
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s))
 
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] =
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7], g8: sink Gen[T8], g9: sink Gen[T9]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] =
   ## Generates a tuple of nine elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9) =
     discard s.beginGroup(9)
     (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s))
 
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: Gen[T1], g2: Gen[T2], g3: Gen[T3], g4: Gen[T4], g5: Gen[T5], g6: Gen[T6], g7: Gen[T7], g8: Gen[T8], g9: Gen[T9], g10: Gen[T10]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] =
+proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7], g8: sink Gen[T8], g9: sink Gen[T9], g10: sink Gen[T10]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] =
   ## Generates a tuple of ten elements.
   return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) =
     discard s.beginGroup(10)
@@ -1529,7 +1529,7 @@ proc hashArg[T](x: T): uint32 =
   cast[uint32](hash(x))
 
 
-proc genProc*[R](retGen: Gen[R]): Gen[proc(): R] =
+proc genProc*[R](retGen: sink Gen[R]): Gen[proc(): R] =
   return proc(s: Source): proc(): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(): R =
@@ -1538,7 +1538,7 @@ proc genProc*[R](retGen: Gen[R]): Gen[proc(): R] =
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
+proc genProc1*[T1, R](retGen: sink Gen[R]): Gen[proc(a: T1): R] =
   return proc(s: Source): proc(a: T1): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1): R =
@@ -1547,7 +1547,7 @@ proc genProc1*[T1, R](retGen: Gen[R]): Gen[proc(a: T1): R] =
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
+proc genProc2*[T1, T2, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2): R] =
   return proc(s: Source): proc(a: T1, b: T2): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2): R =
@@ -1557,7 +1557,7 @@ proc genProc2*[T1, T2, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2): R] =
       var src = newSource(callSeed, idempotent=true )
       return retGen(src)
 
-proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R] =
+proc genProc3*[T1, T2, T3, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3): R =
@@ -1568,7 +1568,7 @@ proc genProc3*[T1, T2, T3, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3): R]
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4): R] =
+proc genProc4*[T1, T2, T3, T4, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4): R =
@@ -1580,7 +1580,7 @@ proc genProc4*[T1, T2, T3, T4, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3,
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5): R] =
+proc genProc5*[T1, T2, T3, T4, T5, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5): R =
@@ -1593,7 +1593,7 @@ proc genProc5*[T1, T2, T3, T4, T5, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c:
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R] =
+proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6): R =
@@ -1604,7 +1604,7 @@ proc genProc6*[T1, T2, T3, T4, T5, T6, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R] =
+proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7): R =
@@ -1616,7 +1616,7 @@ proc genProc7*[T1, T2, T3, T4, T5, T6, T7, R](retGen: Gen[R]): Gen[proc(a: T1, b
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R] =
+proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8): R =
@@ -1628,7 +1628,7 @@ proc genProc8*[T1, T2, T3, T4, T5, T6, T7, T8, R](retGen: Gen[R]): Gen[proc(a: T
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R] =
+proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9): R =
@@ -1641,7 +1641,7 @@ proc genProc9*[T1, T2, T3, T4, T5, T6, T7, T8, T9, R](retGen: Gen[R]): Gen[proc(
       var src = newSource(callSeed, idempotent=true)
       return retGen(src)
 
-proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R] =
+proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: sink Gen[R]): Gen[proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R] =
   return proc(s: Source): proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
     let funcSeed = cast[uint32](s.chooseRange(0, cast[uint64](uint32.high), sk4Bytes))
     return proc(a: T1, b: T2, c: T3, d: T4, e: T5, f: T6, g: T7, h: T8, i: T9, j: T10): R =
