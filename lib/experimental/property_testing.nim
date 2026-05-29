@@ -327,7 +327,7 @@ proc readRangeData(s: Source, currentRangeSize: uint64,
   ## Structural Resilience:
   ## If the buffer is exhausted, it returns a safe default offset (0).
   let
-    tgtKind = cast[ScalarStorageKind](s.readStorageKind(kind))
+    tgtKind = ScalarStorageKind(s.readStorageKind(kind))
     recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
     rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
   result = if rVal > currentRangeSize: currentRangeSize else: rVal
@@ -405,7 +405,7 @@ proc skipToRangeOffsetAndGetSize(buffer: seq[byte], pos: var int): uint64 =
   ## buffer at the given position where the skRange byte has already been
   ## traversed. Advances `pos` past the rangeSize.
   doAssert pos < buffer.len, "skipNode buffer ran out before kind for range"
-  let tgtKind = cast[ScalarStorageKind](buffer[pos])
+  let tgtKind = ScalarStorageKind(buffer[pos])
   inc pos
   let sBytes = getScalarBytes(tgtKind)
   doAssert pos + sBytes <= buffer.len, "skipNode buffer ran out before rangeSize for range"
@@ -1119,7 +1119,7 @@ iterator candidates*(buffer: seq[byte]): seq[byte] =
   for i, (pos, kind) in nodes.pairs:
     if kind == skArray:
       var p = pos + 1 # skip skArray tag (1). Now at naked range.
-      let rangeTgtKind = cast[ScalarStorageKind](buffer[p])
+      let rangeTgtKind = ScalarStorageKind(buffer[p])
       inc p
       let
         sBytes = getScalarBytes(rangeTgtKind)
@@ -1271,7 +1271,7 @@ proc treeRepr*(buffer: seq[byte]): string =
         else:
           result &= "}"
       of skRange:
-        let tgtKind = cast[ScalarStorageKind](buffer[p])
+        let tgtKind = ScalarStorageKind(buffer[p])
         inc p
         let sBytes = getScalarBytes(tgtKind)
         let rangeSize = decodeUint64(buffer, p, sBytes)
