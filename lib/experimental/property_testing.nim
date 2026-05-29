@@ -1463,65 +1463,73 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
 
 # MARK: Tuple Generators
 
-proc genTuple*[T](g: sink Gen[T]): Gen[(T,)] =
-  ## Generates a tuple of a single element.
-  return proc(s: Source): (T,) =
-    discard s.beginGroup(1)
-    (g(s),)
+macro genTupleProc*(N: static uint): untyped =
+  ## Generates a `genTuple` procedure for the given arity `N`.
+  let n = int(N)
+  let procName = ident("genTuple")
+  
+  # 1. Generic Parameters: [T1, T2, ..., TN]
+  var genericParams = newNimNode(nnkGenericParams)
+  for i in 1..n:
+    genericParams.add(newIdentDefs(ident("T" & $i), newEmptyNode()))
 
-proc genTuple*[T1, T2](g1: sink Gen[T1], g2: sink Gen[T2]): Gen[(T1, T2)] =
-  ## Generates a tuple of two elements.
-  return proc(s: Source): (T1, T2) =
-    discard s.beginGroup(2)
-    (g1(s), g2(s))
+  # 2. Return Tuple Type: (T1, ..., TN)
+  # Using nnkPar for tuple types in this context.
+  var tupleTy = newNimNode(nnkTupleConstr)
+  for i in 1..n:
+    tupleTy.add(ident("T" & $i))
+  
+  # 3. Formal Parameters: (g1: sink Gen[T1], ..., gN: sink Gen[TN]): Gen[(T1, ..., TN)]
+  var formalParams = newNimNode(nnkFormalParams)
+  formalParams.add(newTree(nnkBracketExpr, bindSym("Gen"), tupleTy))
+  for i in 1..n:
+    formalParams.add(newIdentDefs(ident("g" & $i),
+      newTree(nnkCommand, ident("sink"),
+              newTree(nnkBracketExpr, bindSym("Gen"), ident("T" & $i)))))
 
-proc genTuple*[T1, T2, T3](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3]): Gen[(T1, T2, T3)] =
-  ## Generates a tuple of three elements.
-  return proc(s: Source): (T1, T2, T3) =
-    discard s.beginGroup(3)
-    (g1(s), g2(s), g3(s))
+  # 4. Closure Body
+  var tupleConstr = newNimNode(nnkTupleConstr)
+  for i in 1..n:
+    tupleConstr.add(newCall(ident("g" & $i), ident("s")))
 
-proc genTuple*[T1, T2, T3, T4](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4]): Gen[(T1, T2, T3, T4)] =
-  ## Generates a tuple of four elements.
-  return proc(s: Source): (T1, T2, T3, T4) =
-    discard s.beginGroup(4)
-    (g1(s), g2(s), g3(s), g4(s))
+  var closureBody = newStmtList()
+  closureBody.add(newTree(nnkDiscardStmt, 
+    newCall(newDotExpr(ident("s"), ident("beginGroup")), newLit(uint8(n)))))
+  closureBody.add(tupleConstr)
 
-proc genTuple*[T1, T2, T3, T4, T5](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5]): Gen[(T1, T2, T3, T4, T5)] =
-  ## Generates a tuple of five elements.
-  return proc(s: Source): (T1, T2, T3, T4, T5) =
-    discard s.beginGroup(5)
-    (g1(s), g2(s), g3(s), g4(s), g5(s))
+  # 5. The Lambda Closure: proc(s: Source): (T1, ..., TN) = ...
+  let closure = newTree(nnkLambda,
+    newEmptyNode(),
+    newEmptyNode(),
+    newEmptyNode(),
+    newTree(nnkFormalParams, copyNimTree(tupleTy), newIdentDefs(ident("s"), bindSym("Source"))),
+    newEmptyNode(),
+    newEmptyNode(),
+    closureBody
+  )
 
-proc genTuple*[T1, T2, T3, T4, T5, T6](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6]): Gen[(T1, T2, T3, T4, T5, T6)] =
-  ## Generates a tuple of six elements.
-  return proc(s: Source): (T1, T2, T3, T4, T5, T6) =
-    discard s.beginGroup(6)
-    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s))
+  # 6. The Final Procedure: proc genTupleN*[...] = result = closure
+  result = newTree(nnkProcDef,
+    newTree(nnkPostfix, ident("*"), procName),
+    newEmptyNode(),
+    genericParams,
+    formalParams,
+    newTree(nnkPragma, ident("inline")),
+    newEmptyNode(),
+    newTree(nnkStmtList, newAssignment(ident("result"), closure))
+  )
 
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7]): Gen[(T1, T2, T3, T4, T5, T6, T7)] =
-  ## Generates a tuple of seven elements.
-  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7) =
-    discard s.beginGroup(7)
-    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s))
 
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7], g8: sink Gen[T8]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8)] =
-  ## Generates a tuple of eight elements.
-  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8) =
-    discard s.beginGroup(8)
-    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s))
-
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7], g8: sink Gen[T8], g9: sink Gen[T9]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9)] =
-  ## Generates a tuple of nine elements.
-  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9) =
-    discard s.beginGroup(9)
-    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s))
-
-proc genTuple*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10](g1: sink Gen[T1], g2: sink Gen[T2], g3: sink Gen[T3], g4: sink Gen[T4], g5: sink Gen[T5], g6: sink Gen[T6], g7: sink Gen[T7], g8: sink Gen[T8], g9: sink Gen[T9], g10: sink Gen[T10]): Gen[(T1, T2, T3, T4, T5, T6, T7, T8, T9, T10)] =
-  ## Generates a tuple of ten elements.
-  return proc(s: Source): (T1, T2, T3, T4, T5, T6, T7, T8, T9, T10) =
-    discard s.beginGroup(10)
-    (g1(s), g2(s), g3(s), g4(s), g5(s), g6(s), g7(s), g8(s), g9(s), g10(s))
+genTupleProc(1)
+genTupleProc(2)
+genTupleProc(3)
+genTupleProc(4)
+genTupleProc(5)
+genTupleProc(6)
+genTupleProc(7)
+genTupleProc(8)
+genTupleProc(9)
+genTupleProc(10)
 
 
 # MARK: Function Generators

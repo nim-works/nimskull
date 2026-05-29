@@ -1472,3 +1472,23 @@ suite "Stress Testing & Final Validation":
       let sv = res.shrunkValue.get()
       checkpoint "Shrunk boundary value: " & $sv
       check sv <= low(int64) + 1001 or sv >= high(int64) - 1001
+
+
+genTupleProc(11)
+
+suite "Meta-Generators":
+
+  test "genTuple11":
+    let prop = forAll(
+      (t: genTuple(
+        genInt(1, 1), genInt(2, 2), genInt(3, 3),
+        genInt(4, 4), genInt(5, 5), genInt(6, 6),
+        genInt(7, 7), genInt(8, 8), genInt(9, 9),
+        genInt(10, 10), genInt(11, 11)
+      ))
+    ):
+      if t != (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11): return psFail
+      return psPass
+
+    let res = runProperty(prop, trials = 1)
+    check res.status == psPass
