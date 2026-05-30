@@ -720,6 +720,16 @@ suite "Collection Generators":
           check e != A
 
 
+  test "Set generator - minLen with exhausted source":
+    let g = genSet[E](minLen = 3)
+    let s = newSource(@[]) # Exhausted source
+    let val = g(s)
+    # With exhausted source, chooseRange(0, 1) returns 0 (not included),
+    # so the set starts empty. Then the fill-up logic picks vals[0], vals[1], vals[2].
+    check val.len == 3
+    check val == {A, B, C}
+
+
   test "Seq generator":
     let samples = getSamples(genSeq(genEnum[E]()))
     for s in samples:

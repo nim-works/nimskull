@@ -900,27 +900,29 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
   ## `exclude`.
   let
     vals = getEnumMembers(T.low, T.high, exclude)
-    maxLen = vals.len
-  assert minLen <= uint16(maxLen), "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
+    maxLen = uint16(vals.len)
+  assert minLen <= maxLen,
+         "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
 
-  let g = genEnumImpl(vals)
-
-  return proc(s: Source): set[T] =
-    let
-      (len, oldLen, actualLenPos) = s.beginArray(uint32(minLen), uint32(maxLen))
-      upperLimit = int(maxLen) * 15
-    var draws = 0
-
+  result = proc(s: Source): set[T] =
+    # represent the set as fixed-size list of booleans (skByte in the range
+    # [0, 1]), where each boolean represents a choice of whether the element
+    # corresponding to the position is included in the set or not
+    let (_, _, actualLenPos) = s.beginFixedArray(uint32(maxLen))
     if s.recording:
-      while result.len < int(len) and draws < upperLimit:
-        result.incl g(s)
-        draws.inc
-      s.writeRawBytesAt(actualLenPos, uint64(draws), 4)
-    else:
-      while result.len < int(len) and draws < int(oldLen):
-        result.incl g(s)
-        draws.inc
-      s.skipNodes(int(oldLen) - draws)
+      s.writeRawBytesAt(actualLenPos, uint64(maxLen), 4)
+
+    for i in 0'u16 ..< maxLen:
+      if s.chooseRange(0'u64, 1'u64, skByte) == 1:
+        result.incl vals[i]
+
+    # make sure the set always has at least `minLen` elements
+    if uint16(result.len) < minLen:
+      var pos = int(s.chooseRange(0, uint64(maxLen - 1), sk2Bytes))
+      for i in uint16(result.len) ..< minLen:
+        while vals[pos] in result:
+          pos = (pos + 1) mod int(maxLen)
+        result.incl vals[pos]
 
 
 proc genSeq*[T](g: sink Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[seq[T]] =
@@ -1467,7 +1469,7 @@ macro genTupleProc*(N: static uint): untyped =
   ## Generates a `genTuple` procedure for the given arity `N`.
   let n = int(N)
   let procName = ident("genTuple")
-  
+
   # 1. Generic Parameters: [T1, T2, ..., TN]
   var genericParams = newNimNode(nnkGenericParams)
   for i in 1..n:
@@ -1478,7 +1480,7 @@ macro genTupleProc*(N: static uint): untyped =
   var tupleTy = newNimNode(nnkTupleConstr)
   for i in 1..n:
     tupleTy.add(ident("T" & $i))
-  
+
   # 3. Formal Parameters: (g1: sink Gen[T1], ..., gN: sink Gen[TN]): Gen[(T1, ..., TN)]
   var formalParams = newNimNode(nnkFormalParams)
   formalParams.add(newTree(nnkBracketExpr, bindSym("Gen"), tupleTy))
@@ -1493,7 +1495,7 @@ macro genTupleProc*(N: static uint): untyped =
     tupleConstr.add(newCall(ident("g" & $i), ident("s")))
 
   var closureBody = newStmtList()
-  closureBody.add(newTree(nnkDiscardStmt, 
+  closureBody.add(newTree(nnkDiscardStmt,
     newCall(newDotExpr(ident("s"), ident("beginGroup")), newLit(uint8(n)))))
   closureBody.add(tupleConstr)
 
