@@ -457,14 +457,6 @@ proc skipNodes*(s: Source, count: int) =
     s.pos = skipNode(s.buffer, s.pos)
 
 
-proc writeRawBytesAt(s: Source, pos: int, val: uint64, bytes: int) =
-  ## Internal helper to patch the buffer at a specific position.
-  if not s.recording: return
-  for i in 0 ..< bytes:
-    if pos + i < s.buffer.len:
-      s.buffer[pos + i] = byte((val shr (i * 8)) and 0xFF)
-
-
 proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
   ## Marks the beginning of an array of length in the range [min, max] of
   ## homogeneous elements in the stream, returning the chosen length, the
