@@ -112,7 +112,7 @@ from std/hashes import hash
 from std/sequtils import delete, mapIt, toSeq
 from std/sugar import `=>`
 from std/times import getTime, toUnix
-from std/typetraits import enumLen, OrdinalEnum, HoleyEnum
+from std/typetraits import enumLen, OrdinalEnum, HoleyEnum, tupleLen
 from std/enumutils import items
 from std/sets import incl, contains, initHashSet
 from std/strutils import repeat
@@ -1474,73 +1474,40 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
 
 # MARK: Tuple Generators
 
-macro genTupleProc*(N: static uint): untyped =
-  ## Generates a `genTuple` procedure for the given arity `N`.
-  let n = int(N)
-  let procName = ident("genTuple")
-
-  # 1. Generic Parameters: [T1, T2, ..., TN]
-  var genericParams = newNimNode(nnkGenericParams)
-  for i in 1..n:
-    genericParams.add(newIdentDefs(ident("T" & $i), newEmptyNode()))
-
-  # 2. Return Tuple Type: (T1, ..., TN)
-  # Using nnkPar for tuple types in this context.
-  var tupleTy = newNimNode(nnkTupleConstr)
-  for i in 1..n:
-    tupleTy.add(ident("T" & $i))
-
-  # 3. Formal Parameters: (g1: sink Gen[T1], ..., gN: sink Gen[TN]): Gen[(T1, ..., TN)]
-  var formalParams = newNimNode(nnkFormalParams)
-  formalParams.add(newTree(nnkBracketExpr, bindSym("Gen"), tupleTy))
-  for i in 1..n:
-    formalParams.add(newIdentDefs(ident("g" & $i),
-      newTree(nnkCommand, ident("sink"),
-              newTree(nnkBracketExpr, bindSym("Gen"), ident("T" & $i)))))
-
-  # 4. Closure Body
-  var tupleConstr = newNimNode(nnkTupleConstr)
-  for i in 1..n:
-    tupleConstr.add(newCall(ident("g" & $i), ident("s")))
-
-  var closureBody = newStmtList()
-  closureBody.add(newTree(nnkDiscardStmt,
-    newCall(newDotExpr(ident("s"), ident("beginGroup")), newLit(uint8(n)))))
-  closureBody.add(tupleConstr)
-
-  # 5. The Lambda Closure: proc(s: Source): (T1, ..., TN) = ...
-  let closure = newTree(nnkLambda,
-    newEmptyNode(),
-    newEmptyNode(),
-    newEmptyNode(),
-    newTree(nnkFormalParams, copyNimTree(tupleTy), newIdentDefs(ident("s"), bindSym("Source"))),
-    newEmptyNode(),
-    newEmptyNode(),
-    closureBody
-  )
-
-  # 6. The Final Procedure: proc genTupleN*[...] = result = closure
-  result = newTree(nnkProcDef,
-    newTree(nnkPostfix, ident("*"), procName),
-    newEmptyNode(),
-    genericParams,
-    formalParams,
-    newTree(nnkPragma, ident("inline")),
-    newEmptyNode(),
-    newTree(nnkStmtList, newAssignment(ident("result"), closure))
-  )
+template wrapElement(typ: typedesc): typedesc =
+  when typ is Gen:
+    # convert to Gen to ensure the type-parameter is accessible
+    typeof(Gen(default(typ))).T
+  else:
+    {.error: "tuple element must be of type `Gen`, but got " & $typeof(typ) .}
+    Gen[void]
 
 
-genTupleProc(1)
-genTupleProc(2)
-genTupleProc(3)
-genTupleProc(4)
-genTupleProc(5)
-genTupleProc(6)
-genTupleProc(7)
-genTupleProc(8)
-genTupleProc(9)
-genTupleProc(10)
+macro wrapElements(typ: typedesc): typedesc =
+  result = nnkTupleConstr.newTree()
+  for i in 0..<getTypeImpl(typ)[1].len:
+    result.add newCall(bindSym"wrapElement",
+      quote do: typeof(default(`typ`)[`i`]))
+
+
+macro forEach(len: static int, name, body: untyped): untyped =
+  result = newStmtList()
+  for i in 0..<len:
+    result.add quote do:
+      if true:
+        const `name` = `i`
+        `body`
+
+
+proc genTuple*[T: tuple](gen: sink T): auto =
+  ## Creates a tuple generator from a tuple of generators, with each element
+  ## in the produced tuple coming from the input generator at the
+  ## corresponding index.
+  type Tuple = wrapElements(T)
+  result = proc (s: Source): Tuple =
+    discard s.beginGroup(uint8(tupleLen(T)))
+    forEach tupleLen(T), i:
+      result[i] = (gen[i])(s)
 
 
 # MARK: Function Generators
@@ -1732,7 +1699,6 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: sink Gen[R])
       retGen(src)
 
 
-
 # Void return variants
 
 proc genVoidProc*(): Gen[proc()] =
@@ -1819,14 +1785,16 @@ macro forAll*(gens: untyped, check: untyped): untyped =
       ))
     procBody.add(check)
 
-  let checkProc = newProc(params = procArgs, body = procBody)
-
-  let genArg = if genExprs.len == 1:
-                 genExprs[0]
-               else:
-                 let call = newCall(ident("genTuple"))
-                 for e in genExprs: call.add(e)
-                 call
+  let
+    checkProc = newProc(params = procArgs, body = procBody)
+    genArg =
+      if genExprs.len == 1:
+        genExprs[0]
+      else:
+        let tupleConstr = newNimNode(nnkTupleConstr)
+        for e in genExprs:
+          tupleConstr.add(e)
+        newCall(ident("genTuple"), tupleConstr)
 
   result = newTree(nnkObjConstr,
     newTree(nnkBracketExpr, ident("Property"), propType),

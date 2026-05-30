@@ -797,11 +797,11 @@ suite "Shrinking Engine & Internals":
     # valid buffer must be completely parsed by `skipNode` returning the exact
     # length of the candidate buffer.
     let complexGen = genSeq(
-      genTuple(
+      genTuple((
         genInt(-1000, 1000),
         genString(0, 5),
         genSeq(genBool(), 0, 3)
-      ),
+      )),
       1, 5
     )
     for seed in 1'u32 .. 3'u32:
@@ -1087,7 +1087,7 @@ suite "Tuples & Procedures":
 
   test "1 Element Tuple Generation and Shrinking":
     let prop = Property[(int,)](
-      gen: genTuple(genInt(0, 10)),
+      gen: genTuple((genInt(0, 10),)),
       check: proc(t: (int,)): PropertyStatus =
         if t[0] < 5: psPass else: psFail
     )
@@ -1098,7 +1098,7 @@ suite "Tuples & Procedures":
 
   test "2 Element Tuple Generation and Shrinking":
     let prop = Property[(int, int)](
-      gen: genTuple(genInt(0, 100), genInt(0, 100)),
+      gen: genTuple((genInt(0, 100), genInt(0, 100))),
       check: proc(t: (int, int)): PropertyStatus =
         if t[0] < 10 and t[1] < 10: psPass else: psFail
     )
@@ -1112,7 +1112,7 @@ suite "Tuples & Procedures":
 
   test "3 Element Tuple Generation and Shrinking":
     let prop = Property[(int, int, int)](
-      gen: genTuple(genInt(0, 10), genInt(0, 10), genInt(0, 10)),
+      gen: genTuple((genInt(0, 10), genInt(0, 10), genInt(0, 10))),
       check: proc(t: (int, int, int)): PropertyStatus =
         if t[0] + t[1] + t[2] < 15: psPass else: psFail
     )
@@ -1124,7 +1124,7 @@ suite "Tuples & Procedures":
 
   test "4 Element Tuple Generation and Shrinking":
     let prop = Property[(int, int, int, int)](
-      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4)),
+      gen: genTuple((genConst(1), genConst(2), genConst(3), genConst(4))),
       check: proc(t: (int, int, int, int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=1)
@@ -1134,7 +1134,7 @@ suite "Tuples & Procedures":
 
   test "5 Element Tuple Generation and Shrinking":
     let prop = Property[(int,int,int,int,int)](
-      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5)),
+      gen: genTuple((genConst(1), genConst(2), genConst(3), genConst(4), genConst(5))),
       check: proc(t: (int,int,int,int,int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=1)
@@ -1144,7 +1144,7 @@ suite "Tuples & Procedures":
 
   test "6 Element Tuple Generation and Shrinking":
     let prop = Property[(int,int,int,int,int,int)](
-      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6)),
+      gen: genTuple((genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6))),
       check: proc(t: (int,int,int,int,int,int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=1)
@@ -1154,7 +1154,7 @@ suite "Tuples & Procedures":
 
   test "7 Element Tuple Generation and Shrinking":
     let prop = Property[(int,int,int,int,int,int,int)](
-      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7)),
+      gen: genTuple((genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7))),
       check: proc(t: (int,int,int,int,int,int,int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=1)
@@ -1164,7 +1164,7 @@ suite "Tuples & Procedures":
 
   test "8 Element Tuple Generation and Shrinking":
     let prop = Property[(int,int,int,int,int,int,int,int)](
-      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7), genConst(8)),
+      gen: genTuple((genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7), genConst(8))),
       check: proc(t: (int,int,int,int,int,int,int,int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=1)
@@ -1174,7 +1174,7 @@ suite "Tuples & Procedures":
 
   test "9 Element Tuple Generation and Shrinking":
     let prop = Property[(int,int,int,int,int,int,int,int,int)](
-      gen: genTuple(genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7), genConst(8), genConst(9)),
+      gen: genTuple((genConst(1), genConst(2), genConst(3), genConst(4), genConst(5), genConst(6), genConst(7), genConst(8), genConst(9))),
       check: proc(t: (int,int,int,int,int,int,int,int,int)): PropertyStatus = psFail
     )
     let res = runProperty(prop, trials=1)
@@ -1184,10 +1184,10 @@ suite "Tuples & Procedures":
 
   test "10 Element Tuple Generation and Shrinking":
     # Just verify compilation and basic running
-    let gen10 = genTuple(
+    let gen10 = genTuple((
         genConst(1), genConst(2), genConst(3), genConst(4), genConst(5),
         genConst(6), genConst(7), genConst(8), genConst(9), genConst(10)
-    )
+    ))
     let prop = Property[(int,int,int,int,int,int,int,int,int,int)](
         gen: gen10,
         check: proc(t: (int,int,int,int,int,int,int,int,int,int)): PropertyStatus = psFail
@@ -1264,7 +1264,7 @@ suite "Public API & Properties":
   test "Nested structure shrinking accurately minimizes inner components":
     let
       property =
-        forAll((items: genSeq(genTuple(genInt(), genString(minLen=1)), 1, 10))):
+        forAll((items: genSeq(genTuple((genInt(), genString(minLen=1))), 1, 10))):
           var hasUpper = false
           for item in items:
             for c in item[1]:
@@ -1439,7 +1439,7 @@ suite "Stress Testing & Final Validation":
   test "Chaos Shrinking: Deeply nested structural minimization":
     # This test forces multiple rounds of element deletion and scalar shrinking.
     let prop = forAll(
-      (items: genSeq(genTuple(genInt(0, 1000), genString(1'u32, 5'u32)), 3'u32,
+      (items: genSeq(genTuple((genInt(0, 1000), genString(1'u32, 5'u32))), 3'u32,
                      5'u32))
     ):
       # Condition: Fail if ANY item meets the criteria.
@@ -1484,18 +1484,17 @@ suite "Stress Testing & Final Validation":
       check sv <= low(int64) + 1001 or sv >= high(int64) - 1001
 
 
-genTupleProc(11)
 
 suite "Meta-Generators":
 
   test "genTuple11":
     let prop = forAll(
-      (t: genTuple(
+      (t: genTuple((
         genInt(1, 1), genInt(2, 2), genInt(3, 3),
         genInt(4, 4), genInt(5, 5), genInt(6, 6),
         genInt(7, 7), genInt(8, 8), genInt(9, 9),
         genInt(10, 10), genInt(11, 11)
-      ))
+      )))
     ):
       if t != (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11): return psFail
       return psPass
