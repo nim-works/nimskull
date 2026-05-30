@@ -905,20 +905,37 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
          "minLen (" & $minLen & ") must be <= maxLen (" & $maxLen & ")"
 
   result = proc(s: Source): set[T] =
-    # represent the set as fixed-size list of booleans (skByte in the range
-    # [0, 1]), where each boolean represents a choice of whether the element
-    # corresponding to the position is included in the set or not
-    let (_, _, actualLenPos) = s.beginFixedArray(uint32(maxLen))
-    if s.recording:
-      s.writeRawBytesAt(actualLenPos, uint64(maxLen), 4)
+    # represent the set as a fixed-size list of bit-packed scalars
+    let
+      numFull = int(maxLen) div 64
+      remBits = int(maxLen) mod 64
+      numChunks = numFull + (if remBits > 0: 1 else: 0)
 
-    for i in 0'u16 ..< maxLen:
-      if s.chooseRange(0'u64, 1'u64, skByte) == 1:
-        result.incl vals[i]
+    discard s.beginFixedArray(uint32(numChunks))
+
+    var idx = 0
+    for _ in 0 ..< numFull:
+      let bits = s.chooseScalarRaw(sk8Bytes)
+      for j in 0 ..< 64:
+        if (bits and (1'u64 shl j)) != 0:
+          result.incl vals[idx]
+        idx.inc
+
+    if remBits > 0:
+      let
+        kind = if   remBits <= 8:  skByte
+               elif remBits <= 16: sk2Bytes
+               elif remBits <= 32: sk4Bytes
+               else:               sk8Bytes
+        bits = s.chooseScalarRaw(kind)
+      for j in 0 ..< remBits:
+        if (bits and (1'u64 shl j)) != 0:
+          result.incl vals[idx]
+        idx.inc
 
     # make sure the set always has at least `minLen` elements
     if uint16(result.len) < minLen:
-      var pos = int(s.chooseRange(0, uint64(maxLen - 1), sk2Bytes))
+      var pos = int(s.chooseRange(0'u64, uint64(maxLen - 1), sk2Bytes))
       for i in uint16(result.len) ..< minLen:
         while vals[pos] in result:
           pos = (pos + 1) mod int(maxLen)

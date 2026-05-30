@@ -1502,3 +1502,25 @@ suite "Meta-Generators":
 
     let res = runProperty(prop, trials = 1)
     check res.status == psPass
+
+
+  test "Set generator - packed bits with large enum":
+    type LargeE = enum
+      L00, L01, L02, L03, L04, L05, L06, L07, L08, L09,
+      L10, L11, L12, L13, L14, L15, L16, L17, L18, L19,
+      L20, L21, L22, L23, L24, L25, L26, L27, L28, L29,
+      L30, L31, L32, L33, L34, L35, L36, L37, L38, L39,
+      L40, L41, L42, L43, L44, L45, L46, L47, L48, L49,
+      L50, L51, L52, L53, L54, L55, L56, L57, L58, L59,
+      L60, L61, L62, L63, L64, L65, L66, L67, L68, L69,
+      L70, L71, L72, L73, L74, L75, L76, L77, L78, L79
+
+    let g = genSet[LargeE](minLen = 70)
+    let s = newSource(@[]) # Exhausted source
+    let val = g(s)
+    # With exhausted source, all chunks (1 sk8Bytes + 1 sk2Bytes) are 0.
+    # Fill up logic picks first 70 elements.
+    check val.len == 70
+    check L00 in val
+    check L69 in val
+    check L70 notin val
