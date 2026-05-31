@@ -1891,12 +1891,45 @@ proc semSignatureDecl(c: PContext, n: PNode, prev: PType): PType =
     ast[namePos] = name
     openScope(c)
     s.typ = semRoutineParams(c, ast, ast[paramsPos], ast[genericParamsPos], kind)
+    case s.kind
+    of skIterator:
+      s.typ.flags.incl tfIterator
+      # the default CC for iterators is .inline
+      s.typ.callConv = ccInline
+    of skFunc:
+      s.flags.incl sfNoSideEffect
+      s.typ.flags.incl tfNoSideEffect
+    else:
+      discard "nothing to do"
+
+    if n[pragmasPos].kind != nkEmpty:
+      ast[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos],
+        {wRaises, wTags, wNoSideEffect, FirstCallConv..LastCallConv})
+
+    # TODO: don't allow anything besides ccInline and ccClosure for iterators
+
     closeScope(c)
+
+    if ast[pragmasPos].isError:
+      # TODO: handle correctly
+      return wrapErrorAndUpdate(c.config, ast, s)
+
+    # TODO: handle .tailcall procedure borrows
+    # if s.typ.callConv == ccTailcall:
+    #   prepareTailcallProc(c, n.info, s.typ)
+
     s.ast = ast
 
-    if s.ast.kind == nkError:
-      # something went wrong
-      return s.ast
+    setEffectsForProcType(c.graph, s.typ, ast[pragmasPos], s)
+    # no explicit tag or raises specifications means "could have any effect"
+    if s.typ.n[0][exceptionEffects] == nil:
+      s.typ.n[0][exceptionEffects] = nkBracket.newTree(
+        newNodeIT(nkType, unknownLineInfo,
+          getCompilerProc(c.graph, "Exception").typ))
+    if s.typ.n[0][tagEffects] == nil:
+      s.typ.n[0][tagEffects] = nkBracket.newTree(
+        newNodeIT(nkType, unknownLineInfo,
+          c.graph.sysTypeFromName(n.info, "RootEffect")))
 
     if s.ast[bodyPos].kind != nkEmpty:
       c.config.localReport(n.info, reportStr(rsemCustomUserError, "declarations in signature"))
