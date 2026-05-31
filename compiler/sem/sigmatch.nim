@@ -679,51 +679,101 @@ proc typeRangeRel(f: PType, lo, hi: PNode, a: PType): TTypeRelation {.noinline.}
   else:
     checkRange(firstFloat(a), lastFloat(a), getFloatValue(lo), getFloatValue(hi))
 
-proc matchSigature(m: var TCandidate; f, a: PType): PType =
+proc matchSignature(m: var TCandidate; f, a: PType): PType =
   ## Tries to apply signature type `f` to `a` by binding visible symbols for
   ## `a`, returning a ``tySignatureInst`` type on success -- nil otherwise.
   # TODO: reject `a` when it's a direct or indirect view type
+
+  proc compareProcTypes(c: var TCandidate, f, a: PType): bool =
+    # similar to `procTypeRel`, but doesn't compare the effects (as the formal
+    # type might come from a generic procedure where the effects haven't been
+    # inferred yet)
+    if f.len != a.len:
+      return false
+
+    for i in 1..<f.len:
+      if procParamTypeRel(c, f[i], a[i]) notin {isEqual, isGeneric}:
+        return false
+
+    let
+      aret = if a[0] == nil: c.c.voidType else: a[0]
+      fret = if f[0] == nil: c.c.voidType else: f[0]
+
+    # `tyUntyped` means "return type inferred from body"
+    result = fret.kind == tyUntyped or
+      procParamTypeRel(c, fret, aret) in {isEqual, isGeneric}
+
+  var tab: TIdTable
+  initIdTable(tab)
+  idTablePut(tab, f[0], a)
+
   for it in f.n.items:
     let sym = it.sym
-    # create a pseudo-call with argument types taken from the routine signature
-    let call = newTree(nkCall, newIdentNode(sym.name, sym.info))
-    for i in 1..<sym.typ.len:
-      let typ = sym.typ[i]
-      if typ.kind == tyVar and typ.base == f[0]:
-        call.add newTreeIT(nkHiddenAddr, unknownLineInfo, makeVarType(m.c, a),
-          newNodeIT(nkEmpty, unknownLineInfo, a))
-      elif typ.kind == tySink and typ.base == f[0]:
-        call.add newNodeIT(nkEmpty, unknownLineInfo, a)
-      elif typ == f[0]:
-        call.add newNodeIT(nkEmpty, unknownLineInfo, a)
-      else:
-        call.add newNodeIT(nkEmpty, unknownLineInfo, typ)
+    # 1. substitute `a` for the 'self' type variable in the routine's proc type
+    # 2. compare the type against the type of all routines with a matching
+    #    name and kind in scope
+    # 3. if there's more than one routine matching the query, fail the query
+    let subst = generateTypeInstance(m.c, tab, sym.info, sym.typ)
+    # cannot use `replaceTypeParamsInType` because it doesn't remove the
+    # `tfHasMeta` flag from types
+    let n = newIdentNode(sym.name, sym.info)
 
-    # TODO: move searching for a borrow target somewhere else
-    # TODO: `semOverloadedCall` is the wrong tool for the job. What needs to
-    #       happen is a purely type-level comparison (essentially typeRel
-    #       between proc types), with a subsequent instantiation of generic
-    #       routines (should the found routine be generic)
-    # TODO: handle tags and exception lists, as well as the calling convention
-    let got = m.c.semOverloadedCall(m.c, call, {sym.kind}, {efNoUndeclared})
-    if got != nil and sameType(got.typ, sym.typ[0]):
-      # found a routine
-      if result.isNil:
-        result = newTypeS(tySignatureInst, m.c)
-        result.n = newNode(nkBracket)
-      # normalize borrows so that there's never a borrow of another
-      # borrow routine
-      if sfBorrow in got[0].sym.flags:
-        result.n.add got[0].sym.ast[bodyPos]
-      else:
-        result.n.add got[0]
-    else:
+    var iter: TOverloadIter
+    var s = initOverloadIter(iter, m.c, n)
+    var found = PSym(nil)
+    while s != nil:
+      if (s.kind == sym.kind or {s.kind, sym.kind} * {skProc, skFunc} != {}) and
+         tfUnresolved notin s.typ.flags:
+        var cand: TCandidate
+        initCallCandidate(m.c, cand, s)
+        if compareProcTypes(cand, s.typ, subst):
+          let resolved =
+            if isGenericRoutineStrict(s):
+              m.c.semGenerateInstance(m.c, s, cand.bindings, n.info)
+            else:
+              s
+
+          # TODO: handle auto return types
+
+          # compare the effects only after generic routines have been
+          # instantiated. The effects of the candidate must be a subset of
+          # those of the requirement (not the other way around), hence the
+          # types being swapped
+          let conv =
+            getProcConvMismatch(m.c.config, subst, resolved.typ, isEqual)
+          if conv[1] == isEqual and
+             compatibleEffects(subst, resolved.typ) == efCompat:
+            if found.isNil:
+              found = resolved
+            else:
+              # there's more than one matching candidate -> fail
+              return nil
+
+      s = nextOverloadIter(iter, m.c, n)
+
+    # TODO: if `a` is an applied signature type, also include the overloads
+    #       from the secondary overload set (i.e., the symbols stored in the
+    #       applied signature type)
+
+    if found.isNil:
       # TODO: register the failure with the candidate so that it can be
       #       mentioned in diagnostics
-      # if at least requirement cannot be satisfied (i.e., no fitting routine
+      # if a single requirement cannot be satisfied (i.e., no fitting routine
       # can be found), the signature cannot be applied
       result = nil
       break
+
+    # TODO: move searching for a borrow target somewhere else
+    # found a routine
+    if result.isNil:
+      result = newTypeS(tySignatureInst, m.c)
+      result.n = newNode(nkBracket)
+    # normalize borrows so that there's never a borrow of another
+    # borrow routine
+    if sfBorrow in found.flags:
+      result.n.add found.ast[bodyPos]
+    else:
+      result.n.add newSymNode(found)
 
   # only create the proper borrows when all requirements could be satisfied
   if result != nil:
@@ -731,23 +781,22 @@ proc matchSigature(m: var TCandidate; f, a: PType): PType =
     rawAddSon(result, a) # inheriting the flags is fine
     # TODO: inheriting the flags is *not* fine, as it leaks some
     #       implementation details (e.g., whether the type supports `copyMem`)
+    idTablePut(tab, f[0], result)
+
     for i in 0..<result.n.len:
       let it = f.n[i].sym
       # construct a .borrow procedure, by replacing the 'self' type variable
       # with `a`
       let s = newSym(it.kind, it.name, nextSymId m.c.idgen, getCurrOwner(m.c), it.info)
-      s.typ = copyType(it.typ, nextTypeId m.c.idgen, it.typ.owner)
+      s.typ = generateTypeInstance(m.c, tab, it.info, it.typ)
       s.flags.incl sfBorrow
       let params = newNodeI(nkFormalParams, unknownLineInfo, it.typ.n.len)
-      params[0] = it.ast[paramsPos][0] # TODO: instantiate properly
-      for i in 1..<it.typ.n.len:
-        if s.typ[i] == f[0]:
-          s.typ[i] = result
-        elif s.typ[i].kind in {tyVar, tySink} and s.typ[i].base == f[0]:
-          s.typ[i] = makeVarType(m.c, result, s.typ[i].kind)
-        s.typ.n[i].sym = copySym(s.typ.n[i].sym, nextSymId m.c.idgen)
-        s.typ.n[i].sym.typ = s.typ[i]
-        s.typ.n[i].typ = s.typ[i]
+      if isEmptyType(s.typ[0]):
+        params[0] = m.c.graph.emptyNode
+      else:
+        params[0] = newNodeIT(nkType, unknownLineInfo, s.typ[0])
+
+      for i in 1..<s.typ.n.len:
         params[i] = newTree(nkIdentDefs,
           copyNode(s.typ.n[i]),
           newNodeIT(nkType, unknownLineInfo, s.typ[i]),
@@ -1874,7 +1923,7 @@ typeRel can be used to establish various relationships between types:
           put(c, f, a)
         result = isGeneric
       else:
-        let matched = matchSigature(c, f, aOrig)
+        let matched = matchSignature(c, f, aOrig)
         if matched != nil:
           if doBind:
             put(c, f, matched)
