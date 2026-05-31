@@ -876,7 +876,6 @@ type
     rbackRstBrokenLink          = "BrokenLink"
     rbackRstUnsupportedLanguage = "LanguageXNotSupported"
     rbackRstUnsupportedField    = "FieldXNotSupported"
-    rbackPackagesOutOfSync      = "PackagesOutOfSync"
     rbackRstRstStyle            =  "warnRstStyle"
 
     # warnings END !! add reports BEFORE the last enum !!
@@ -890,9 +889,13 @@ type
     #---------------------------  Package reports  ---------------------------#
     # errors start
     rpkgDuplicateAliasForPackageDependencies = "DuplicateAliasForPackageDependencies"
+    rpkgSrcDirNotRelativeToPackageDir = "SrcDirNotRelativeToPackageDir"
+    rpkgEntrypointNotRelativeToSrcDir = "EntrypointNotRelativeToSrcDir"
     rpkgIndexPresentButMalformed = "IndexPresentButMalformed"
     # errors END !! add reports BEFORE the last enum !!
+  
     # warnings start
+    rpkgPackagesOutOfSync      = "PackagesOutOfSync"
     # warnings END !! add reports BEFORE the last enum !!
 
   ReportKinds* = set[ReportKind]
@@ -917,7 +920,7 @@ type
 
   BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
 
-  PackageReportKind* = range[rpkgDuplicateAliasForPackageDependencies .. rpkgIndexPresentButMalformed]
+  PackageReportKind* = range[rpkgDuplicateAliasForPackageDependencies .. rpkgPackagesOutOfSync]
 
   ExternalReportKind* = range[rextCmdRequiresFile .. rextPath]
 
@@ -977,7 +980,7 @@ const
   #------------------------------  package  -------------------------------#
   repPackageKinds* = {low(PackageReportKind) .. high(PackageReportKind)}
   rpkgErrorKinds* = {rpkgDuplicateAliasForPackageDependencies .. rpkgIndexPresentButMalformed}
-  rpkgWarningKinds* = default(set[ReportKind])
+  rpkgWarningKinds* = {rpkgPackagesOutOfSync}
   rpkgHintKinds* = default(set[ReportKind])
 
   #------------------------------  external  -------------------------------#

@@ -228,13 +228,28 @@ proc loadConfigs*(
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
   loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
-proc resolvePackagePaths(package: var IndexedPackage, baseDir: string) =
+proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: string) =
   ## Simple normalisation helper
   if not package.path.isAbsolute:
     package.path = baseDir / package.path
+  else:
+    package.path.normalizePath()
   
-  package.srcDir = package.path / package.srcDir
-  package.entrypoint = package.srcDir / package.entrypoint
+  if not package.srcDir.isAbsolute:
+    package.srcDir = package.path / package.srcDir
+  else:
+    package.srcDir.normalizePath()
+    if not package.srcDir.isRelativeTo(package.path):
+      localReport(conf, PackageReport(kind: rpkgSrcDirNotRelativeToPackageDir,
+        subject: $package.srcDir, target: $package.path))
+
+  if not package.entrypoint.isAbsolute:
+    package.entrypoint = package.srcDir / package.entrypoint
+  else:
+    package.entrypoint.normalizePath()
+    if not package.entrypoint.isRelativeTo(package.srcDir):
+      localReport(conf, PackageReport(kind: rpkgEntrypointNotRelativeToSrcDir,
+        subject: $package.entrypoint, target: $package.srcDir))
 
 proc loadPackageIndex*(conf: ConfigRef) =
   ## Loads the package index if found.
@@ -264,16 +279,14 @@ proc loadPackageIndex*(conf: ConfigRef) =
 
   if not rootFound:
     curDir = $conf.projectPath
-    conf.packageDir = AbsoluteDir curDir
+    conf.packageDir = AbsoluteDir ""
 
   conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
   conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
 
   for name, package in conf.packageIndex.packages.mpairs:
     package.dependencies.add DependencyLink(package: "stdlib", alias: "std")
-    
-    let base = if name == "stdlib": package.path else: curDir
-    resolvePackagePaths(package, base)
+    conf.resolvePackagePaths(package, curDir)
 
   for id, package in conf.packageIndex.packages.pairs:
     var seen: Table[string, string]

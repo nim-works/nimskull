@@ -1,4 +1,4 @@
-## module with package legacy reports definitions
+## Provides the definitions for legacy package reports.
 
 import
   compiler/ast/[
@@ -14,6 +14,9 @@ type
         parentPackage*: string
         package*: string
         alias*: string
+      of rpkgSrcDirNotRelativeToPackageDir, rpkgEntrypointNotRelativeToSrcDir:
+        subject*: string
+        target*: string
       else:
         discard
 

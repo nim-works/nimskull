@@ -1517,7 +1517,9 @@ proc canonicalImport*(
   ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
   let pkgId = conf.getPackageId(conf.toFilename(currentModule.info))
   
-  if pkgId == "unknown": return file.splitFile.name.nativeToUnixPath
+  # Not sure what to do if its nil
+  if pkgId == "unknown" or currentModule == nil:
+    return file.splitFile.name.nativeToUnixPath
 
   let
     importerId = conf.getPackageId(conf.toFilename(currentModule.info))

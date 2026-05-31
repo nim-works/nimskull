@@ -2903,9 +2903,6 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   of rbackRstUnsupportedField:
     "field '$1' not supported" % r.msg
 
-  of rbackPackagesOutOfSync:
-    "package index out of sync, please resync using your package manager"
-
   of rbackRstRstStyle:
     "RST style: $1" % r.msg
 
@@ -2936,11 +2933,22 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
 proc reportBody*(conf: ConfigRef, r: PackageReport): string =
   assertKind r
   case PackageReportKind(r.kind):
+  # Errors
   of rpkgDuplicateAliasForPackageDependencies:
-    result = "Alias `" & r.alias & "` is already used for `" & r.package &
+    "Alias `" & r.alias & "` is already used for `" & r.package &
              "`, in the context of `" & r.parentPackage & "`"
   of rpkgIndexPresentButMalformed:
-    result = "Malformed package index found!"
+    "Malformed package index found!"
+
+  of rpkgSrcDirNotRelativeToPackageDir:
+    "The source directory `" & r.subject & "` is not relative to the package directory `" & r.target & "`"
+  
+  of rpkgEntrypointNotRelativeToSrcDir:
+    "The entrypoint `" & r.subject & "` is not relative to the source directory `" & r.target & "`"
+
+  # Warnings
+  of rpkgPackagesOutOfSync:
+    "package index out of sync, please resync using your package manager"
 
 proc reportFull*(conf: ConfigRef, r: PackageReport): string =
   assertKind r
