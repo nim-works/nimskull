@@ -298,7 +298,7 @@ proc intersection*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
     for high, word in s1.bitmap.pairs:
       if high in s2.bitmap:
         let intersection = s2.bitmap[high] * word
-        if intersection.len > 0:
+        if intersection != {}:
           result.bitmap[high] = intersection
 
 proc difference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
