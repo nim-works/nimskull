@@ -7,8 +7,6 @@
 #    distribution, for details about the copyright.
 #
 
-
-
 proc getPackageId(conf: ConfigRef; path: string): string =
   ## returns id of a given package, e.g.: `github.com/luyten-orion/faepkg`
   var d = path
@@ -41,10 +39,6 @@ proc demanglePackageName*(path: string): string =
 proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
   # legacy stuff for backends
 
-  proc getPackageName(conf: ConfigRef; path: string): string =
-    ## returns package id, e.g.: `github.com/luyten-orion/faepkg`
-    result = getPackageId(conf, path)
-
   proc fakePackageName(conf: ConfigRef; path: AbsoluteFile): string =
     ## Convert `path` so that 2 modules with same name
     ## in different directory get different name and they can be
@@ -53,7 +47,7 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
     result = "@m" & relativeTo(path, conf.projectPath).string.multiReplace(
       {$os.DirSep: "@s", $os.AltSep: "@s", "#": "@h", "@": "@@", ":": "@c"})
 
-  let x = getPackageName(conf, $path)
+  let x = getPackageId(conf, $path)
   let (p, file, ext) = path.splitFile
   if x == "stdlib":
     # Hot code reloading now relies on 'stdlib_system' names etc.

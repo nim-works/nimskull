@@ -123,7 +123,7 @@ proc processImplicits(
     m: PSym
 ) =
   let
-    currentPkgId = m.owner.name.s
+    currentPkgId = getPackage(m).name.s
     # XXX fixme this should actually be relative to the config file!
     relativeTo = toFullPath(graph.config, m.info)
   for module in items(implicits):
@@ -205,7 +205,7 @@ proc processModule*(
       # modules to include between compilation runs? we'd need to track that
       # in ROD files. I think we should enable this feature only
       # for the interactive mode.
-      if module.name.s != "nimscriptapi" or module.getPackageId() == graph.config.mainPackageId:
+      if module.getPackageId() == graph.config.mainPackageId:
         processImplicits(
           graph, graph.config.active.implicitImports,
           nkImportStmt, passesArray, module)

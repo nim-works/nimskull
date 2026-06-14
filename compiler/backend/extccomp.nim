@@ -427,7 +427,7 @@ proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
   conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
+proc execExternalProgram(conf: ConfigRef; cmd: string, kind: ReportKind) =
   let code = execWithEcho(conf, cmd, kind)
   if code != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd, code: code)
@@ -457,7 +457,7 @@ proc getOptSize(conf: ConfigRef; c: TSystemCC): string =
   if result == "":
     result = CC[c].optSize    # use default settings from this file
 
-proc noAbsolutePaths*(conf: ConfigRef): bool {.inline.} =
+proc noAbsolutePaths(conf: ConfigRef): bool {.inline.} =
   # We used to check current OS != specified OS, but this makes no sense
   # really: Cross compilation from Linux to Linux for example is entirely
   # reasonable.
@@ -732,7 +732,7 @@ proc getLinkCmd(conf: ConfigRef; output: AbsoluteFile,
   if optCDebug in conf.globalOptions and conf.cCompiler == ccVcc:
     result.add " /Zi /FS /Od"
 
-template getLinkCmd*(conf: ConfigRef; output: AbsoluteFile, objfiles: string,
+template getLinkCmd(conf: ConfigRef; output: AbsoluteFile, objfiles: string,
                     removeStaticFile = false): string =
   getLinkCmd(conf, output, objfiles, optGenDynLib in conf.globalOptions, removeStaticFile)
 
@@ -748,18 +748,18 @@ template tryExceptOSErrorMessage(conf: ConfigRef; errorPrefix: string = "", body
 
     raise
 
-proc getExtraCmds*(conf: ConfigRef; output: AbsoluteFile): seq[string] =
+proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
   when defined(macosx):
     if optCDebug in conf.globalOptions and optGenStaticLib notin conf.globalOptions:
       # if needed, add an option to skip or override location
       result.add "dsymutil " & $(output).quoteShell
 
-proc execLinkCmd*(conf: ConfigRef; linkCmd: string) =
+proc execLinkCmd(conf: ConfigRef; linkCmd: string) =
   conf.timeTracer.traceStr(tikBackend, "link")
   tryExceptOSErrorMessage(conf, "invocation of external linker program failed."):
     execExternalProgram(conf, linkCmd, rcmdLinking)
 
-proc execCmdsInParallel*(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
+proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
   let runCb = proc (idx: int, p: Process) =
     let exitCode = p.peekExitCode
     if exitCode != 0:
@@ -815,7 +815,7 @@ proc linkViaResponseFile(conf: ConfigRef; cmd: string) =
   finally:
     removeFile(linkerArgs)
 
-proc displayProgressCC*(conf: ConfigRef, path, compileCmd: string): CmdReport =
+proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): CmdReport =
   if conf.hasHint(rcmdCompiling):
     CmdReport(
       kind: rcmdCompiling,

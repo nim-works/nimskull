@@ -217,7 +217,9 @@ type
   IndexedPackage* = object
     path*: string
     srcDir*: string     # Code directory for submodules (`import module/submod`)
-    entrypoint*: string # File for the module imported on `import module`.
+    entrypoint*: string
+      ## module to import when doing `import <package>`. May be empty, to
+      ## indicate that there's no such module
     dependencies*: seq[DependencyLink]
 
   PackageIndex* = object
@@ -1489,8 +1491,7 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
         let (_, name, ext) = splitFile(f)
         if ext in extensions:
           let x = changeFileExt(dir / name, ".nim")
-          if fileExists(x):
-            candidates.add x
+          candidates.add x
     let pkgname = pkgname
     for c in candidates:
       if pkgname in c.extractFilename(): return c

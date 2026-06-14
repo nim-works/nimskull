@@ -74,7 +74,7 @@ proc writeBuildInstructions*(conf: ConfigRef; bcache: sink BuildCache) =
         let path = $conf.packageDir / ".skull" / "index.json"
         if fileExists(path): (path, $secureHashFile(path)) else: ("", "")
 
-      bcache.packageManifests = collect(for id, pkg in conf.packageIndex.packages.pairs:
+      bcache.packageManifests = collect(for pkg in conf.packageIndex.packages.values:
         let manifestPath = absolutePath($conf.packageDir / $pkg.path / "package.skull.toml")
         if fileExists(manifestPath):
           (manifestPath, $secureHashFile(manifestPath))
@@ -102,8 +102,7 @@ proc buildInstructionsStatus*(conf: ConfigRef; jsonFile: AbsoluteFile): BuildCha
   for (file, hash) in bcache.depfiles:
     if $secureHashFile(file) != hash: return bcGeneral
 
-  block:
-    if bcache.packageIndex[0].len == 0: break
+  if bcache.packageIndex[0].len > 0:
     let file = $conf.packageDir / ".skull" / "index.json"
     if not fileExists(file): return bcGeneral
     if $secureHashFile(file) != bcache.packageIndex[1]: return bcGeneral

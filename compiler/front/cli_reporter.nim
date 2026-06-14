@@ -2932,7 +2932,7 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
 
 proc reportBody*(conf: ConfigRef, r: PackageReport): string =
   assertKind r
-  case PackageReportKind(r.kind):
+  case PackageReportKind(r.kind)
   # Errors
   of rpkgDuplicateAliasForPackageDependencies:
     "Alias `" & r.alias & "` is already used for `" & r.package &

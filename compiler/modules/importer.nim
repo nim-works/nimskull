@@ -11,8 +11,8 @@
 
 import
   std/[
-    strutils,
     intsets,
+    strutils,
     tables,
     sets,
     os

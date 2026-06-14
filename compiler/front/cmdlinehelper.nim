@@ -11,8 +11,8 @@
 
 import
   std/[
-    os,
     json,
+    os,
     tables
   ],
   std/options as std_options,
