@@ -259,7 +259,6 @@ when defined(nimHasInvariant):
 
     case MultipleValueSetting(switch)
     of MultipleValueSetting.searchPaths: copySeq(conf.searchPaths)
-    of MultipleValueSetting.lazyPaths: copySeq(conf.lazyPaths)
     of MultipleValueSetting.commandArgs: result = conf.commandArgs
     of MultipleValueSetting.cincludes: copySeq(conf.cIncludes)
     of MultipleValueSetting.clibs: copySeq(conf.cLibs)

@@ -95,7 +95,6 @@ type
     projectPath*: string
     definedSymbols*: seq[string]
     libPaths*: seq[string]
-    lazyPaths*: seq[string]
     outdir*: string
     `out`*: string
     nimcache*: string
@@ -572,9 +571,6 @@ proc mainCommand*(graph: ModuleGraph) =
     for dir in conf.searchPaths:
       state.libPaths.add(dir.string)
 
-    for dir in conf.lazyPaths:
-      state.lazyPaths.add(dir.string)
-
     for a in repHintKinds:
       state.hints.add(($a, a in conf.notes))
 
@@ -599,10 +595,6 @@ proc mainCommand*(graph: ModuleGraph) =
       for dir in conf.searchPaths:
         libpaths.elems.add(%dir.string)
 
-      var lazyPaths = newJArray()
-      for dir in conf.lazyPaths:
-        lazyPaths.elems.add(%dir.string)
-
       var hints = newJObject()
       for (a, s) in state.hints:
         hints[$a] = %(s)
@@ -619,7 +611,6 @@ proc mainCommand*(graph: ModuleGraph) =
           (key: "project_path",    val: %state.projectPath),
           (key: "defined_symbols", val: definedSymbols),
           (key: "lib_paths",       val: libpaths),
-          (key: "lazyPaths",       val: lazyPaths),
           (key: "outdir",          val: %state.outdir),
           (key: "out",             val: %state.out),
           (key: "nimcache",        val: %state.nimcache),

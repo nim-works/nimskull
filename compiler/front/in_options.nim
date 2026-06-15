@@ -235,11 +235,6 @@ type
     libpath*: AbsoluteDir ## Path to the standard library
     searchPaths*: seq[AbsoluteDir] ## Explicitly added list of the search
     ## paths for modules. Those are queried first.
-    lazyPaths*: seq[AbsoluteDir] ## Implicitly constructed list of the
-    ## search paths for modules. Updated when `--nimblePath` option is
-    ## provided, and consists of explicitly provided nimble paths to the
-    ## found package directories. Last part allows to specify directory for
-    ## packages and avoid specifying `--path` for every single one of them.
 
 
     macrosToExpand*: StringTableRef ## Table of the target macros to expand.

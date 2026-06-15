@@ -994,7 +994,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     expectArg(switch, arg)
     let path = argProcessPath(conf, arg, switch)
     conf.searchPaths = conf.searchPaths.filterIt(it != path)
-    conf.lazyPaths = conf.lazyPaths.filterIt(it != path)
   of "nimcache":
     setSwitchAndSrc cmdSwitchNimcache
     expectArg(switch, arg)

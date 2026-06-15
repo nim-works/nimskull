@@ -411,7 +411,6 @@ passSeqField cLinkedLibs,       string
 passSeqField linkOptionsCmd,    string
 passSeqField compileOptionsCmd, string
 passSeqField searchPaths,       AbsoluteDir
-passSeqField lazyPaths,         AbsoluteDir
 
 passSetField localOptions,   TOptions,           TOption
 passSetField globalOptions,  TGlobalOptions,     TGlobalOption
@@ -1321,21 +1320,6 @@ proc rawFindFile(conf: ConfigRef; f: RelativeFile; suppressStdlib: bool): Absolu
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
-proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
-  ## Find file using list of lazy paths. If relative file is found bring
-  ## lazy path forward. TODO - lazy path reordering appears to be an
-  ## 'optimization' feature, but it might have some implicit dependencies
-  ## elsewhere.
-  for i, it in conf.lazyPaths:
-    result = it / f
-    if fileExists(result):
-      # bring to front
-      for j in countdown(i, 1):
-        swap(conf.active.lazyPaths[j], conf.active.lazyPaths[j-1])
-
-      return canonicalizePath(conf, result)
-  result = AbsoluteFile""
-
 when not declared(isRelativeTo):
   proc isRelativeTo(path, base: string): bool =
     # pending #13212 use os.isRelativeTo
@@ -1369,7 +1353,6 @@ proc getRelativePathFromConfigPath*(conf: ConfigRef; f: AbsoluteFile, isTitle = 
       if f.isRelativeTo(it):
         return relativePath(f, it).RelativeFile
   search(conf.searchPaths)
-  search(conf.lazyPaths)
 
 proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile =
   ## Find module file using search paths or lazy search paths (in that
@@ -1383,10 +1366,6 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
     result = rawFindFile(conf, RelativeFile f, suppressStdlib)
     if result.isEmpty:
       result = rawFindFile(conf, RelativeFile f.toLowerAscii, suppressStdlib)
-      if result.isEmpty:
-        result = rawFindFile2(conf, RelativeFile f)
-        if result.isEmpty:
-          result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
 
 proc findPackage*(
   conf: ConfigRef,

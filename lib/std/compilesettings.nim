@@ -37,7 +37,6 @@ type
   MultipleValueSetting* {.pure.} = enum ## \
                       ## settings resulting in a seq of string values
     searchPaths,      ## the search path for modules
-    lazyPaths,        ## experimental: even more paths
     commandArgs,      ## the arguments passed to the Nim compiler
     cincludes,        ## the #include paths passed to the C compiler
     clibs             ## libraries passed to the C compiler
