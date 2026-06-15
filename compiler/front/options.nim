@@ -1492,7 +1492,6 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
         if ext in extensions:
           let x = changeFileExt(dir / name, ".nim")
           candidates.add x
-    let pkgname = pkgname
     for c in candidates:
       if pkgname in c.extractFilename(): return c
     if candidates.len > 0:

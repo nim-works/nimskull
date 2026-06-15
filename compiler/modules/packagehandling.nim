@@ -8,7 +8,8 @@
 #
 
 proc getPackageId(conf: ConfigRef; path: string): string =
-  ## returns id of a given package, e.g.: `github.com/luyten-orion/faepkg`
+  ## returns the id of a package from its path or an empty string if not
+  ## found. e.g.: `github.com/luyten-orion/faepkg`
   var d = path
   if not d.dirExists(): d = d.parentDir
 
@@ -88,7 +89,6 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
       PkgDesc(pkgKnown: true,
               pkgRootName: pkgId, pkgRoot: absolutePath($pkg.path, $conf.packageDir).AbsoluteDir)
     else:
-      # TODO: Investigate all the places "unknown" is used?
       PkgDesc(pkgKnown: false,
               pkgRootName: "unknown", pkgRoot: conf.projectPath)
 
