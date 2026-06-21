@@ -1948,7 +1948,15 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mNIntVal: genUnaryABC(c, n, dest, opcNIntVal)
   of mNFloatVal: genUnaryABC(c, n, dest, opcNFloatVal)
   of mNGetType:
-    let tmp = c.genx(n[1])
+    var tmp: TRegister
+    if n[1].typ.kind == tyTypeDesc:
+      var dst = TDest(-1)
+      c.genLit(n[1],
+        c.toNodeCnst(newNodeIT(nkType, n[1].info, n[1].typ.base)), dst)
+      tmp = dst
+    else:
+      tmp = c.genx(n[1])
+
     if dest.isUnset: dest = c.getTemp(n.typ)
     let rc = case c.env.procedures[n[0].prc].name.s:
       of "getType":     0
