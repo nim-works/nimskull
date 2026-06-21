@@ -48,7 +48,9 @@ macro genAstOpt*(options: static set[GenAstOpt], args: varargs[untyped]): untype
       newEmptyNode()
 
   template newLitMaybe(a): untyped =
-    when (a is type) or (typeof(a) is (proc | iterator | func | NimNode)):
+    when a is type:
+      getTypeInst(a)
+    elif (typeof(a) is (proc | iterator | func | NimNode)):
       a # `proc` actually also covers template, macro
     else: newLit(a)
 
