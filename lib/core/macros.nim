@@ -772,7 +772,7 @@ proc newLit*(f: float64): NimNode =
 
 proc newLit*(arg: enum): NimNode =
   result = newCall(
-    arg.typeof.getTypeInst[1],
+    arg.typeof.getTypeInst,
     newLit(int(arg))
   )
 
@@ -782,13 +782,13 @@ proc newLit*[T](s: set[T]): NimNode
 proc newLit*[T: tuple](arg: T): NimNode
 
 proc newLit*(arg: object): NimNode =
-  result = nnkObjConstr.newTree(arg.typeof.getTypeInst[1])
+  result = nnkObjConstr.newTree(arg.typeof.getTypeInst)
   for a, b in arg.fieldPairs:
     result.add nnkExprColonExpr.newTree( newIdentNode(a), newLit(b) )
 
 proc newLit*(arg: ref object): NimNode =
   ## produces a new ref type literal node.
-  result = nnkObjConstr.newTree(arg.typeof.getTypeInst[1])
+  result = nnkObjConstr.newTree(arg.typeof.getTypeInst)
   for a, b in fieldPairs(arg[]):
     result.add nnkExprColonExpr.newTree(newIdentNode(a), newLit(b))
 
@@ -807,7 +807,7 @@ proc newLit*[T](arg: seq[T]): NimNode =
   )
   if arg.len == 0:
     # add type cast for empty seq
-    var typ = getTypeInst(typeof(arg))[1]
+    var typ = getTypeInst(typeof(arg))
     result = newCall(typ,result)
 
 proc newLit*[T](s: set[T]): NimNode =
@@ -816,7 +816,7 @@ proc newLit*[T](s: set[T]): NimNode =
     result.add newLit(x)
   if result.len == 0:
     # add type cast for empty set
-    var typ = getTypeInst(typeof(s))[1]
+    var typ = getTypeInst(typeof(s))
     result = newCall(typ,result)
 
 proc isNamedTuple(T: typedesc): bool {.magic: "TypeTrait".}
