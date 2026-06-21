@@ -89,3 +89,11 @@ block:
     not compiles(1.map2(fn3))
     1.map2(fn4) == """(1, "fn4")"""
     1.map2(fn5) == """(1, "fn5")"""
+
+block get_type_with_typeclass:
+  # passing a type class (in the form of an uninstantiated generic) to
+  # `getType` must work
+  type Generic[T] = distinct T
+  static:
+    let n = getType(Generic)
+    doAssert n.kind == nnkSym
