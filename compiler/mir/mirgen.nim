@@ -646,36 +646,10 @@ proc genCheckedVariantAccess(c: var TCtx, variant: Value, name: PIdent,
   result = call[2].sym
 
 proc genTypeExpr(c: var TCtx, n: PNode): Value =
-  ## Generates the code for an expression that yields a type. These are only
-  ## valid in metaprogramming contexts. If it's a static type expression, we
-  ## evaluate it directly and store the result as a type literal in the MIR
+  ## Generates the code for an expression that yields a type.
   assert n.typ.kind == tyTypeDesc
   c.builder.useSource(c.sp, n)
-  case n.kind
-  of nkStmtListExpr:
-    # FIXME: a ``nkStmtListExpr`` shouldn't reach here, but it does. See
-    #        ``tests/lang_callable/generics/t18859.nim`` for a case where it
-    #        does
-    genTypeExpr(c, n.lastSon)
-  of nkSym:
-    case n.sym.kind
-    of skType:
-      typeLit c.typeToMir(n.sym.typ)
-    of skVar, skLet, skForVar, skTemp, skParam:
-      # a first-class type value stored in a location
-      genLocation(c, n)
-    else:
-      unreachable()
-  of nkBracketExpr:
-    # the type description of a generic type, e.g. ``seq[int]``
-    typeLit c.typeToMir(n.typ)
-  of nkTupleTy, nkStaticTy, nkRefTy, nkPtrTy, nkVarTy, nkDistinctTy, nkProcTy,
-     nkIteratorTy, nkSharedTy, nkTupleConstr:
-    typeLit c.typeToMir(n.typ)
-  of nkTypeOfExpr, nkType:
-    typeLit c.typeToMir(n.typ)
-  else:
-    unreachable("not a type expression")
+  typeLit c.typeToMir(n.typ)
 
 proc genArgExpression(c: var TCtx, n: PNode, sink: bool) =
   ## Generates and emits the code for an expression appearing in a call or
