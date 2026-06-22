@@ -34,7 +34,7 @@ jobs:
       DOC_TARGET: x86_64-linux-gnu
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup latest compiler
         uses: nim-works/setup-nimskull@0.1.2
