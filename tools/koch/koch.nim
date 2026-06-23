@@ -155,7 +155,6 @@ proc bundleWinTools(args: string) =
   nimCompile("tools/finish.nim", outputDir = "", options = args)
 
   buildVccTool(args)
-  nimCompile("tools/nimgrab.nim", options = "-d:ssl " & args)
   nimCompile("tools/nimgrep.nim", options = args)
 
 proc ensureCleanGit() =
