@@ -152,15 +152,8 @@ proc buildVccTool(args: string) =
     nimCompileFold("Compile Vcc", input, options = args)
 
 proc bundleWinTools(args: string) =
-  nimCompile("tools/finish.nim", outputDir = "", options = args)
-
   buildVccTool(args)
-  nimCompile("tools/nimgrab.nim", options = "-d:ssl " & args)
   nimCompile("tools/nimgrep.nim", options = args)
-  when false:
-    # not yet a tool worth including
-    nimCompile(r"tools\downloader.nim",
-               options = r"--cc:vcc --app:gui -d:ssl --noNimblePath --path:..\ui " & args)
 
 proc ensureCleanGit() =
   discard osproc.execCmdEx("git diff")
@@ -192,6 +185,12 @@ proc buildTools(args: string = "") =
 
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
+  nimCompileFold("Compile ssl_config_parser", "tools/ssl_config_parser.nim",
+                 options = "-d:release " & args)
+  nimCompileFold("Compile detect", "tools/detect/detect.nim",
+                 options = "-d:release " & args)
+  nimCompileFold("Compile unicode_parsedata", "tools/unicode_parsedata.nim",
+                 options = "-d:release " & args)
 
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.
@@ -469,28 +468,6 @@ proc testTools(cmd: string) =
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
 
-proc valgrind(cmd: string) =
-  # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
-  let args = parseCmdLine(cmd)
-  var nimcmd = ""
-  var valcmd = ""
-  for i, a in args:
-    if i == args.len-1:
-      # last element is the filename:
-      valcmd.add ' '
-      valcmd.add changeFileExt(a, ExeExt)
-      nimcmd.add ' '
-      nimcmd.add a
-    elif '=' in a:
-      valcmd.add ' '
-      valcmd.add a
-    else:
-      nimcmd.add ' '
-      nimcmd.add a
-  nimexec("c" & nimcmd)
-  let supp = nimSource / "tools" / "nimgrind.supp"
-  exec("valgrind --suppressions=" & supp & valcmd)
-
 proc showHelp(success: bool) =
   let version = targetCompilerVersion()
   quit(HelpText % [version & spaces(44-len(version))]):
@@ -562,7 +539,6 @@ when isMainModule:
         buildTools(op.cmdLineRest)
       of "pushcsource":
         quit "use this instead: https://github.com/nim-works/csources_v1/blob/master/push_c_code.nim"
-      of "valgrind": valgrind(op.cmdLineRest)
       of "c2nim": bundleC2nim(op.cmdLineRest)
       of "ic": icTest(op.cmdLineRest)
       of "branchdone": branchDone()

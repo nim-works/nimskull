@@ -7,7 +7,7 @@
 #        distribution, for details about the copyright.
 #
 
-import httpclient, json, net, strformat, strutils, sequtils, times
+import std/[httpclient, json, net, strformat, strutils, times]
 
 const
   ConfigSource = "https://ssl-config.mozilla.org/guidelines/latest.json"
