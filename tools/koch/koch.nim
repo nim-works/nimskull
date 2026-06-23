@@ -469,28 +469,6 @@ proc testTools(cmd: string) =
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
 
-proc valgrind(cmd: string) =
-  # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
-  let args = parseCmdLine(cmd)
-  var nimcmd = ""
-  var valcmd = ""
-  for i, a in args:
-    if i == args.len-1:
-      # last element is the filename:
-      valcmd.add ' '
-      valcmd.add changeFileExt(a, ExeExt)
-      nimcmd.add ' '
-      nimcmd.add a
-    elif '=' in a:
-      valcmd.add ' '
-      valcmd.add a
-    else:
-      nimcmd.add ' '
-      nimcmd.add a
-  nimexec("c" & nimcmd)
-  let supp = nimSource / "tools" / "nimgrind.supp"
-  exec("valgrind --suppressions=" & supp & valcmd)
-
 proc showHelp(success: bool) =
   let version = targetCompilerVersion()
   quit(HelpText % [version & spaces(44-len(version))]):
@@ -562,7 +540,6 @@ when isMainModule:
         buildTools(op.cmdLineRest)
       of "pushcsource":
         quit "use this instead: https://github.com/nim-works/csources_v1/blob/master/push_c_code.nim"
-      of "valgrind": valgrind(op.cmdLineRest)
       of "c2nim": bundleC2nim(op.cmdLineRest)
       of "ic": icTest(op.cmdLineRest)
       of "branchdone": branchDone()
