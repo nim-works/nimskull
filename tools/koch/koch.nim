@@ -152,8 +152,6 @@ proc buildVccTool(args: string) =
     nimCompileFold("Compile Vcc", input, options = args)
 
 proc bundleWinTools(args: string) =
-  nimCompile("tools/finish.nim", outputDir = "", options = args)
-
   buildVccTool(args)
   nimCompile("tools/nimgrep.nim", options = args)
 
