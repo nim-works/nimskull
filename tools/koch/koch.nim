@@ -157,10 +157,6 @@ proc bundleWinTools(args: string) =
   buildVccTool(args)
   nimCompile("tools/nimgrab.nim", options = "-d:ssl " & args)
   nimCompile("tools/nimgrep.nim", options = args)
-  when false:
-    # not yet a tool worth including
-    nimCompile(r"tools\downloader.nim",
-               options = r"--cc:vcc --app:gui -d:ssl --noNimblePath --path:..\ui " & args)
 
 proc ensureCleanGit() =
   discard osproc.execCmdEx("git diff")
