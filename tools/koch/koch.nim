@@ -185,6 +185,12 @@ proc buildTools(args: string = "") =
 
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
+  nimCompileFold("Compile ssl_config_parser", "tools/ssl_config_parser.nim",
+                 options = "-d:release " & args)
+  nimCompileFold("Compile detect", "tools/detect/detect.nim",
+                 options = "-d:release " & args)
+  nimCompileFold("Compile unicode_parsedata", "tools/unicode_parsedata.nim",
+                 options = "-d:release " & args)
 
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.
