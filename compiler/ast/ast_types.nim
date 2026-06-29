@@ -683,6 +683,9 @@ type
     tfExplicitCallConv
     tfIsConstructor
     tfEffectSystemWorkaround
+    tfHasError
+      ## marks the type as there being some error type or AST reachable
+      ## through it. Not relevant to the type system
 
   TTypeFlags* = set[TTypeFlag]
 

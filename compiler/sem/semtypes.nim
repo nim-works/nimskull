@@ -409,7 +409,11 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
   if weakLeValue(result.n[0], result.n[1]) == impNo:
     localReport(c.config, n, reportSem rsemRangeIsEmpty)
 
+  # clear the error flag added earlier:
+  result.flags.excl tfHasError
+
   result[0] = rangeT[0]
+  propagateToOwner(result, rangeT[0], false)
 
 proc semRange(c: PContext, n: PNode, prev: PType): PType =
   result = nil

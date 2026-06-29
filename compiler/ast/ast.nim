@@ -392,13 +392,16 @@ proc isGCedMem*(t: PType): bool {.inline.} =
            t.kind == tyProc and t.callConv == ccClosure
 
 proc propagateToOwner*(owner, elem: PType; propagateHasAsgn = true) =
-  owner.flags.incl elem.flags * {tfHasMeta, tfTriggersCompileTime}
+  owner.flags.incl elem.flags * {tfHasMeta, tfHasError, tfTriggersCompileTime}
   if tfNotNil in elem.flags:
     if owner.kind in {tyGenericInst, tyGenericBody, tyGenericInvocation}:
       owner.flags.incl tfNotNil
 
   if elem.isMetaType:
     owner.flags.incl tfHasMeta
+
+  if elem.kind == tyError:
+    owner.flags.incl tfHasError
 
   let mask = elem.flags * {tfHasAsgn}
   if mask != {} and propagateHasAsgn:
