@@ -1259,7 +1259,7 @@ proc track(tracked: PEffects, n: PNode) =
       oldState = tracked.init.len
       oldFacts = tracked.guards.s.len
       iterCall = n[n.len-2]
-    
+
     if optStaticBoundsCheck in tracked.currOptions and iterCall.kind in nkCallKinds:
       let op = iterCall[0]
       if op.kind == nkSym and fromSystem(op.sym):
@@ -1900,3 +1900,123 @@ proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   initEffects(g, effects, module, t, c)
   t.isTopLevel = isTopLevel
   track(t, n)
+
+proc areErrorsReachable*(graph: ModuleGraph, n: PNode): bool =
+  ## Looks for error types and error AST reachable from `n` via macro-
+  ## accessible facilities. Completed routines transitively referenced by `n`
+  ## are only scanned once, with the scan result cached in `graph`.
+  ## Returns `true` if errors are reachable from `n`, `false` otherwise.
+  type State = enum
+    Unknown
+    Error
+    NoError
+
+  var delayed: seq[tuple[sym: PSym, st: State, deps: seq[PSym]]]
+  var seen: IntSet
+    ## routines added to `rest`
+  var localSeen: IntSet
+    ## symbols already seen in the scan of the current AST
+
+  proc scanAux(n: PNode, s: var State, cur: PSym, deps: var seq[PSym]) =
+    if n.isNil:
+      # XXX: nil nodes do exist in AST in some cases, necessitating the
+      #      guard, but ideally they shouldn't
+      return
+    elif n.typ != nil and
+         (n.typ.kind == tyError or tfHasError in n.typ.flags):
+      s = Error
+      return
+
+    case n.kind
+    of nkError:
+      s = Error
+    of nkSym:
+      if cur != nil and cur.id == n.sym.id:
+        discard "ignore"
+      elif n.sym.kind in routineKinds:
+        graph.withErrors.withValue n.sym.id, val:
+          if val[]:
+            s = Error
+        do:
+          if not containsOrIncl(seen, n.sym.id):
+            delayed.add (n.sym, Unknown, @[])
+          if not containsOrIncl(localSeen, n.sym.id):
+            deps.add n.sym
+      elif n.sym.kind in {skVar, skLet, skConst, skForVar} and
+           not containsOrIncl(localSeen, n.sym.id):
+        # don't cache the test result for non-routine symbols
+        scanAux(n.sym.ast, s, cur, deps)
+    of nkWithSons:
+      for it in n.items:
+        scanAux(it, s, cur, deps)
+        if s == Error:
+          # the "Error" state is terminal, so there's no need to
+          # continue scanning
+          return
+    of nkWithoutSons - {nkSym, nkError}:
+      discard "nothing changes"
+
+  var st = NoError
+  var rdeps: seq[PSym]
+  scanAux(n, st, nil, rdeps)
+
+  if st == Error:
+    # no need to scan the dependencies (if any); we already found an error
+    return true
+
+  # iteratively scan all routines that haven't been so far:
+  var i = 0
+  while i < delayed.len:
+    let sym {.cursor.} = delayed[i].sym
+    var st = if sfForward in sym.flags: Unknown else: NoError
+    var deps: seq[PSym]
+    localSeen.clear()
+    scanAux(sym.ast, st, sym, deps)
+
+    if st == Error or deps.len == 0:
+      # we've found the final state for the symbol already
+      delayed.del(i)
+      if st != Unknown:
+        graph.withErrors[sym.id] = st == Error
+    else:
+      delayed[i].st = st
+      delayed[i].deps = deps
+      inc i
+
+  # propagate the error state through the dependency graph. Since the graph
+  # may be cyclic, the propagation is repeated until a fixpoint is reached
+  var changed = true
+  while changed:
+    changed = false
+    var i = 0
+    while i < delayed.len:
+      var di = 0
+      var hasError = false
+      while di < delayed[i].deps.len:
+        graph.withErrors.withValue delayed[i].deps[di].id, val:
+          if val[]:
+            # found a dependency through which an error is reachable
+            hasError = true
+            break
+          delayed[i].deps.del(di)
+        do:
+          inc di
+
+      if hasError or (delayed[i].deps.len == 0 and delayed[i].st == NoError):
+        changed = true
+        graph.withErrors[delayed[i].sym.id] = hasError
+        delayed.del(i)
+      else:
+        inc i
+
+  # all remaining symbols are part of one or more cycles
+  for (it, st, _) in delayed.items:
+    if st != Unknown:
+      graph.withErrors[it.id] = false
+
+  result = false # presume no error
+  for it in rdeps.items:
+    graph.withErrors.withValue it.id, val:
+      if val[]:
+        result = true
+        break

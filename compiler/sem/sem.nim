@@ -822,6 +822,11 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
   if args.kind == nkError:
     return args
 
+  # prevent error AST and types from being visible to macros:
+  if areErrorsReachable(c.graph, n):
+    # don't evaluate the macro and leave the call as is
+    return n
+
   let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
   var original: PNode
   if reportTraceExpand:
