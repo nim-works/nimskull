@@ -104,6 +104,9 @@ type
     libs*: seq[seq[TLib]] ## indexed by ``LibId``
     transformed*: seq[Table[int32, PNode]] ## the cached transformed routine
                                            ## bodies for all modules
+    withErrors*: Table[int, bool]
+      ## caches the result of scanning routines for whether error types or AST
+      ## are reachable from them
 
     startupPackedConfig*: PackedConfig
     packageSyms*: TStrTable
@@ -519,6 +522,7 @@ proc newModuleGraph*(cache: IdentCache; config: ConfigRef): ModuleGraph =
   result.ifaces = @[]
   result.importStack = @[]
   result.transformed = @[]
+  result.withErrors = initTable[int, bool]()
   result.inclToMod = initTable[FileIndex, FileIndex]()
   result.config = config
   result.cache = cache
@@ -542,6 +546,7 @@ proc resetAllModules*(g: ModuleGraph) =
   g.ifaces = @[]
   g.importStack = @[]
   g.transformed = @[]
+  g.withErrors = initTable[int, bool]()
   g.inclToMod = initTable[FileIndex, FileIndex]()
   g.usageSym = nil
   g.owners = @[]

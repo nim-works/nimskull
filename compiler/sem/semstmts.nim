@@ -3154,6 +3154,10 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   case a.kind
   of nkError:
     result = c.config.wrapError(result)
+  elif areErrorsReachable(c.graph, a):
+    # don't evaluate and just turn into a discard
+    result.transitionSonsKind(nkDiscardStmt)
+    result[0] = c.graph.emptyNode
   else:
     result.transitionSonsKind(nkDiscardStmt)
     result[0] = evalStaticStmt(c.module, c.idgen, c.graph, a, c.p.owner)
