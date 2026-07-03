@@ -1171,7 +1171,6 @@ type
     adSemWrongNumberOfGenericParams
     # sem
     adSemExpressionHasNoType
-    adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
     adSemStringRangeNotAllowed
@@ -1570,26 +1569,8 @@ type
     of adSemCompilerOptionArgInvalid:
       forCompilerOpt*: PNode
       badCompilerOptArg*: PNode
-    of adSemDefNameSym:
-      defNameSym*: PSym
-      defNameSymData*: AdSemDefNameSym
     of adSemInvalidControlFlow:
       label*: PSym
-
-  AdSemDefNameSymKind* = enum
-    adSemDefNameSymExpectedKindMismatch
-    adSemDefNameSymIdentGenFailed
-    adSemDefNameSymExistingError
-    adSemDefNameSymIllformedAst
-  AdSemDefNameSym* = object
-    case kind*: AdSemDefNameSymKind:
-      of adSemDefNameSymExpectedKindMismatch:
-        expectedKind*: TSymKind # xxx: maybe always capture this?
-      of adSemDefNameSymIdentGenFailed:
-        identGenErr*: PNode
-      of adSemDefNameSymExistingError,
-          adSemDefNameSymIllformedAst:
-        discard
 
   TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
                            # on a 64bit machine, this takes 40 bytes

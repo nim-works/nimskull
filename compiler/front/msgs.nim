@@ -401,9 +401,6 @@ func astDiagToLegacyReportKind*(
   vmGenDiag: Option[AstDiagVmGenKind] = none(AstDiagVmGenKind),
   vmEvent: Option[AstDiagVmKind] = none(AstDiagVmKind)
   ): ReportKind {.inline.} =
-  ## with the introduction of `adSemDefNameSym` style diagnostics, this
-  ## function is no longer all that sensible. `AstDiagKind` will move towards
-  ## very broad categories and they'll no longer map to "reports".
   case diag
   of adWrappedError: rsemWrappedError
   of adWrappedSymError: rsemWrappedError
@@ -581,7 +578,6 @@ func astDiagToLegacyReportKind*(
   of adSemFoldOverflow: rsemSemfoldOverflow
   of adSemFoldDivByZero: rsemSemfoldDivByZero
   of adSemFoldCannotComputeOffset: rsemCantComputeOffsetof
-  of adSemDefNameSym: rsemExpectedIdentifier
   of adSemCompilerOptionInvalid: rsemCompilerOptionInvalid
   of adSemDeprecatedCompilerOpt: rsemDeprecatedCompilerOpt
   of adSemCompilerOptionArgInvalid: rsemCompilerOptionArgInvalid
