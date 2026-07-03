@@ -3234,12 +3234,10 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
       givenLabl = n[0]
       lablRes =
         case givenLabl.kind
-        of nkEmpty, nkError:
+        of nkEmpty:
           givenLabl
-        of nkIdent, nkSym, nkAccQuoted:
-          let
-            lablNode = newSymGNode(skLabel, givenLabl, c)
-            labl = getDefNameSymOrRecover(lablNode)
+        else:
+          let labl = produceSymbol(skLabel, givenLabl, c)
 
           if sfGenSym notin labl.flags:
             addDecl(c, labl)
@@ -3250,13 +3248,10 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
           # macro, meaning that we always have to set the context value here:
           labl.context = c.executionCons.high
 
-          suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
+          suggestSym(c.graph, givenLabl.info, labl, c.graph.usageSym)
           styleCheckDef(c.config, labl)
 
-          lablNode
-        else:
-          c.config.newError(givenLabl,
-                            PAstDiag(kind: adSemExpectedIdentifier))
+          newSymNode(labl)
       bodyRes = semExpr(c, n[1], flags)
 
     result = copyNode(n)

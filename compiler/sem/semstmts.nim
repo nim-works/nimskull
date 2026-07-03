@@ -255,8 +255,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
         # support ``except Exception as ex: body``
         let
           isImported = semExceptBranchType(a[0][1])
-          symbolNode = newSymGNode(skLet, a[0][2], c)
-          symbol = getDefNameSymOrRecover(symbolNode)
+          symbol = produceSymbol(skLet, a[0][2], c)
         symbol.typ =
           if isImported or
              a[0][1].typ.skipTypes({tyGenericInst, tyAlias}).kind == tyRef:
@@ -264,13 +263,11 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
           else:
             makeRefType(c.config, a[0][1].typ, c.idgen)
 
-        if symbolNode.kind != nkError:
-          # propagate the symbol's type to the node
-          symbolNode.typ = symbol.typ
-
+        # TODO: handle recovery symbols correctly (by not adding them to the
+        #       symbol table)
         addDecl(c, symbol)
         # Overwrite symbol in AST with the symbol in the symbol table.
-        a[0][2] = symbolNode
+        a[0][2] = newSymNode(symbol)
       elif a.len == 1:
         # count number of ``except: body`` blocks
         inc catchAllExcepts
@@ -1406,26 +1403,15 @@ proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
 include semfields
 
 proc symForVar(c: PContext, n: PNode): PSym =
-  # TODO: replace with a node return variant that can in band errors
-  let
-    hasPragma = n.kind == nkPragmaExpr
-    resultNode = newSymGNode(skForVar, (if hasPragma: n[0] else: n), c)
-    semmedNode = if hasPragma: copyNodeWithKids(n) else: resultNode
+  let hasPragma = n.kind == nkPragmaExpr
 
-  result = getDefNameSymOrRecover(resultNode)
+  # TODO: add forvar pragma handling to semIdentWithPragma and then use the
+  #       latter here instead
+  result = produceSymbol(skForVar, (if hasPragma: n[0] else: n), c)
   styleCheckDef(c.config, result)
 
   if hasPragma:
-    let pragma = pragmaDecl(c, result, n[1], forVarPragmas)
-    if pragma.kind == nkError:
-      semmedNode[0] = resultNode
-      semmedNode[1] = pragma
-
-  if resultNode.kind == nkError or hasPragma and semmedNode[1].kind == nkError:
-    result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
-                    n.info)
-    result.typ = c.errorType
-    result.ast = c.config.wrapError(semmedNode)
+    discard pragmaDecl(c, result, n[1], forVarPragmas)
 
 proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
   ## Semantically analyses a single definition of a variable in the context of
@@ -2385,7 +2371,7 @@ proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PN
     else:
       return c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
   of nkSym:
-    return newSymGNode(kind, n, c)
+    return newSymNode(produceSymbol(kind, n, c))
   of nkPostfix, nkIdent, nkAccQuoted:
     # do *not* use ``semIdentDef``. It marks the procedure as global even if
     # not at top-level scope. In addition, using it would also allow pragma

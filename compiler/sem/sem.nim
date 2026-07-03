@@ -421,40 +421,14 @@ func getDefNameSymOrRecover*(n: PNode): PSym {.inline.} =
   else:
     unreachable("no other cases supported, got: " & $n.kind)
 
-proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
-  ## like newSymS, but considers gensym'ed symbols, analyses `n` producing a
-  ## canonical symbol node (`nkSym`), or if unsuccessful an `nkError` with an
-  ## `adSemDefNameSym` diagnostic.
-  ## 
-  ## Symbol canonicalization is is as follows:
-  ## 1. `nkSym` -> match `kind` (or `skTemp`) and updates the sym owner to the
-  ##               current context (gensym specific)
-  ## 2. `nkIdentKinds` -> instantiate a symbol considering quoted identifiers
-  ## 3. `nkError` -> simply returns the same error
-  ## 4. other kinds -> new error
-  # TODO: come up with a better name for this proc
+proc produceSymbol*(kind: TSymKind, n: PNode, c: PContext): PSym =
+  ## Creates (or reuses) a symbol with the given kind `kind` from the
+  ## identifier-like node `n` appearing in an identifier-binding position.
+  ## Always returns a valid symbol, even when there's an error (in which
+  ## case a diagnostic is emitted).
   let
     info = n.info
     currOwner = getCurrOwner(c)
-
-  template makeError(config: ConfigRef, n: PNode, sym: PSym,
-                     dataKindSuffix: untyped): PNode =
-    let
-      dataKind = `adSemDefNameSym dataKindSuffix`
-      (wrongNode, defData) =
-        case dataKind
-        of adSemDefNameSymExpectedKindMismatch:
-          (n, AdSemDefNameSym(kind: dataKind, expectedKind: kind))
-        of adSemDefNameSymIdentGenFailed:
-          (n.diag.wrongNode,
-          AdSemDefNameSym(kind: dataKind, identGenErr: n))
-        of adSemDefNameSymExistingError,
-            adSemDefNameSymIllformedAst:
-          (n, AdSemDefNameSym(kind: dataKind))
-
-    config.newError(wrongNode, PAstDiag(kind: adSemDefNameSym,
-                                        defNameSym: sym,
-                                        defNameSymData: defData))
 
   case n.kind
   of nkSym:
@@ -467,60 +441,27 @@ proc newSymGNode*(kind: TSymKind, n: PNode, c: PContext): PNode =
         if n.sym.kind == skGenerated:
           n.sym.kind = kind
         n.sym.owner = currOwner # xxx: modifying the sym owner is suss
-        n
+        n.sym
       else:
         # a symbol with the wrong kind is transplanted into a definition
         # position. Create a new symbol instead of a copy in order to prevent
         # follow-up errors due to the symbol's flags, type, etc.
-        let recoverySym = newSym(kind, n.sym.name, nextSymId c.idgen,
-                                 currOwner, info)
-        c.config.makeError(n, recoverySym, ExpectedKindMismatch)
+        c.config.localReport(n.info,
+          SemReport(kind: rsemSymbolKindMismatch, sym: n.sym,
+                    expectedSymbolKind: {kind}))
+        newSym(kind, n.sym.name, nextSymId c.idgen, currOwner, info)
   of nkIdent, nkAccQuoted:
-    # xxx: sym choices qualify here, but shouldn't those be errors in
-    #      definition positions?
-    let
-      (ident, err) = considerQuotedIdent(c, n)
-      sym = newSym(kind, ident, nextSymId c.idgen, currOwner, info)
-    result =
-      if err.isNil:
-        newSymNode(sym)
-      else:
-        c.config.makeError(err, sym, IdentGenFailed)
-  of nkError:
-    result = 
-      case n.diag.kind
-      of adSemDefNameSym:
-        # TODO: this branch needs to cover all `adSemDefinitionName...` diag
-        #       kinds, so `newSymGNode`, `semIdentVis`, `semIdentWithPragma` etc
-        #       get along and we don't overwrap
-        n
-      else:
-        # TODO: once known kinds are covered (above) and can differentiate
-        #       from errors copied around by macros/tempaltes, then we can safely
-        #       wrap this in `adSemDefinitionNameExistingError`; for now we have
-        #       this defensive check.
-        var innerNode = n.diag.wrongNode
-        while innerNode.kind == nkError and
-              innerNode.diag.kind != adSemDefNameSym:
-          innerNode = n.diag.wrongNode
-        doAssert innerNode.kind != nkError: # false means we're rewrapping
-          "this can only happen due to a bug/potential infinite loop"
-
-        let recoverySym = newSym(kind, c.cache.getNotFoundIdent(),
-                                nextSymId c.idgen, currOwner, info)
-        c.config.makeError(n, recoverySym, ExistingError)
-  of nkAllNodeKinds - nkIdentKinds - {nkError} + nkSymChoices:
-    let recoverySym = newSym(kind, c.cache.getNotFoundIdent(),
-                             nextSymId c.idgen, currOwner, info)
-    result = c.config.makeError(n, recoverySym, IllformedAst)
+    let (ident, err) = considerQuotedIdent(c, n)
+    result = newSym(kind, ident, nextSymId c.idgen, currOwner, info)
+    if err != nil:
+      result.flags.incl sfGenSym # don't add to the symbol table
+  of nkAllNodeKinds - nkIdentKinds + nkSymChoices:
+    c.config.semReportIllformedAst(n, "expected identifier-like node")
+    result = newSym(kind, c.cache.getNotFoundIdent(),
+                    nextSymId c.idgen, currOwner, info)
+    result.flags.incl sfGenSym # don't add to the symbol table
   when defined(nimsuggest):
-    case result.kind
-    of nkError:
-      suggestDecl(c, n, result.diag.defNameSym)
-    of nkSym:
-      suggestDecl(c, n, result.sym)
-    else:
-      unreachable("only produces `nkSym` or `nkError`")
+    suggestDecl(c, n, result)
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym

@@ -640,9 +640,7 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
       localReport(c.config, a[^1], reportSem rsemInitHereNotAllowed)
 
     for j in 0 ..< a.len - 2:
-      let
-        fieldNode = newSymGNode(skField, a[j], c)
-        field = getDefNameSymOrRecover(fieldNode)
+      let field = produceSymbol(skField, a[j], c)
       field.typ = typ
       field.position = counter
       inc(counter)
@@ -662,17 +660,11 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
 
 proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
                  allowed: TSymFlags): PSym =
-  # TODO: replace with a node return variant that can in band errors
   # identifier with visibility
   if n.kind == nkPostfix:
     if n.len == 2:
-      # for gensym'ed identifiers the identifier may already have been
-      # transformed to a symbol and we need to use that here:
-      let
-        identNode = newSymGNode(kind, n[1], c)
-        (star, _) = considerQuotedIdent(c, n[0])
-
-      result = getDefNameSymOrRecover(identNode)
+      let (star, _) = considerQuotedIdent(c, n[0])
+      result = produceSymbol(kind, n[1], c)
 
       # xxx: we can move the export allowed check much earlier
       if sfExported in allowed and star.id == ord(wStar):
@@ -683,11 +675,11 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
         else:
           localReport(c.config, n[0], reportSem rsemInvalidVisibility)
     else:
+      # FIXME: still produce a valid symbol
       c.config.semReportIllformedAst(
         n, "Expected two nodes for postfix expression, but found " & $n.len)
   else:
-    let sym = newSymGNode(kind, n, c)
-    result = getDefNameSymOrRecover(sym)
+    result = produceSymbol(kind, n, c)
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym =
@@ -1535,8 +1527,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
     for j in 0..<a.len-2:
       let
         givenArg = if a[j].kind == nkPragmaExpr: a[j][0] else: a[j]
-        argNode = newSymGNode(skParam, givenArg, c)
-        arg = getDefNameSymOrRecover(argNode)
+        arg = produceSymbol(skParam, givenArg, c)
 
       if a[j].kind == nkPragmaExpr:
         a[j][1] = pragmaDecl(c, arg, a[j][1], paramPragmas)
@@ -2510,8 +2501,7 @@ proc semGenericParamList(c: PContext, n: PNode, father: PType = nil): PNode =
               skGenericParam
             else:
               skType
-          sNode = newSymGNode(sKind, paramName, c)
-          s = getDefNameSymOrRecover(sNode).linkTo(finalType)
+          s = produceSymbol(sKind, paramName, c).linkTo(finalType)
 
         if covarianceFlag != tfUnresolved: s.typ.flags.incl(covarianceFlag)
         if def.kind != nkEmpty: s.ast = def
