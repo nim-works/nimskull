@@ -1067,9 +1067,9 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   result.sons.newSeq(n.len) # make space for the kids
 
   result[namePos] = n[namePos]
-  var hasError = result[namePos].kind == nkError
+  var hasError = false
 
-  let s = result[namePos].getDefNameSymOrRecover()
+  let s = result[namePos].sym
 
   assert s.kind == skTemplate
 

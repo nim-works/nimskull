@@ -2447,20 +2447,13 @@ proc semRoutineParams(c: PContext, routine: PNode, formal, generic: PNode, kind:
     # remember the original generic-parameter list in the misc slot
     routine[miscPos] = newTree(nkBracket, c.graph.emptyNode, generic)
 
-proc checkSpecialOperators(c: PContext, name: PNode): PNode =
+proc checkSpecialOperators(c: PContext, s: PSym) =
   ## Checks whether `name` is that of a special operator, and if yes, whether
-  ## the respective special operator is enabled. If not, an error is produced.
-  ## If there was no error, `name` is returned.
-  assert name.kind == nkSym or defNameErrorNodeAllowsSymUpdate(name)
-  let s = name.getDefNameSymOrRecover()
-  if s.name.s[0] notin {'.', '('}:
-    name
-  elif s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
-    c.config.newError(name, PAstDiag(kind: adSemDotOperatorsNotEnabled))
-  elif s.name.s == "()" and callOperator notin c.features:
-    c.config.newError(name, PAstDiag(kind: adSemCallOperatorsNotEnabled))
-  else:
-    name
+  ## the respective special operator is enabled. If not, an error is emitted.
+  if s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
+    c.config.emit(s.info, PAstDiag(kind: adSemDotOperatorsNotEnabled))
+  if s.name.s == "()" and callOperator notin c.features:
+    c.config.emit(s.info, PAstDiag(kind: adSemCallOperatorsNotEnabled))
 
 func isAnon(cache: IdentCache, s: PSym): bool {.inline.} =
   s.name.id == cache.idAnon.id
@@ -2468,9 +2461,9 @@ func isAnon(cache: IdentCache, s: PSym): bool {.inline.} =
 proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
                 flags: TExprFlags = {}): PNode =
   var
-    hasError = n[namePos].kind == nkError # XXX: hasError is not yet fully
-                                          #      integrated into ``semProcAux``
-    s = n[namePos].getDefNameSymOrRecover()
+    hasError = false # XXX: hasError is not yet fully
+                     #      integrated into ``semProcAux``
+    s = n[namePos].sym
   let isAnon = c.cache.isAnon(s)
 
   result = shallowCopy(n)
@@ -2602,19 +2595,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     result[genericParamsPos] = proto.ast[genericParamsPos]
     result[paramsPos] = proto.ast[paramsPos]
     result[pragmasPos] = proto.ast[pragmasPos]
-
-    case result[namePos].kind
-    of nkSym:
-      result[namePos].sym = proto
-    of nkError:
-      if result[namePos].defNameErrorNodeAllowsSymUpdate:
-        # this is the only error we can recover from and do so only for more
-        # thorough semantic analysis for `check`, `suggest`, etc
-        result[namePos].diag.defNameSym = proto
-      else:
-        c.config.internalAssert(false, "semProcAux - unexpected error")
-    else:
-      c.config.internalAssert(false, "semProcAux")
+    result[namePos].sym = proto
 
     if importantComments(c.config) and proto.ast.comment.len > 0:
       result.comment = proto.ast.comment
@@ -2626,8 +2607,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     if sfOverriden in s.flags or s.name.s[0] == '=':
       semOverride(c, s, result.info)
     else:
-      result[namePos] = checkSpecialOperators(c, result[namePos])
-      hasError = hasError or result[namePos].kind == nkError
+      checkSpecialOperators(c, result[namePos].sym)
 
   if result[genericParamsPos].kind == nkEmpty and s.magic == mNone:
     paramsTypeCheck(c, s.typ, s.flags)
@@ -2728,7 +2708,7 @@ proc semProc(c: PContext, n: PNode): PNode =
 
 proc semFunc(c: PContext, n: PNode): PNode =
   let validPragmas =
-    if c.cache.isAnon(n[namePos].getDefNameSymOrRecover()):
+    if c.cache.isAnon(n[namePos].sym):
       lambdaPragmas
     else:
       procPragmas
@@ -2742,7 +2722,7 @@ proc semMethod(c: PContext, n: PNode): PNode =
   if result.kind == nkError:
     return
 
-  let s = result[namePos].getDefNameSymOrRecover()
+  let s = result[namePos].sym
   # we need to fix the 'auto' return type for the dispatcher here (see tautonotgeneric
   # test case):
   let disp = getDispatcher(s)
@@ -2763,7 +2743,7 @@ proc semConverterDef(c: PContext, n: PNode): PNode =
   if result.kind == nkError:
     return
 
-  var s = result[namePos].getDefNameSymOrRecover()
+  var s = result[namePos].sym
   var t = s.typ
   if t[0] == nil:
     localReport(c.config, n.info, reportSym(
@@ -2786,8 +2766,8 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     result[i] = n[i]
 
   var
-    s = n[namePos].getDefNameSymOrRecover()
-    hasError = n[namePos].kind == nkError
+    s = n[namePos].sym
+    hasError = false
 
   s.ast = result
   s.options = c.config.options # captue the current options
@@ -2835,8 +2815,7 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
   if result[pragmasPos].kind == nkError: # did application fail?
     hasError = true
   else:
-    result[namePos] = checkSpecialOperators(c, result[namePos])
-    hasError = hasError or result[namePos].kind == nkError
+    checkSpecialOperators(c, result[namePos].sym)
 
   if hasError:
     # don't analyse the body if the header has errors:
@@ -2968,10 +2947,9 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
     c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
 
   if result[namePos].kind == nkError:
-    if result[namePos].diag.kind == adSemDefNameSym:
-      discard "don't leave early, we can still make progress"
-    else:
-      return c.config.wrapError(result) # early out
+    # TODO: always produce a valid symbol in `semRoutineName` and remove
+    #       this case
+    return c.config.wrapError(result) # early out
 
   result =
     case kind

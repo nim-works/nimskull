@@ -401,26 +401,6 @@ proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
   when defined(nimsuggest):
     suggestDecl(c, n, result)
 
-func defNameErrorNodeAllowsSymUpdate*(n: PNode): bool {.inline.} =
-  ## true if `n` is an `nkError` of kind `adSemSymNameSym` and the error is
-  ## minor enough to allow the recovery sym to be updated. Used to see if
-  ## progress is allowed inspite of errors.
-  n.kind == nkError and n.diag.kind == adSemDefNameSym and
-    n.diag.defNameSymData.kind == adSemDefNameSymExpectedKindMismatch
-
-func getDefNameSymOrRecover*(n: PNode): PSym {.inline.} =
-  ## extracts the symbol from `n`, which must be an `nkSym` or `nkError` with
-  ## diagnostic kind of `adSemDefNameSym`. If `n` is an error, a
-  ## recovery symbol is extracted, allowing progress to be made.
-  case n.kind
-  of nkSym: n.sym
-  of nkError:
-    case n.diag.kind
-    of adSemDefNameSym: n.diag.defNameSym
-    else: unreachable("all error cases must be covered, got: " & $n.diag.kind)
-  else:
-    unreachable("no other cases supported, got: " & $n.kind)
-
 proc produceSymbol*(kind: TSymKind, n: PNode, c: PContext): PSym =
   ## Creates (or reuses) a symbol with the given kind `kind` from the
   ## identifier-like node `n` appearing in an identifier-binding position.
