@@ -436,7 +436,8 @@ proc produceSymbol*(kind: TSymKind, n: PNode, c: PContext): PSym =
     if err != nil:
       result.flags.incl sfGenSym # don't add to the symbol table
   of nkAllNodeKinds - nkIdentKinds + nkSymChoices:
-    c.config.semReportIllformedAst(n, "expected identifier-like node")
+    c.config.localReport(n.info,
+      SemReport(kind: rsemExpectedIdentifier, ast: n))
     result = newSym(kind, c.cache.getNotFoundIdent(),
                     nextSymId c.idgen, currOwner, info)
     result.flags.incl sfGenSym # don't add to the symbol table

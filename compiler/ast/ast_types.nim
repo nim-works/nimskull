@@ -1365,8 +1365,6 @@ type
         adSemSelectorMustBeOfCertainTypes,
         adSemInvalidPragmaBlock,
         adSemConceptPredicateFailed,
-        adSemDotOperatorsNotEnabled,
-        adSemCallOperatorsNotEnabled,
         adSemUnexpectedPattern,
         adSemCannotBeRaised,
         adSemCannotRaiseNonException,
@@ -1402,6 +1400,9 @@ type
         adSemExternalLocalNotAllowed,
         adSemGeneratedSymUsed:
       discard
+    of adSemDotOperatorsNotEnabled,
+       adSemCallOperatorsNotEnabled:
+      operator*: PSym
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
     of adSemUseOrDiscardExpr:

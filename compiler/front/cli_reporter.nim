@@ -3334,15 +3334,20 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
-  of adSemDotOperatorsNotEnabled,
-     adSemCallOperatorsNotEnabled,
-     adSemGeneratedSymUsed:
+  of adSemGeneratedSymUsed:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode,
         sym: diag.wrongNode.sym)
+  of adSemDotOperatorsNotEnabled,
+     adSemCallOperatorsNotEnabled:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        sym: diag.operator)
   of adSemInvalidTupleSubscript:
     semRep = SemReport(
         location: some diag.location,

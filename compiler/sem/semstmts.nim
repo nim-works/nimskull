@@ -2451,9 +2451,11 @@ proc checkSpecialOperators(c: PContext, s: PSym) =
   ## Checks whether `name` is that of a special operator, and if yes, whether
   ## the respective special operator is enabled. If not, an error is emitted.
   if s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
-    c.config.emit(s.info, PAstDiag(kind: adSemDotOperatorsNotEnabled))
+    c.config.emit(s.info,
+      PAstDiag(kind: adSemDotOperatorsNotEnabled, operator: s))
   if s.name.s == "()" and callOperator notin c.features:
-    c.config.emit(s.info, PAstDiag(kind: adSemCallOperatorsNotEnabled))
+    c.config.emit(s.info,
+      PAstDiag(kind: adSemCallOperatorsNotEnabled, operator: s))
 
 func isAnon(cache: IdentCache, s: PSym): bool {.inline.} =
   s.name.id == cache.idAnon.id
