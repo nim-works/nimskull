@@ -1483,7 +1483,7 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
     if dir == "": break
   return ""
 
-proc uniqueModuleName*(
+proc moduleUniqueName*(
   conf: ConfigRef,
   file: AbsoluteFile,
   currentModule: PSym
