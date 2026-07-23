@@ -295,34 +295,6 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
     ret.node = n.processPragma
   return ret
 
-proc findModuleAsPackage(c: PContext; n: PNode): (FileIndex, string) = 
-  ## Finds a module by checking the package index. Returns the file index,
-  ## and the alias.
-  var modulePathString = getModuleName(c.config, n)
-  if modulePathString.len == 0: return (InvalidFileIdx, "")
-  if modulePathString.startsWith("pkg/"):
-    modulePathString = modulePathString.substr(4)
-
-  let
-    currentModulePkgId = c.module.getPackage().name.s  
-    (pkgId, alias) = c.config.findPackage(modulePathString, currentModulePkgId)
-
-  if pkgId.len > 0:
-    let moduleAbsPath = c.config.getPackageEntry(pkgId, modulePathString)
-
-    if moduleAbsPath.string.len > 0 and fileExists(moduleAbsPath.string):
-      var isKnown: bool
-      let
-        fileIdx = fileInfoIdx(c.config, moduleAbsPath, isKnown)
-        entryPointPath = c.config.getPackageEntry(pkgId, "")
-
-      if entryPointPath.string == moduleAbsPath.string:
-        return (fileIdx, alias)
-      else:
-        return (fileIdx, "")
-
-  return (InvalidFileIdx, "")
-
 proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
                     importStmtResult: PNode): PSym =
   ## `info` provides the source position (which may be different from the one
@@ -330,16 +302,18 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
   let transf = transformImportAs(c, n)
   n = transf.node
 
-  var (fileIdx, pkgAlias) = findModuleAsPackage(c, n)
-  let isPackageImport = fileIdx != InvalidFileIdx
+  let
+    modName = getModuleName(c.config, n)
+    currentPkgId = c.module.getPackage().name.s
+    fullPath = findModule(c.config, modName, toFullPath(c.config, n.info), currentPkgId)
 
-  if not isPackageImport:
-    fileIdx = checkModuleName(c.config, n, getPackage(c.module).name.s)
-
-  if fileIdx != InvalidFileIdx:
+  if fullPath.string.len > 0:
+    var isKnown: bool
+    let fileIdx = fileInfoIdx(c.config, fullPath, isKnown)
     addImportFileDep(c, fileIdx)
-    let L = c.graph.importStack.len
-    let recursion = c.graph.importStack.find(fileIdx)
+    let
+      L = c.graph.importStack.len
+      recursion = c.graph.importStack.find(fileIdx)
     c.graph.importStack.add fileIdx
     #echo "adding ", toFullPath(fileIdx), " at ", L+1
     if recursion >= 0:
@@ -353,17 +327,14 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
     discard pushOptionEntry(c)
     realModule = c.graph.importModuleCallback(c.graph, c.module, fileIdx)
 
-    if isPackageImport and n.kind != nkImportAs:
-      if pkgAlias.len > 0:
-        var importedString = getModuleName(c.config, n)
-        if importedString.startsWith("pkg/"):
-          importedString = importedString.substr(4)
-        if importedString.nimIdentNormalize() == pkgAlias.nimIdentNormalize():
-          let aliasIdent = newIdentNode(getIdent(c.cache, pkgAlias), n.info)
-          let newN = newNodeI(nkImportAs, n.info)
-          newN.add n
-          newN.add aliasIdent
-          n = newN
+    let (pkgAlias, moduleRemainder) = processImportPath(c.config, modName, currentPkgId)
+    if pkgAlias.len > 0 and n.kind != nkImportAs and moduleRemainder.len == 0:
+      let
+        aliasIdent = newIdentNode(getIdent(c.cache, pkgAlias), n.info)
+        newN = newNodeI(nkImportAs, n.info)
+      newN.add n
+      newN.add aliasIdent
+      n = newN
 
     result = importModuleAs(c, n, realModule, transf.importHidden)
     popOptionEntry(c)
