@@ -520,6 +520,18 @@ proc modInt(a, b: int): int {.asmNoStackFrame, compilerproc.} =
     return Math.trunc(`a` % `b`);
   """
 
+proc divUInt(a, b: uint): uint {.asmNoStackFrame, compilerproc.} =
+  asm """
+    if (`b` == 0) `raiseDivByZero`();
+    return Math.trunc(`a` / `b`) >>> 0;
+  """
+
+proc modUInt(a, b: uint): uint {.asmNoStackFrame, compilerproc.} =
+  asm """
+    if (`b` == 0) `raiseDivByZero`();
+    return Math.trunc(`a` % `b`) >>> 0;
+  """
+
 proc checkOverflowInt64(a: int64) {.asmNoStackFrame, compilerproc.} =
   asm """
     if (`a` > 9223372036854775807 || `a` < -9223372036854775808) `raiseOverflow`();

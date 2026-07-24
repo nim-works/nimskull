@@ -1730,8 +1730,25 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mAddU: genBinaryABCnarrowU(c, n, dest, opcAddu)
   of mSubU: genBinaryABCnarrowU(c, n, dest, opcSubu)
   of mMulU: genBinaryABCnarrowU(c, n, dest, opcMulu)
-  of mDivU: genBinaryABCnarrowU(c, n, dest, opcDivu)
-  of mModU: genBinaryABCnarrowU(c, n, dest, opcModu)
+  of mDivU, mModU:
+    # the VM has no opcode for checked uint division/modulo, so this has to
+    # be emulated
+    let tmp = c.getTemp(slotTempInt)
+    let a = c.genx(n[1])
+    let b = c.genx(n[2])
+    c.gABx(n, opcLdImmInt, tmp, 0)
+    c.gABC(n, opcEqInt, tmp, b, tmp)
+    c.freeTemp(tmp)
+    prepare(c, dest, n.typ)
+    let lab = c.xjmp(n, opcFJmp, tmp)
+    # when the divisor is zero, run a checked integer division, which will
+    # then report an error
+    c.gABC(n, opcDivInt, dest, a, b)
+    c.patch(lab)
+    c.gABC(n, (if m == mDivU: opcDivu else: opcModu), dest, a, b)
+    # the result is always in range, so there's no need to narrow
+    c.freeTemp(a)
+    c.freeTemp(b)
   of mEqI, mEqB, mEqEnum, mEqCh:
     genBinaryABC(c, n, dest, opcEqInt)
   of mLeI, mLeEnum, mLeCh, mLeB:
@@ -1948,7 +1965,15 @@ proc genMagic(c: var TCtx; n: CgNode; dest: var TDest; m: TMagic) =
   of mNIntVal: genUnaryABC(c, n, dest, opcNIntVal)
   of mNFloatVal: genUnaryABC(c, n, dest, opcNFloatVal)
   of mNGetType:
-    let tmp = c.genx(n[1])
+    var tmp: TRegister
+    if n[1].typ.kind == tyTypeDesc:
+      var dst = TDest(-1)
+      c.genLit(n[1],
+        c.toNodeCnst(newNodeIT(nkType, n[1].info, n[1].typ.base)), dst)
+      tmp = dst
+    else:
+      tmp = c.genx(n[1])
+
     if dest.isUnset: dest = c.getTemp(n.typ)
     let rc = case c.env.procedures[n[0].prc].name.s:
       of "getType":     0
@@ -2912,8 +2937,18 @@ proc gen(c: var TCtx; n: CgNode; dest: var TDest) =
   of cnkAdd: binaryArith(c, n, n[0], n[1], dest, opcAddu, opcAddFloat)
   of cnkSub: binaryArith(c, n, n[0], n[1], dest, opcSubu, opcSubFloat)
   of cnkMul: binaryArith(c, n, n[0], n[1], dest, opcMulu, opcMulFloat)
-  of cnkDiv: binaryArith(c, n, n[0], n[1], dest, opcDivInt, opcDivFloat)
-  of cnkModI: binaryArith(c, n, n[0], n[1], dest, opcModInt, opcModInt)
+  of cnkDiv:
+    if isUnsigned(n.typ):
+      # no need to narrow; the result cannot be out of range
+      binaryArith(c, n, n[0], n[1], dest, opcDivu, opcDivFloat)
+    else:
+      binaryArith(c, n, n[0], n[1], dest, opcDivInt, opcDivFloat)
+  of cnkModI:
+    if isUnsigned(n.typ):
+      # no need to narrow; the result cannot be out of range
+      binaryArith(c, n, n[0], n[1], dest, opcModu, opcDivFloat)
+    else:
+      binaryArith(c, n, n[0], n[1], dest, opcModInt, opcModInt)
   of cnkIntLit, cnkUIntLit:
     prepare(c, dest, n.typ)
     c.loadInt(n, dest, getInt(n))

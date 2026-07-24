@@ -12,7 +12,7 @@ from std/typetraits import OrdinalEnum, HoleyEnum
 
 macro enumFullRange(a: typed): untyped =
   let typ = getTypeImpl(getType(a)[1]) # the ``nnkEnumTy`` AST
-  newNimNode(nnkCurly).add(typ[1..^1])
+  newNimNode(nnkBracket).add(typ[1..^1])
 
 # xxx `genEnumCaseStmt` needs tests and runnableExamples
 

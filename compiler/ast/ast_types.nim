@@ -683,6 +683,9 @@ type
     tfExplicitCallConv
     tfIsConstructor
     tfEffectSystemWorkaround
+    tfHasError
+      ## marks the type as there being some error type or AST reachable
+      ## through it. Not relevant to the type system
 
   TTypeFlags* = set[TTypeFlag]
 
@@ -1168,7 +1171,6 @@ type
     adSemWrongNumberOfGenericParams
     # sem
     adSemExpressionHasNoType
-    adSemDefNameSym   ## when creating a sym node from `nkIdentKinds`
     # semtypes
     adSemTypeExpected
     adSemStringRangeNotAllowed
@@ -1363,8 +1365,6 @@ type
         adSemSelectorMustBeOfCertainTypes,
         adSemInvalidPragmaBlock,
         adSemConceptPredicateFailed,
-        adSemDotOperatorsNotEnabled,
-        adSemCallOperatorsNotEnabled,
         adSemUnexpectedPattern,
         adSemCannotBeRaised,
         adSemCannotRaiseNonException,
@@ -1400,6 +1400,9 @@ type
         adSemExternalLocalNotAllowed,
         adSemGeneratedSymUsed:
       discard
+    of adSemDotOperatorsNotEnabled,
+       adSemCallOperatorsNotEnabled:
+      operator*: PSym
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
     of adSemUseOrDiscardExpr:
@@ -1567,26 +1570,8 @@ type
     of adSemCompilerOptionArgInvalid:
       forCompilerOpt*: PNode
       badCompilerOptArg*: PNode
-    of adSemDefNameSym:
-      defNameSym*: PSym
-      defNameSymData*: AdSemDefNameSym
     of adSemInvalidControlFlow:
       label*: PSym
-
-  AdSemDefNameSymKind* = enum
-    adSemDefNameSymExpectedKindMismatch
-    adSemDefNameSymIdentGenFailed
-    adSemDefNameSymExistingError
-    adSemDefNameSymIllformedAst
-  AdSemDefNameSym* = object
-    case kind*: AdSemDefNameSymKind:
-      of adSemDefNameSymExpectedKindMismatch:
-        expectedKind*: TSymKind # xxx: maybe always capture this?
-      of adSemDefNameSymIdentGenFailed:
-        identGenErr*: PNode
-      of adSemDefNameSymExistingError,
-          adSemDefNameSymIllformedAst:
-        discard
 
   TNode*{.final.} = object # on a 32bit machine, this takes 32 bytes
                            # on a 64bit machine, this takes 40 bytes

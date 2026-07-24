@@ -26,7 +26,7 @@ jobs:
 
     steps:
       # Repository required for changelog builder
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           sparse-checkout: |
@@ -103,7 +103,7 @@ jobs:
 
       - id: release
         name: Create pre-release
-        uses: softprops/action-gh-release@v3.0.0
+        uses: softprops/action-gh-release@v3.0.2
         with:
           prerelease: true
           files: ${{ steps.release-files.outputs.result }}
@@ -120,7 +120,7 @@ jobs:
           failOnError: true
 
       - name: Push changelog
-        uses: softprops/action-gh-release@v3.0.0
+        uses: softprops/action-gh-release@v3.0.2
         with:
           tag_name: ${{ steps.release-files.outputs.version }}
           body: ${{ steps.changelog.outputs.changelog }}

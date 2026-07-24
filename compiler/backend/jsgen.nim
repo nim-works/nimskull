@@ -484,11 +484,11 @@ proc unsignedTrimmerJS(size: BiggestInt): Rope =
 template unsignedTrimmer(size: BiggestInt): Rope =
   size.unsignedTrimmerJS
 
-proc binaryUintExpr(p: PProc, n: CgNode, r: var TCompRes, op: string or MagicOp) =
+proc binaryUintExpr(p: PProc, a, b: CgNode, r: var TCompRes, op: string or MagicOp) =
   var x, y: TCompRes
-  gen(p, n[1], x)
-  gen(p, n[2], y)
-  let trimmer = unsignedTrimmer(n[1].typ.skipTypes(abstractRange).size)
+  gen(p, a, x)
+  gen(p, b, y)
+  let trimmer = unsignedTrimmer(a.typ.skipTypes(abstractRange).size)
   when op is string:
     r.res = op % [x.rdLoc, y.rdLoc]
     r.res.add " "
@@ -575,7 +575,7 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     if isInt64(n[1].typ):
       binaryExpr(p, n[1], n[2], r, frmtInt64)
     elif isUnsigned(n.typ):
-      binaryUintExpr(p, n, r, frmtInt)
+      binaryUintExpr(p, n[1], n[2], r, frmtInt)
     else:
       binaryExpr(p, n[1], n[2], r, frmtInt)
 
@@ -629,7 +629,6 @@ proc arithAux(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
   of mBitxorI: binary("($1 ^ $2)", MagicOp"bitXorInt64")
   of mMinI: binary(MagicOp"nimMin", MagicOp"nimMin64")
   of mMaxI: binary(MagicOp"nimMax", MagicOp"nimMax64")
-  of mModU: binary("($1 % $2)", MagicOp"modUInt64")
   of mEqI: binary("($1 == $2)", MagicOp"eqInt64")
   of mLeI: binary("($1 <= $2)", MagicOp"leInt64")
   of mLtI: binary("($1 < $2)", MagicOp"ltInt64")
@@ -681,10 +680,13 @@ proc arith(p: PProc, n: CgNode, r: var TCompRes, op: TMagic) =
     else:              patchedBinaryExpr(p, n[1], n[2], r, "($1 - $2)")
   of mMulU:
     if isInt64(n.typ): binaryExpr(p, n[1], n[2], r, MagicOp"mulInt64")
-    else:              binaryUintExpr(p, n, r, "Math.imul($1, $2)")
+    else:              binaryUintExpr(p, n[1], n[2], r, "Math.imul($1, $2)")
   of mDivU:
-    if isInt64(n.typ): binaryExpr(p, n[1], n[2], r, MagicOp"divUInt64")
-    else:              binaryUintExpr(p, n, r, "($1 / $2)")
+    if isInt64(n.typ): binaryExpr(p, n[1], n[2], r, MagicOp"checkedDivUInt64")
+    else:              binaryExpr(p, n[1], n[2], r, MagicOp"divUInt")
+  of mModU:
+    if isInt64(n.typ): binaryExpr(p, n[1], n[2], r, MagicOp"checkedModUInt64")
+    else:              binaryExpr(p, n[1], n[2], r, MagicOp"modUInt")
   of mShrI:
     let a = gen(p, n[1])
     let b = gen(p, n[2])
@@ -2779,14 +2781,29 @@ proc gen(p: PProc, n: CgNode, r: var TCompRes) =
       binaryExpr(p, n[0], n[1], r, "($1 * $2)")
   of cnkDiv:
     case mapType(n.typ)
-    of etyFloat:  binaryExpr(p, n[0], n[1], r, "($1 / $2)")
-    of etyObject: binaryExpr(p, n[0], n[1], r, MagicOp"divInt64")
-    else:         binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+    of etyFloat:
+      binaryExpr(p, n[0], n[1], r, "($1 / $2)")
+    of etyObject:
+      if isUnsigned(n.typ):
+        binaryExpr(p, n[0], n[1], r, MagicOp"divUInt64")
+      else:
+        binaryExpr(p, n[0], n[1], r, MagicOp"divInt64")
+    else:
+      if isUnsigned(n.typ):
+        binaryUintExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
+      else:
+        binaryExpr(p, n[0], n[1], r, "Math.trunc($1 / $2)")
   of cnkModI:
     if isInt64(n.typ):
-      binaryExpr(p, n[0], n[1], r, MagicOp"modInt64")
+      if isUnsigned(n.typ):
+        binaryExpr(p, n[0], n[1], r, MagicOp"modUInt64")
+      else:
+        binaryExpr(p, n[0], n[1], r, MagicOp"modInt64")
     else:
-      binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
+      if isUnsigned(n.typ):
+        binaryUintExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
+      else:
+        binaryExpr(p, n[0], n[1], r, "Math.trunc($1 % $2)")
   of cnkClosureConstr:
     useMagic(p, "makeClosure")
     var tmp1, tmp2: TCompRes

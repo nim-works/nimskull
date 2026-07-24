@@ -206,3 +206,14 @@ iterator anyErrorsWalk*(config: ConfigRef; n: PNode
   if n != nil:
     for e in walkErrors(config, n):
       yield e
+
+proc emit*(config: ConfigRef, info: TLineInfo, diag: PAstDiag,
+           inst: InstantiationInfo) =
+  ## Emits the diagnostic `diag`, initializing its location info with `info`
+  ## if not set already.
+  if not diag.location.isValid:
+    diag.location = info
+  config.emit(config.astDiagToLegacyReport(config, diag), inst)
+
+template emit*(config: ConfigRef, info: TLineInfo, diag: PAstDiag) =
+  config.emit(info, diag, instLoc())

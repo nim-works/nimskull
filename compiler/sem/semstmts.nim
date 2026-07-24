@@ -255,8 +255,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
         # support ``except Exception as ex: body``
         let
           isImported = semExceptBranchType(a[0][1])
-          symbolNode = newSymGNode(skLet, a[0][2], c)
-          symbol = getDefNameSymOrRecover(symbolNode)
+          symbol = produceSymbol(skLet, a[0][2], c)
         symbol.typ =
           if isImported or
              a[0][1].typ.skipTypes({tyGenericInst, tyAlias}).kind == tyRef:
@@ -264,13 +263,11 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
           else:
             makeRefType(c.config, a[0][1].typ, c.idgen)
 
-        if symbolNode.kind != nkError:
-          # propagate the symbol's type to the node
-          symbolNode.typ = symbol.typ
-
+        # TODO: handle recovery symbols correctly (by not adding them to the
+        #       symbol table)
         addDecl(c, symbol)
         # Overwrite symbol in AST with the symbol in the symbol table.
-        a[0][2] = symbolNode
+        a[0][2] = newSymNode(symbol)
       elif a.len == 1:
         # count number of ``except: body`` blocks
         inc catchAllExcepts
@@ -1406,26 +1403,15 @@ proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
 include semfields
 
 proc symForVar(c: PContext, n: PNode): PSym =
-  # TODO: replace with a node return variant that can in band errors
-  let
-    hasPragma = n.kind == nkPragmaExpr
-    resultNode = newSymGNode(skForVar, (if hasPragma: n[0] else: n), c)
-    semmedNode = if hasPragma: copyNodeWithKids(n) else: resultNode
+  let hasPragma = n.kind == nkPragmaExpr
 
-  result = getDefNameSymOrRecover(resultNode)
+  # TODO: add forvar pragma handling to semIdentWithPragma and then use the
+  #       latter here instead
+  result = produceSymbol(skForVar, (if hasPragma: n[0] else: n), c)
   styleCheckDef(c.config, result)
 
   if hasPragma:
-    let pragma = pragmaDecl(c, result, n[1], forVarPragmas)
-    if pragma.kind == nkError:
-      semmedNode[0] = resultNode
-      semmedNode[1] = pragma
-
-  if resultNode.kind == nkError or hasPragma and semmedNode[1].kind == nkError:
-    result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
-                    n.info)
-    result.typ = c.errorType
-    result.ast = c.config.wrapError(semmedNode)
+    discard pragmaDecl(c, result, n[1], forVarPragmas)
 
 proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
   ## Semantically analyses a single definition of a variable in the context of
@@ -2385,7 +2371,7 @@ proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PN
     else:
       return c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
   of nkSym:
-    return newSymGNode(kind, n, c)
+    return newSymNode(produceSymbol(kind, n, c))
   of nkPostfix, nkIdent, nkAccQuoted:
     # do *not* use ``semIdentDef``. It marks the procedure as global even if
     # not at top-level scope. In addition, using it would also allow pragma
@@ -2461,20 +2447,15 @@ proc semRoutineParams(c: PContext, routine: PNode, formal, generic: PNode, kind:
     # remember the original generic-parameter list in the misc slot
     routine[miscPos] = newTree(nkBracket, c.graph.emptyNode, generic)
 
-proc checkSpecialOperators(c: PContext, name: PNode): PNode =
+proc checkSpecialOperators(c: PContext, s: PSym) =
   ## Checks whether `name` is that of a special operator, and if yes, whether
-  ## the respective special operator is enabled. If not, an error is produced.
-  ## If there was no error, `name` is returned.
-  assert name.kind == nkSym or defNameErrorNodeAllowsSymUpdate(name)
-  let s = name.getDefNameSymOrRecover()
-  if s.name.s[0] notin {'.', '('}:
-    name
-  elif s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
-    c.config.newError(name, PAstDiag(kind: adSemDotOperatorsNotEnabled))
-  elif s.name.s == "()" and callOperator notin c.features:
-    c.config.newError(name, PAstDiag(kind: adSemCallOperatorsNotEnabled))
-  else:
-    name
+  ## the respective special operator is enabled. If not, an error is emitted.
+  if s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
+    c.config.emit(s.info,
+      PAstDiag(kind: adSemDotOperatorsNotEnabled, operator: s))
+  if s.name.s == "()" and callOperator notin c.features:
+    c.config.emit(s.info,
+      PAstDiag(kind: adSemCallOperatorsNotEnabled, operator: s))
 
 func isAnon(cache: IdentCache, s: PSym): bool {.inline.} =
   s.name.id == cache.idAnon.id
@@ -2482,9 +2463,9 @@ func isAnon(cache: IdentCache, s: PSym): bool {.inline.} =
 proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
                 flags: TExprFlags = {}): PNode =
   var
-    hasError = n[namePos].kind == nkError # XXX: hasError is not yet fully
-                                          #      integrated into ``semProcAux``
-    s = n[namePos].getDefNameSymOrRecover()
+    hasError = false # XXX: hasError is not yet fully
+                     #      integrated into ``semProcAux``
+    s = n[namePos].sym
   let isAnon = c.cache.isAnon(s)
 
   result = shallowCopy(n)
@@ -2616,19 +2597,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     result[genericParamsPos] = proto.ast[genericParamsPos]
     result[paramsPos] = proto.ast[paramsPos]
     result[pragmasPos] = proto.ast[pragmasPos]
-
-    case result[namePos].kind
-    of nkSym:
-      result[namePos].sym = proto
-    of nkError:
-      if result[namePos].defNameErrorNodeAllowsSymUpdate:
-        # this is the only error we can recover from and do so only for more
-        # thorough semantic analysis for `check`, `suggest`, etc
-        result[namePos].diag.defNameSym = proto
-      else:
-        c.config.internalAssert(false, "semProcAux - unexpected error")
-    else:
-      c.config.internalAssert(false, "semProcAux")
+    result[namePos].sym = proto
 
     if importantComments(c.config) and proto.ast.comment.len > 0:
       result.comment = proto.ast.comment
@@ -2640,8 +2609,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     if sfOverriden in s.flags or s.name.s[0] == '=':
       semOverride(c, s, result.info)
     else:
-      result[namePos] = checkSpecialOperators(c, result[namePos])
-      hasError = hasError or result[namePos].kind == nkError
+      checkSpecialOperators(c, result[namePos].sym)
 
   if result[genericParamsPos].kind == nkEmpty and s.magic == mNone:
     paramsTypeCheck(c, s.typ, s.flags)
@@ -2742,7 +2710,7 @@ proc semProc(c: PContext, n: PNode): PNode =
 
 proc semFunc(c: PContext, n: PNode): PNode =
   let validPragmas =
-    if c.cache.isAnon(n[namePos].getDefNameSymOrRecover()):
+    if c.cache.isAnon(n[namePos].sym):
       lambdaPragmas
     else:
       procPragmas
@@ -2756,7 +2724,7 @@ proc semMethod(c: PContext, n: PNode): PNode =
   if result.kind == nkError:
     return
 
-  let s = result[namePos].getDefNameSymOrRecover()
+  let s = result[namePos].sym
   # we need to fix the 'auto' return type for the dispatcher here (see tautonotgeneric
   # test case):
   let disp = getDispatcher(s)
@@ -2777,7 +2745,7 @@ proc semConverterDef(c: PContext, n: PNode): PNode =
   if result.kind == nkError:
     return
 
-  var s = result[namePos].getDefNameSymOrRecover()
+  var s = result[namePos].sym
   var t = s.typ
   if t[0] == nil:
     localReport(c.config, n.info, reportSym(
@@ -2800,8 +2768,8 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     result[i] = n[i]
 
   var
-    s = n[namePos].getDefNameSymOrRecover()
-    hasError = n[namePos].kind == nkError
+    s = n[namePos].sym
+    hasError = false
 
   s.ast = result
   s.options = c.config.options # captue the current options
@@ -2849,8 +2817,7 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
   if result[pragmasPos].kind == nkError: # did application fail?
     hasError = true
   else:
-    result[namePos] = checkSpecialOperators(c, result[namePos])
-    hasError = hasError or result[namePos].kind == nkError
+    checkSpecialOperators(c, result[namePos].sym)
 
   if hasError:
     # don't analyse the body if the header has errors:
@@ -2982,10 +2949,9 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
     c.config.timeTracer.traceSym(tikSem, result[namePos].sym)
 
   if result[namePos].kind == nkError:
-    if result[namePos].diag.kind == adSemDefNameSym:
-      discard "don't leave early, we can still make progress"
-    else:
-      return c.config.wrapError(result) # early out
+    # TODO: always produce a valid symbol in `semRoutineName` and remove
+    #       this case
+    return c.config.wrapError(result) # early out
 
   result =
     case kind
@@ -3154,6 +3120,10 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   case a.kind
   of nkError:
     result = c.config.wrapError(result)
+  elif areErrorsReachable(c.graph, a):
+    # don't evaluate and just turn into a discard
+    result.transitionSonsKind(nkDiscardStmt)
+    result[0] = c.graph.emptyNode
   else:
     result.transitionSonsKind(nkDiscardStmt)
     result[0] = evalStaticStmt(c.module, c.idgen, c.graph, a, c.p.owner)

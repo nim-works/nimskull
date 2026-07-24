@@ -108,7 +108,7 @@ block: # SameType
 
   macro testTensorInt(x: typed): untyped =
     let
-      tensorIntType = getTypeInst(Tensor[int])[1]
+      tensorIntType = getTypeInst(Tensor[int])
       xTyp = x.getTypeInst
 
     newLit(xTyp.sameType(tensorIntType))

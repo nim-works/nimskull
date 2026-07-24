@@ -214,3 +214,13 @@ block t9600:
 
   var z: Apple
   mixer(z)
+
+block get_type_inst_with_typeclass:
+  # passing a type class (in the form of an uninstantiated generic) to
+  # `getTypeInst` must work
+  type Generic[T] = distinct T
+  static:
+    let n = getTypeInst(Generic)
+    # note: the exact shape of the returned AST doesn't have to be what
+    # the assertion says here; `getTypeInst` just has to not crash
+    doAssert n.kind == nnkSym
