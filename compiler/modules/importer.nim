@@ -12,10 +12,8 @@
 import
   std/[
     intsets,
-    strutils,
     tables,
-    sets,
-    os
+    sets
   ],
   compiler/ast/[
     ast,
