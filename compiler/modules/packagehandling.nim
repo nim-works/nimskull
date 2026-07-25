@@ -19,12 +19,10 @@ proc getPackageId(conf: ConfigRef; path: string): string =
   var
     owningId = ""
     maxPathLen = -1
-  
-  let absPath = absolutePath(path, $conf.projectPath)
 
   for id, pkg in conf.packageIndex.packages.pairs:
     let pkgAbsDir = absolutePath($pkg.path, $conf.packageDir)
-    if absPath.startsWith(pkgAbsDir):
+    if path.startsWith(pkgAbsDir):
       if pkgAbsDir.len > maxPathLen:
         maxPathLen = pkgAbsDir.len
         owningId = id

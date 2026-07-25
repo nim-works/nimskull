@@ -1508,7 +1508,7 @@ proc moduleUniqueName*(
   if rel.len == 0: return pkgId
 
   if pkgId == "stdlib":
-    return "std/" & relNoExt
+    return "std" / relNoExt
 
   pkgId / (if relNoExt.contains('/'): relNoExt else: "")
 
