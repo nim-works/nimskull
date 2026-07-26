@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-proc getPackageId(conf: ConfigRef; path: string): string =
+proc getPackageId*(conf: ConfigRef; path: string): string =
   ## returns the id of a package from its path or an empty string if not
   ## found. e.g.: `github.com/luyten-orion/faepkg`
   var d = path
