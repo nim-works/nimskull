@@ -87,6 +87,8 @@ testament.db
 !/nimdoc/testproject/.skull/index.json
 !/tests/packages/*/.skull/
 !/tests/packages/*/.skull/index.json
+!/tests/nimdoc/.skull/
+!/tests/nimdoc/.skull/index.json
 
 # testament cruft; TODO: generate these in a gitignore'd dir (./build) in the first place.
 testresults/
