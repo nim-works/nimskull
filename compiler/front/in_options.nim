@@ -234,7 +234,7 @@ type
 
     libpath*: AbsoluteDir ## Path to the standard library
     searchPaths*: seq[AbsoluteDir] ## Explicitly added list of the search
-    ## paths for modules. Those are queried first.
+    ## paths for modules.
 
 
     macrosToExpand*: StringTableRef ## Table of the target macros to expand.

@@ -325,14 +325,10 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
     discard pushOptionEntry(c)
     realModule = c.graph.importModuleCallback(c.graph, c.module, fileIdx)
 
-    let (pkgAlias, moduleRemainder) = processImportPath(c.config, modName, currentPkgId)
-    if pkgAlias.len > 0 and n.kind != nkImportAs and moduleRemainder.len == 0:
-      let
-        aliasIdent = newIdentNode(getIdent(c.cache, pkgAlias), n.info)
-        newN = newNodeI(nkImportAs, n.info)
-      newN.add n
-      newN.add aliasIdent
-      n = newN
+    let (pkgAlias, path) = processImportPath(c.config, modName, currentPkgId)
+    if pkgAlias.len > 0 and n.kind != nkImportAs and path.len == 0:
+      n = newTreeI(nkImportAs, n.info, n,
+        newIdentNode(getIdent(c.cache, pkgAlias), n.info))
 
     result = importModuleAs(c, n, realModule, transf.importHidden)
     popOptionEntry(c)

@@ -2935,16 +2935,19 @@ proc reportBody*(conf: ConfigRef, r: PackageReport): string =
   case PackageReportKind(r.kind)
   # Errors
   of rpkgDuplicateAliasForPackageDependencies:
-    "Alias `" & r.alias & "` is already used for `" & r.package &
-             "`, in the context of `" & r.parentPackage & "`"
+    "Alias `$1` is already used for `$2`, in the context of `$3`" %
+      [r.alias, r.package, r.parentPackage]
+
   of rpkgIndexPresentButMalformed:
     "Malformed package index found!"
 
   of rpkgSrcDirNotRelativeToPackageDir:
-    "The source directory `" & r.subject & "` is not relative to the package directory `" & r.target & "`"
+    "The source directory `$1` is not relative to the package directory `$2`" %
+      [r.subject, r.target]
   
   of rpkgEntrypointNotRelativeToSrcDir:
-    "The entrypoint `" & r.subject & "` is not relative to the source directory `" & r.target & "`"
+    "The entrypoint `$1` is not relative to the source directory `$2`" %
+      [r.subject, r.target]
 
   # Warnings
   of rpkgPackagesOutOfSync:

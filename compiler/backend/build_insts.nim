@@ -75,7 +75,7 @@ proc writeBuildInstructions*(conf: ConfigRef; bcache: sink BuildCache) =
         if fileExists(path): (path, $secureHashFile(path)) else: ("", "")
 
       bcache.packageManifests = collect(for pkg in conf.packageIndex.packages.values:
-        let manifestPath = absolutePath($conf.packageDir / $pkg.path / "package.skull.toml")
+        let manifestPath = $pkg.path / "package.skull.toml"
         if fileExists(manifestPath):
           (manifestPath, $secureHashFile(manifestPath))
       )

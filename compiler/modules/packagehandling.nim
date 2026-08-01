@@ -21,11 +21,9 @@ proc getPackageId*(conf: ConfigRef; path: string): string =
     maxPathLen = -1
 
   for id, pkg in conf.packageIndex.packages.pairs:
-    let pkgAbsDir = absolutePath($pkg.path, $conf.packageDir)
-    if path.startsWith(pkgAbsDir):
-      if pkgAbsDir.len > maxPathLen:
-        maxPathLen = pkgAbsDir.len
-        owningId = id
+    if pkg.path.startsWith(pkgAbsDir) and pkg.path.len > maxPathLen:
+      maxPathLen = pkg.path.len
+      owningId = id
   
   result = owningId
   if d.len > 0:
@@ -77,7 +75,6 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
                     "#": "@h",
                     "@": "@@",
                     ":": "@c"})
-  
   let pkgId = getPackageId(conf, modulePath)
   let pkgKnown = pkgId.len > 0
 
@@ -85,7 +82,7 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
     if pkgKnown:
       let pkg = conf.packageIndex.packages[pkgId]
       PkgDesc(pkgKnown: true,
-              pkgRootName: pkgId, pkgRoot: absolutePath($pkg.path, $conf.packageDir).AbsoluteDir)
+              pkgRootName: pkgId, pkgRoot: pkg.path.AbsoluteDir)
     else:
       PkgDesc(pkgKnown: false,
               pkgRootName: "unknown", pkgRoot: conf.projectPath)

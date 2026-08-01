@@ -192,16 +192,15 @@ proc commandCompileToC(graph: ModuleGraph) =
     registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
-      let changeKind = buildInstructionsStatus(conf, conf.getBuildInstructionsFile())
-      case changeKind
+      case buildInstructionsStatus(conf, conf.getBuildInstructionsFile())
       of bcNone:
         # nothing changed
         graph.config.notes = graph.config.mainPackageNotes
         return
       of bcPackage:
         localReport(conf, PackageReport(kind: rpkgPackagesOutOfSync))
-      else:
-        discard
+      of bcGeneral:
+        discard "continue with compilation"
 
   if not extccomp.ccHasSaneOverflow(conf):
     conf.defineSymbol("nimEmulateOverflowChecks")

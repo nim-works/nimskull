@@ -232,24 +232,23 @@ proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: 
   ## Simple normalisation helper
   if not package.path.isAbsolute:
     package.path = baseDir / package.path
-  else:
-    package.path.normalizePath()
+  package.path.normalizePath()
   
   if not package.srcDir.isAbsolute:
     package.srcDir = package.path / package.srcDir
-  else:
-    package.srcDir.normalizePath()
-    if not package.srcDir.isRelativeTo(package.path):
-      localReport(conf, PackageReport(kind: rpkgSrcDirNotRelativeToPackageDir,
-        subject: $package.srcDir, target: $package.path))
+
+  package.srcDir.normalizePath()
+  if not package.srcDir.isRelativeTo(package.path):
+    localReport(conf, PackageReport(kind: rpkgSrcDirNotRelativeToPackageDir,
+      subject: $package.srcDir, target: $package.path))
 
   if not package.entrypoint.isAbsolute:
     package.entrypoint = package.srcDir / package.entrypoint
-  else:
-    package.entrypoint.normalizePath()
-    if not package.entrypoint.isRelativeTo(package.srcDir):
-      localReport(conf, PackageReport(kind: rpkgEntrypointNotRelativeToSrcDir,
-        subject: $package.entrypoint, target: $package.srcDir))
+
+  package.entrypoint.normalizePath()
+  if not package.entrypoint.isRelativeTo(package.srcDir):
+    localReport(conf, PackageReport(kind: rpkgEntrypointNotRelativeToSrcDir,
+      subject: $package.entrypoint, target: $package.srcDir))
 
 proc loadPackageIndex*(conf: ConfigRef) =
   ## Loads the package index if found.
