@@ -632,7 +632,7 @@ $#
 
   var codeShown: string
   if topLevel: # refs https://github.com/nim-lang/RFCs/issues/352
-    let title = moduleUniqueName(d.conf, AbsoluteFile d.filename, d.module)
+    let title = moduleUniqueName(d.conf, AbsoluteFile d.filename)
     codeShown = "import $#\n$#" % [title, code]
   else:
     codeShown = code
@@ -1386,7 +1386,7 @@ proc genOutFile(d: PDoc, groupedToc = false): string =
     setIndexTerm(d[], external, "", title)
   else:
     # Modules get an automatic title for the HTML, but no entry in the index.
-    title = moduleUniqueName(d.conf, AbsoluteFile d.filename, d.module)
+    title = moduleUniqueName(d.conf, AbsoluteFile d.filename)
   title = esc(d.target, title)
   var subtitle = ""
   if d.meta[metaSubtitle] != "":
