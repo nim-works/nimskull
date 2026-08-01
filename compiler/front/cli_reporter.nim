@@ -2945,7 +2945,7 @@ proc reportBody*(conf: ConfigRef, r: PackageReport): string =
     "The source directory `$1` is not relative to the package directory `$2`" %
       [r.subject, r.target]
   
-  of rpkgEntrypointNotRelativeToSrcDir:
+  of rpkgEntrypointNotRelativeToPackageDir:
     "The entrypoint `$1` is not relative to the source directory `$2`" %
       [r.subject, r.target]
 

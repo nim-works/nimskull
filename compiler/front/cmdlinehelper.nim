@@ -246,8 +246,8 @@ proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: 
     package.entrypoint = package.srcDir / package.entrypoint
 
   package.entrypoint.normalizePath()
-  if not package.entrypoint.isRelativeTo(package.srcDir):
-    localReport(conf, PackageReport(kind: rpkgEntrypointNotRelativeToSrcDir,
+  if not package.entrypoint.isRelativeTo(package.path):
+    localReport(conf, PackageReport(kind: rpkgEntrypointNotRelativeToPackageDir,
       subject: $package.entrypoint, target: $package.srcDir))
 
 proc loadPackageIndex*(conf: ConfigRef) =
@@ -282,7 +282,7 @@ proc loadPackageIndex*(conf: ConfigRef) =
 
   conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
   if not curDir.startsWith($conf.libpath):
-    conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
+    conf.packageIndex.packages["project-local"] = IndexedPackage(path: curDir)
 
   for name, package in conf.packageIndex.packages.mpairs:
     package.dependencies.add DependencyLink(package: "stdlib", alias: "std")

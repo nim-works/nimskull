@@ -890,7 +890,7 @@ type
     # errors start
     rpkgDuplicateAliasForPackageDependencies = "DuplicateAliasForPackageDependencies"
     rpkgSrcDirNotRelativeToPackageDir = "SrcDirNotRelativeToPackageDir"
-    rpkgEntrypointNotRelativeToSrcDir = "EntrypointNotRelativeToSrcDir"
+    rpkgEntrypointNotRelativeToPackageDir = "EntrypointNotRelativeToPackageDir"
     rpkgIndexPresentButMalformed = "IndexPresentButMalformed"
     # errors END !! add reports BEFORE the last enum !!
   

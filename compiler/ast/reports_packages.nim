@@ -14,7 +14,7 @@ type
         parentPackage*: string
         package*: string
         alias*: string
-      of rpkgSrcDirNotRelativeToPackageDir, rpkgEntrypointNotRelativeToSrcDir:
+      of rpkgSrcDirNotRelativeToPackageDir, rpkgEntrypointNotRelativeToPackageDir:
         subject*: string
         target*: string
       else:

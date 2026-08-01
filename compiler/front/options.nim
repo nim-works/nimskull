@@ -1474,7 +1474,7 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
   ## package's root directory (the `path` field from the index).
   ## If the module is not in a known package, the bare filename is returned.
   let pkgId = conf.getPackageId(file.string)
-  if pkgId == "" or pkgId == "unknown":
+  if pkgId == "" or pkgId == "project-local":
     return file.splitFile.name.nativeToUnixPath
 
   let
