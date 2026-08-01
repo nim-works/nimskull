@@ -13,6 +13,7 @@ import
   std/[
     json,
     os,
+    strutils,
     tables
   ],
   std/options as std_options,
@@ -281,11 +282,13 @@ proc loadPackageIndex*(conf: ConfigRef) =
     conf.packageDir = AbsoluteDir ""
 
   conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
-  conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
+  if not curDir.startsWith($conf.libpath):
+    conf.packageIndex.packages["unknown"] = IndexedPackage(path: curDir)
 
   for name, package in conf.packageIndex.packages.mpairs:
     package.dependencies.add DependencyLink(package: "stdlib", alias: "std")
     conf.resolvePackagePaths(package, curDir)
+
 
   for id, package in conf.packageIndex.packages.pairs:
     var seen: Table[string, string]
