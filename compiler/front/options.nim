@@ -1304,8 +1304,6 @@ proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
 proc rawFindFile(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
   ## Find file using list of explicit search paths
   for it in conf.searchPaths:
-    if it.string.startsWith(conf.libpath.string):
-      continue
     result = it / f
     if fileExists(result):
       return canonicalizePath(conf, result)

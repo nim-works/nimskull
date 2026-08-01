@@ -21,7 +21,7 @@ proc getPackageId*(conf: ConfigRef; path: string): string =
     maxPathLen = -1
 
   for id, pkg in conf.packageIndex.packages.pairs:
-    if pkg.path.len > maxPathLen:
+    if path.startsWith($pkg.path) and ($pkg.path).len > maxPathLen:
       maxPathLen = pkg.path.len
       owningId = id
   
