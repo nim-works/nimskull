@@ -13,7 +13,6 @@ import
   std/[
     json,
     os,
-    strutils,
     tables
   ],
   std/options as std_options,
@@ -44,7 +43,7 @@ import
 
 from experimental/colortext import ForegroundColor, toString
 
-from std/strutils import endsWith, `%`
+from std/strutils import startsWith, endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_packages import PackageReport

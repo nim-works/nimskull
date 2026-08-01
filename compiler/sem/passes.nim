@@ -159,12 +159,6 @@ proc moduleHasChanged*(graph: ModuleGraph; module: PSym): bool {.inline.} =
   result = true
   #module.id >= 0 or isDefined(graph.config, "nimBackendAssumesChange")
 
-proc partOfStdlib(x: PSym): bool =
-  var it = x.owner
-  while it != nil and it.kind == skPackage and it.owner != nil:
-    it = it.owner
-  result = it != nil and it.name.s == "stdlib"
-
 proc processModule*(
     graph: ModuleGraph,
     module: PSym,
