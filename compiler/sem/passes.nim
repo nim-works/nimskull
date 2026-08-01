@@ -200,19 +200,14 @@ proc processModule*(
     # Start file parsing
     openParser(parser, fileIdx, stream, graph.cache, graph.config)
 
-    if not partOfStdlib(module) or module.name.s == "distros":
-      # XXX what about caching? no processing then? what if I change the
-      # modules to include between compilation runs? we'd need to track that
-      # in ROD files. I think we should enable this feature only
-      # for the interactive mode.
-      if module.getPackageId() == graph.config.mainPackageId:
-        processImplicits(
-          graph, graph.config.active.implicitImports,
-          nkImportStmt, passesArray, module)
+    if module.getPackageId() == graph.config.mainPackageId:
+      processImplicits(
+        graph, graph.config.active.implicitImports,
+        nkImportStmt, passesArray, module)
 
-        processImplicits(
-          graph, graph.config.active.implicitIncludes,
-          nkIncludeStmt, passesArray, module)
+      processImplicits(
+        graph, graph.config.active.implicitIncludes,
+        nkIncludeStmt, passesArray, module)
 
     # Until toplevel compilation fails (returns `false` from processing),
     # execute the compilation

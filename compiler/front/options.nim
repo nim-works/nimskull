@@ -913,18 +913,6 @@ proc initConfigRefCommon(conf: ConfigRef) =
     if not conf.symbols.hasKey("nimDebugUtils"):
       conf.symbols["nimDebugUtils"] = ""
 
-const
-  commandLineDesc* = "command line"
-
-template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
-  if fileIdx.int32 < 0 or conf == nil:
-    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
-  else:
-    conf[fileIdx].shortName
-
-template toFilename*(conf: ConfigRef; info: TLineInfo): string =
-  toFilename(conf, info.fileIndex)
-
 proc newConfigRef*(hook: ReportHook): ConfigRef =
   result = ConfigRef(
     structuredReportHook: hook,
@@ -1313,10 +1301,10 @@ proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
   result = changeFileExt(completeGeneratedFilePath(conf,
     withPackageName(conf, f)), ext)
 
-proc rawFindFile(conf: ConfigRef; f: RelativeFile; suppressStdlib: bool): AbsoluteFile =
+proc rawFindFile(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
   ## Find file using list of explicit search paths
   for it in conf.searchPaths:
-    if suppressStdlib and it.string.startsWith(conf.libpath.string):
+    if it.string.startsWith(conf.libpath.string):
       continue
     result = it / f
     if fileExists(result):
@@ -1357,16 +1345,16 @@ proc getRelativePathFromConfigPath*(conf: ConfigRef; f: AbsoluteFile, isTitle = 
         return relativePath(f, it).RelativeFile
   search(conf.searchPaths)
 
-proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile =
+proc findFile*(conf: ConfigRef; f: string): AbsoluteFile =
   ## Find module file using search paths. If suppress stdlib is used - do not
   ## try to return files that start with current `conf.libpath` prefix.
   ## Explicit search paths are queried first.
   if f.isAbsolute:
     result = if f.fileExists: AbsoluteFile(f) else: AbsoluteFile""
   else:
-    result = rawFindFile(conf, RelativeFile f, suppressStdlib)
+    result = rawFindFile(conf, RelativeFile f)
     if result.isEmpty:
-      result = rawFindFile(conf, RelativeFile f.toLowerAscii, suppressStdlib)
+      result = rawFindFile(conf, RelativeFile f.toLowerAscii)
 
 proc processImportPath*(conf: ConfigRef, importPath, currentPackageId: string,
                        ): tuple[pkgAlias, module: string] =
@@ -1451,12 +1439,6 @@ proc findModule*(conf: ConfigRef, importPath, currentModule, currentPackageId: s
   let (pkgAlias, modulePath) = processImportPath(conf, importPath, currentPackageId)
   if pkgAlias.len > 0:
     let pkgId = packageIdFromAlias(conf, pkgAlias, currentPackageId)
-    if pkgId.len > 0:
-      return findPackageModule(conf, pkgId, modulePath)
-    else:
-      return AbsoluteFile""
-  else:
-    let pkgId = packageIdFromAlias(conf, pkgAlias, currentPackageId)
     assert pkgId.len > 0
     findPackageModule(conf, pkgId, modulePath)
   else:
@@ -1497,8 +1479,8 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
   if pkgId == "" or pkgId == "unknown":
     return file.splitFile.name.nativeToUnixPath
 
-let
-  pkg {.cursor.} = conf.packageIndex.packages[pkgId]
+  let
+    pkg {.cursor.} = conf.packageIndex.packages[pkgId]
     baseDir = pkg.srcDir
     rel = relativePath(file.string, baseDir)
     relNoExt = rel.changeFileExt("").nativeToUnixPath
@@ -1568,6 +1550,18 @@ proc floatInt64Align*(conf: ConfigRef): int16 =
       # to 4bytes (except with -malign-double)
       return 4
   return 8
+
+const
+  commandLineDesc* = "command line"
+
+template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
+  if fileIdx.int32 < 0 or conf == nil:
+    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
+  else:
+    conf[fileIdx].shortName
+
+template toFilename*(conf: ConfigRef; info: TLineInfo): string =
+  toFilename(conf, info.fileIndex)
 
 proc inFile*(
     conf: ConfigRef,
