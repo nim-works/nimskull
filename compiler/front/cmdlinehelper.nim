@@ -29,6 +29,7 @@ import
     commands,
     msgs,
     options,
+    packageindex,
     optionsprocessor,
     condsyms,
     cli_reporter,
@@ -43,10 +44,9 @@ import
 
 from experimental/colortext import ForegroundColor, toString
 
-from std/strutils import startsWith, endsWith, `%`
+from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_packages import PackageReport
 from compiler/ast/report_enums import ReportKind
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
@@ -227,81 +227,6 @@ proc loadConfigs*(
   conf: ConfigRef, stopOnError = true): bool {.inline.} =
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
   loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
-
-proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: string) =
-  ## Simple normalisation helper
-  if not package.path.isAbsolute:
-    package.path = baseDir / package.path
-  package.path.normalizePath()
-  
-  if not package.srcDir.isAbsolute:
-    package.srcDir = package.path / package.srcDir
-
-  package.srcDir.normalizePath()
-  if not package.srcDir.isRelativeTo(package.path):
-    localReport(conf, PackageReport(kind: rpkgSrcDirNotRelativeToPackageDir,
-      subject: $package.srcDir, target: $package.path))
-
-  if not package.entrypoint.isAbsolute:
-    package.entrypoint = package.srcDir / package.entrypoint
-
-  package.entrypoint.normalizePath()
-  if not package.entrypoint.isRelativeTo(package.path):
-    localReport(conf, PackageReport(kind: rpkgEntrypointNotRelativeToPackageDir,
-      subject: $package.entrypoint, target: $package.srcDir))
-
-proc loadPackageIndex*(conf: ConfigRef) =
-  ## Loads the package index if found.
-  var 
-    rootFound = false
-    curDir = $conf.projectPath
-
-  while curDir.len > 0:
-    let indexPath = curDir / ".skull" / "index.json"
-    try:
-      conf.packageIndex = parseFile(indexPath).to(PackageIndex)
-      rootFound = true
-      conf.packageDir = AbsoluteDir curDir
-      break
-    except IOError:
-      discard 
-    except JsonParsingError, JsonKindError:
-      localReport(conf, PackageReport(kind: rpkgIndexPresentButMalformed))
-      conf.packageIndex = PackageIndex()
-      conf.packageDir = AbsoluteDir curDir
-      rootFound = true
-      break
-    
-    let parent = curDir.parentDir()
-    if parent == curDir: break
-    curDir = parent
-
-  if not rootFound:
-    curDir = $conf.projectPath
-    conf.packageDir = AbsoluteDir ""
-
-  conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
-  if not curDir.startsWith($conf.libpath):
-    conf.packageIndex.packages["project-local"] = IndexedPackage(path: curDir)
-
-  for name, package in conf.packageIndex.packages.mpairs:
-    package.dependencies.add DependencyLink(package: "stdlib", alias: "std")
-    conf.resolvePackagePaths(package, curDir)
-
-
-  for id, package in conf.packageIndex.packages.pairs:
-    var seen: Table[string, string]
-    for dep in package.dependencies:
-      let alias = dep.alias.nimIdentNormalize()
-      if alias in seen:
-        localReport(conf, PackageReport(
-          kind: rpkgDuplicateAliasForPackageDependencies,
-          parentPackage: package.path,
-          package: seen[alias],
-          alias: alias
-        ))
-      else:
-        seen[alias] = dep.package
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph, argv: openArray[string]): bool =

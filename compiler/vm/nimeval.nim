@@ -27,6 +27,7 @@ import
   compiler/front/[
     condsyms,
     options,
+    packageindex,
     scripting,
     cli_reporter,
     msgs
@@ -146,7 +147,9 @@ proc createInterpreter*(
     hook:        ReportHook,
     flags:       TSandboxFlags = {},
     defines:     seq[(string, string)] = @[("nimscript", "true")],
-    registerOps: bool = true
+    registerOps: bool = true,
+    projectDir:  string = "",
+    pkgIndex =   PackageIndex()
   ): Interpreter =
 
   var conf = newConfigRef(hook)
@@ -164,6 +167,9 @@ proc createInterpreter*(
   for p in searchPaths:
     conf.searchPathsAdd(AbsoluteDir p)
     if conf.libpath.isEmpty: conf.libpath = AbsoluteDir p
+
+  conf.packageIndex = pkgIndex
+  finalizePackageIndex(conf, projectDir)
 
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
