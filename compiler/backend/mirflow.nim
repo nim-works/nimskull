@@ -16,6 +16,7 @@ type
     Break
     Return
     Raise
+    Continue
     Stmts
     Scope
     Block
@@ -27,13 +28,13 @@ type
 
   Stmt* = object
     kind*: StmtKind
+    n*: NodePosition
+      ## meaning depends on the kind
     sub*: int
       ## for block-like statements, index of the sub statement, or 0 (no
       ## sub statement)
     next*: int
       ## forms a singly-linked list. 0 terminates the list
-    n*: NodePosition
-      ## meaning depends on the kind
 
 using
   stmts: seq[Stmt]
@@ -41,6 +42,9 @@ using
 
 const
   withSub = {Block, Loop, Scope, If, Dispatch, Target, Try}
+  terminators = {Loop, Dispatch, Break, Return, Raise, Continue}
+    ## statements (both block-like and not) that act as control-
+    ## flow terminators
 
 iterator statements(tree): (int, NodePosition) =
   ## Iterates over all MIR statement in order of appearance.
@@ -73,6 +77,48 @@ proc pretty*(stmts: seq[Stmt]): string =
 
   pretty(0, 0)
   result = res
+
+proc fold(at: int, stmts: var seq[Stmt]): int =
+  ## Folds either the block-like statement at `at`, or folds an immediate sub-
+  ## statement of it. Returns the index of resulting statement.
+  proc removeTrailingScope(at: int, stmts: var seq[Stmt]) =
+    let sub = stmts[at].sub
+    var i, prev = sub
+    while stmts[i].next != 0:
+      prev = i
+      i = stmts[i].next
+
+    if stmts[i].kind == Scope:
+      # elide the scope, by replacing it with its body
+      if sub == i: # is the scope the only subitem?
+        stmts[at].sub = stmts[i].sub
+      else:
+        stmts[prev].next = stmts[i].sub
+
+  case stmts[at].kind
+  of Scope:
+    let sub = stmts[at].sub
+    if sub == 0:
+      0 # an empty scope
+    elif stmts[sub].kind in terminators:
+      # a scope with only a terminator as its child is unnecessary
+      sub
+    else:
+      # a scope trailing a scope is unnecessary
+      removeTrailingScope(at, stmts)
+      at
+  of If, Loop:
+    # opens an implicit scope itself
+    removeTrailingScope(at, stmts)
+    at
+  of Block, Try:
+    # TODO: also open an implicit scope themselves, but due to the C code
+    #       generator currently not adhering to the semantics w.r.t. to
+    #       scopes for block and try, eliding scopes would cause scopes
+    #       missing in the generated C code. Fix the C code generator
+    at
+  else:
+    at
 
 proc toStructured*(tree): seq[Stmt] =
   ## Computes a control-flow focused representation of `tree`, where all
@@ -158,7 +204,9 @@ proc toStructured*(tree): seq[Stmt] =
   proc popBlock(expect: StmtKind) =
     let s = stack.pop()
     assert stmts[s.item].kind == expect
-    append(stmts, stack[^1], s.item)
+    let got = fold(s.item, stmts)
+    if got != 0:
+      append(stmts, stack[^1], s.item)
 
   for i, it in tree.statements():
     # close the blocks whose target is the current block
@@ -203,7 +251,7 @@ proc toStructured*(tree): seq[Stmt] =
     of mnkContinue:
       if tree[it, 0].kind != mnkUnwind:
         insertTry(tree.child(it, 0), labels[tree[it, 0].label])
-      append(Stmt(kind: Stmts, n: it))
+      append(Stmt(kind: Continue, n: it))
     of mnkDef, mnkDefCursor, mnkAsgn, mnkInit, mnkSwitch, mnkVoid:
       let e = tree.last(it)
       if tree[e].kind == mnkCheckedCall:
@@ -226,51 +274,70 @@ proc toStructured*(tree): seq[Stmt] =
   assert stack.len == 1
   result = stmts
 
-proc optimize*(stmts: var seq[Stmt]) =
-  ## Removes the following unecessary constructs:
-  ## * scopes in the tailing position of an 'if' or 'loop'
-  ## * scopes in the tailing position of other scopes
-  ## * empty scopes
+proc optimize*(tree: MirTree, stmts: var seq[Stmt]) =
+  ## Attempts to reduce the nesting of block-like statements by moving
+  ## statements around, in a way that preserves semantics and scoping.
 
-  proc removeScopes(stmts: var seq[Stmt], i: int, rem: bool): int =
-    proc walk(stmts: var seq[Stmt], i: int, rem: bool): int =
-      var i = i
-      var prev = 0
-      while i != 0:
-        let got = removeScopes(stmts, i, rem and stmts[i].next == 0)
-        if prev == 0:
-          prev = got
-          result = got
-        else:
-          stmts[prev].next = got
-          if got != 0:
-            prev = got
+  # the only thing the routine currently does is to attempt inlining
+  # continuations into 'break' statements nested in dispatchers
+  var candidates: Table[LabelId, tuple[parent, brk, blk: int]]
 
-        i = stmts[i].next
+  # step 1: look for all 'break's in dispatcher targets
+  for i, it in stmts.pairs:
+    if it.kind == Target and stmts[it.sub].kind == Break:
+      candidates[tree[stmts[it.sub].n].label] = (i, it.sub, -1)
 
-    result = i
-    case stmts[i].kind
-    of If, Loop:
-      # 'if' and 'loop' open a scope
-      stmts[i].sub = walk(stmts, stmts[i].sub, rem=true)
-    of Scope:
-      let got = walk(stmts, stmts[i].sub, rem=true)
-      if rem or got == 0 or stmts[got].kind in {Break, Loop}:
-        # remove the scope itself
-        result = got
+  if candidates.len > 0:
+    # step 2:
+    # * make sure the candidate blocks are only targeted a single time
+    # * look up the corresponding block item for every candidate
+    for i, it in stmts.pairs:
+      case it.kind
+      of Break:
+        if candidates.getOrDefault(tree[it.n].label, (0, i, 0)).brk != i:
+          # the block is targeted more than once
+          candidates.del(tree[it.n].label)
+      of Block:
+        candidates.withValue tree[it.n].label, val:
+          val.blk = i
       else:
-        stmts[i].sub = got
-    of Try, Block:
-      stmts[i].sub = walk(stmts, stmts[i].sub, rem)
-    of Dispatch, Target:
-      stmts[i].sub = walk(stmts, stmts[i].sub, rem=false)
-    else:
-      discard "not a block-like statement; nothing to do"
+        discard "nothing to do"
 
-  discard removeScopes(stmts, 0, false)
-  # TODO: inline block continuations into breaks, using the following
-  #       semantics- and scoping-preserving heuristic:
-  #       1. a single 'break' must target the 'block'
-  #       2. the block's body must end in a terminator (break, return, etc.)
-  #       3. the block must be in the same scope as the break
-  #       4. the statement list following the block must end in a terminator
+  if candidates.len > 0:
+    # step 3: inline the candidates where the block's continuation ends in
+    # a terminator and where live ranges are unaffected
+    for it in candidates.values:
+      # check whether the continuation ends in a terminator...
+      var i = stmts[it.blk].next
+      while i != 0 and stmts[i].kind notin terminators:
+        if stmts[i].next == 0 and stmts[i].kind == Scope:
+          i = stmts[i].sub
+        else:
+          i = stmts[i].next
+
+      if i != 0:
+        # ...it does. Now make sure moving the continuation doesn't change
+        # which locals are live at the same time
+        i = it.blk
+        while i != 0:
+          case stmts[i].kind
+          of None:
+            i = stmts[i].next
+          of Block:
+            i = stmts[i].sub
+          of Dispatch:
+            # look for the target whose body is the 'break' targeting the block
+            var j = stmts[i].sub
+            while j != 0 and stmts[j].sub != it.brk:
+              j = stmts[j].next
+
+            if j != 0:
+              # success! replace the break with its target block's continuation
+              stmts[it.parent].sub = stmts[it.blk].next
+              stmts[it.blk] = Stmt(kind: None, next: stmts[it.blk].sub)
+              stmts[it.brk] = Stmt(kind: None) # remove the break statement
+            # else: can only be some unrelated dispatcher; give up
+            i = 0
+          else:
+            i = 0 # give up
+      # else: not eligible
