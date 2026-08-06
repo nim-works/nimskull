@@ -10,6 +10,8 @@
 ## this module does the semantic checking of type declarations
 ## included from sem.nim
 
+proc semRoutineParams(c: PContext, routine, formal, generic: PNode, kind: TSymKind): PType
+
 proc newOrPrevType(kind: TTypeKind, prev: PType, c: PContext): PType =
   if prev == nil:
     result = newTypeS(kind, c)
@@ -1375,8 +1377,10 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
 
       result = recurse(result, true)
 
-  of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass,
+  of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass, tySignature,
      tyAnd, tyOr, tyNot:
+    # TODO: decide on whether the bind-once-by-default behaviour is sensible
+    #       for signature types
     if not anon and paramTypId == nil and paramType.kind == tyBuiltInTypeClass:
       # for efficiency, built-in type-classes don't use a symbol by
       # default. We fetch the identifier here.
@@ -1838,6 +1842,125 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   result.n[3] = semConceptBody(c, n[3])
   closeScope(c)
 
+proc semSignatureDecl(c: PContext, n: PNode, prev: PType): PType =
+  ## Type-checks signature declaration `n`, returning a new `tySignature` type.
+  var self = n[1]
+  if self.kind notin {nkIdent, nkAccQuoted, nkSym}:
+    c.config.semReportIllformedAst(self, "expected identifier or symbol")
+
+  self = newSymGNode(skType, self, c)
+  self.getDefNameSymOrRecover().linkTo(newTypeS(tyGenericParam, c))
+  # TODO: handle errors
+
+  proc checkDefinition(c: PContext, n: PNode): PNode =
+    let kind =
+      case n.kind
+      of nkProcDef: skProc
+      of nkFuncDef: skFunc
+      of nkIteratorDef: skIterator
+      else: unreachable()
+
+    # TODO: use proper diagnostics
+    var name = n[namePos]
+    case name.kind
+    of nkEmpty:
+      c.config.localReport(n.info, reportStr(rsemCustomUserError, "declarations in signature must not be anonymous"))
+      # progress is possible
+      name = newSymNode(newSym(kind, c.cache.idAnon, nextSymId c.idgen, c.getCurrOwner, name.info))
+    of nkPostfix:
+      c.config.localReport(n.info, reportStr(rsemCustomUserError, "declarations in signature must not be exported"))
+      # progress is possible
+      name = newSymGNode(kind, name[1], c)
+    of nkSym, nkIdent, nkAccQuoted:
+      name = newSymGNode(kind, name, c)
+    else:
+      c.config.semReportIllformedAst(self, "expected identifier or symbol")
+
+    # TODO: reject implicit and explicit generic parameters
+    # TODO: reject patterns
+    # TODO: handle pragmas
+    # TODO: emit an error for declarations that are duplicates
+
+    let s = getDefNameSymOrRecover(name)
+    let ast = copyNodeWithKids(n)
+    ast[namePos] = name
+    openScope(c)
+    s.typ = semRoutineParams(c, ast, ast[paramsPos], ast[genericParamsPos], kind)
+    case s.kind
+    of skIterator:
+      s.typ.flags.incl tfIterator
+      # the default CC for iterators is .inline
+      s.typ.callConv = ccInline
+    of skFunc:
+      s.flags.incl sfNoSideEffect
+      s.typ.flags.incl tfNoSideEffect
+    else:
+      discard "nothing to do"
+
+    if n[pragmasPos].kind != nkEmpty:
+      ast[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos],
+        {wRaises, wTags, wNoSideEffect, FirstCallConv..LastCallConv})
+
+    # TODO: don't allow anything besides ccInline and ccClosure for iterators
+
+    closeScope(c)
+
+    if ast[pragmasPos].isError:
+      # TODO: handle correctly
+      return wrapErrorAndUpdate(c.config, ast, s)
+
+    # TODO: handle .tailcall procedure borrows
+    # if s.typ.callConv == ccTailcall:
+    #   prepareTailcallProc(c, n.info, s.typ)
+
+    s.ast = ast
+
+    setEffectsForProcType(c.graph, s.typ, ast[pragmasPos], s)
+    # no explicit tag or raises specifications means "could have any effect"
+    if s.typ.n[0][exceptionEffects] == nil:
+      s.typ.n[0][exceptionEffects] = nkBracket.newTree(
+        newNodeIT(nkType, unknownLineInfo,
+          getCompilerProc(c.graph, "Exception").typ))
+    if s.typ.n[0][tagEffects] == nil:
+      s.typ.n[0][tagEffects] = nkBracket.newTree(
+        newNodeIT(nkType, unknownLineInfo,
+          c.graph.sysTypeFromName(n.info, "RootEffect")))
+
+    if s.ast[bodyPos].kind != nkEmpty:
+      c.config.localReport(n.info, reportStr(rsemCustomUserError, "declarations in signature"))
+      # correct the error and continue
+      s.ast[bodyPos] = c.graph.emptyNode
+
+    if s.name.s in [".", ".()", ".="] or s.name.s[0] == '=':
+      c.config.localReport(n.info, reportStr(rsemCustomUserError, "special name is not allowed in signature"))
+
+    result = name
+
+  openScope(c)
+  # TODO: the self symbol must only be allowed in a parameter-level position.
+  #       A post-processing step is not enough, as macros may be run as part
+  #       of the type expression analysis, and those must not receive the self-symbol
+  addDecl(c, self.sym)
+
+  result = newOrPrevType(tySignature, prev, c)
+  result.n = newNode(nkBracket)
+  rawAddSon(result, self.sym.typ)
+  case n[2].kind
+  of nkEmpty:
+    # okay, it's a signature type with no symbols
+    discard
+  of nkStmtList:
+    for it in n[2].items:
+      if it.kind notin {nkProcDef, nkFuncDef, nkIteratorDef}:
+        c.config.semReportIllformedAst(it, "expected func, proc, or iterator declaration")
+      result.n.add checkDefinition(c, it)
+  of nkProcDef, nkFuncDef, nkIteratorDef:
+    result.n.add checkDefinition(c, n[2])
+  else:
+    c.config.semReportIllformedAst(n[2], "expected func, proc, or iterator declaration")
+
+  closeScope(c)
+
 proc prepareTailcallProc(c: PContext, info: TLineInfo, typ: PType) =
   let
     cont = systemModuleType(c.graph, c.cache.getIdent("Continuation"))
@@ -2133,6 +2256,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         #      ``wSink``)
         result = newOrPrevType((if op.s == "sink": tySink else: tyLent), nil, c)
         result.rawAddSonNoPropagationOfTypeFlags semTypeNode(c, n[1], nil)
+      elif op.s == "signature" and n.len == 3:
+        result = semSignatureDecl(c, n, prev)
       else:
         if c.inGenericContext > 0 and n.kind == nkCall:
           result = makeTypeFromExpr(c, n.copyTree)

@@ -187,7 +187,7 @@ const
   PointerType* = TypeId 15
 
   Skip = {tyAlias, tyDistinct, tySink, tyGenericInst, tyEnum, tyOrdinal,
-          tyRange, tyInferred} + tyUserTypeClasses
+          tyRange, tyInferred, tySignatureInst} + tyUserTypeClasses
     ## types not relevant to the MIR type description
 
   EmbeddedFlag = 0x1000'u16 ## indicates the record/union being embedded

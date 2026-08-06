@@ -916,6 +916,19 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
   of tyGenericInst, tyAlias, tyInferred:
     cycleCheck()
     result = sameTypeAux(a.lastSon, b.lastSon, c)
+  of tySignature:
+    # signature types are nominal types
+    # TODO: are they? The specification doesn't say anything in this regards
+    result = a.id == b.id
+  of tySignatureInst:
+    cycleCheck()
+    result = sameTypeAux(a[0], b[0], c) and sameTypeAux(a[1], b[1], c)
+    if result:
+      # same signature and applied-to type. The bound symbols must match
+      for i in 0..<a.n.len:
+        if a.n[i].sym.ast[bodyPos].sym.id != b.n[i].sym.ast[bodyPos].sym.id:
+          return false
+      result = true
   of tyNone: result = false
 
 proc sameBackendType*(x, y: PType): bool =
@@ -1556,6 +1569,16 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
   of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
      tyString, tyCstring, tyVoid:
     result = false
+  of tySignature:
+    # unknown, assume the worst
+    result = true
+  of tySignatureInst:
+    # XXX: `productReachable` is used for both internal checks and language-
+    #      exposed type traits. For the language-exposed type traits, resolved
+    #      signatures should be treated if they're opaque w.r.t. the bound
+    #      type, but for internal checks, they should be transparent
+    # assume the worst
+    result = true
   of tyDistinct, tyGenericInst, tyAlias, tyInferred:
     result = productReachable(marker, g, t.lastSon, search, isInd)
   of tyUserTypeClasses:
@@ -1604,7 +1627,7 @@ proc classifyBackendView*(t: PType): BackendViewKind =
   of tyOpenArray, tyVarargs:
     bvcSequence
   of ConcreteTypes - {tyVar, tyLent, tyOpenArray}, tyNil, tyVoid, tyError,
-     tyUncheckedArray, tyTypeDesc:
+     tyUncheckedArray, tyTypeDesc, tySignature, tySignatureInst:
     bvcNone
   of abstractInst - {tyTypeDesc}, tyUserTypeClasses, tyStatic:
     classifyBackendView(t.lastSon)

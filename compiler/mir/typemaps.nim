@@ -111,7 +111,7 @@ func cmp(a, b: PType): bool =
     of tyBuiltInTypeClass:
       a[0].kind == b[0].kind
     of tyObject, tyDistinct, tyEnum, tyGenericInst, tyStatic,
-       tyUserTypeClasses, tyCompositeTypeClass, tyInferred:
+       tyUserTypeClasses, tyCompositeTypeClass, tyInferred, tySignatureInst:
       # ids are not the same, so it must be a different type
       # XXX: ideally, ``tyStatic`` would not be supported here, but ``mirgen``
       #      does add those types
@@ -168,7 +168,7 @@ func hash(t: PType): Hash =
     of tyBuiltInTypeClass:
       result = result !& hash(t[0].kind)
     of tyObject, tyDistinct, tyEnum, tyGenericInst, tyStatic,
-       tyUserTypeClasses, tyCompositeTypeClass, tyInferred:
+       tyUserTypeClasses, tyCompositeTypeClass, tyInferred, tySignatureInst:
       result = result !& hash(t.id)
     else:
       unreachable()
