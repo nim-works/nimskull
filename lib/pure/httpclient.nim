@@ -753,7 +753,7 @@ proc newConnection(client: HttpClient,
           nativesockets.Port(80)
       else: nativesockets.Port(connectionUrl.port.parseInt)
 
-    client.socket = net.dial(connectionUrl.hostname, port)
+    client.socket = net.dial(connectionUrl.hostname, port, SOCK_STREAM)
 
     when defined(ssl):
       if isSsl:
