@@ -5,9 +5,7 @@
 
 import
   std/[
-    algorithm,
-    os,
-    sets
+    os
   ],
   compiler/ast/[
     ast,
@@ -21,7 +19,6 @@ import
   compiler/sem/[
     passes,
     sem,
-    sighashes,
   ],
   compiler/utils/[astrepr,],
   std/options as std_options, # due to legacy reports stupidity
@@ -117,50 +114,31 @@ proc dust*(args: openArray[string]): ErrorCode =
 
   # make note of the expected number of errors
   let expected = config.errorCounter
-  var seen: HashSet[SigHash]
 
   while true:
-    var remains: seq[(SigHash, PNode)]
-    # gather all possible, not-yet-tried mutations:
-    for mutant in mutations(best):
-      let hash = hashTree(mutant)
-      if hash notin seen:
-        remains.add (hash, mutant)
-  
-    if remains.len == 0:
-      # there are none; we're done
-      break
-    # sort by their score. The one with the lowest score has to come first
-    sort(remains, proc(a, b: auto): int =
-      calculateScore(config, a[1]) - calculateScore(config, b[1]))
-
     echo best
     echo "----- current score: ", calculateScore(config, best)
 
     var found = PNode nil
-    # try all candidates, starting with the smallest one
-    for (hash, node) in remains.items:
-      seen.incl(hash)
-
+    var iter = initMutator(best)
+    # go over all mutations, committing the ones that reproduce the error
+    while (let node = iter.get(); node != nil):
       semcheck:
-        try:
-          writeFile(config.projectFull.string, $node)
-        except IndexError:
-          echo "cheating to get around rendering bug"
-          continue
+        writeFile(config.projectFull.string, $node)
 
       # extra errors are a problem
       if config.errorCounter > expected:
         echo "(unexpected errors)"
+        iter.next()
       # if we didn't unhook the errors,
       # it means we didn't find the error we were looking for
       elif config.structuredReportHook != dustReportHook:
         echo "(uninteresting errors)"
-      # i guess this node is a viable reproduction
+        iter.next()
       else:
         # found a viable tree
+        iter.keep()
         found = node
-        break
     
     if found.isNil:
       # none of the candidates reproduces the property; we're done
