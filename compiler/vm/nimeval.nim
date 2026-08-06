@@ -143,13 +143,12 @@ proc findNimStdLibCompileTime*(): string =
 
 proc createInterpreter*(
     scriptName:  string,
+    projectDir:  string,
     searchPaths: openArray[string],
     hook:        ReportHook,
     flags:       TSandboxFlags = {},
     defines:     seq[(string, string)] = @[("nimscript", "true")],
     registerOps: bool = true,
-    projectDir:  string = "",
-    pkgIndex =   PackageIndex()
   ): Interpreter =
 
   var conf = newConfigRef(hook)
@@ -168,7 +167,7 @@ proc createInterpreter*(
     conf.searchPathsAdd(AbsoluteDir p)
     if conf.libpath.isEmpty: conf.libpath = AbsoluteDir p
 
-  conf.packageIndex = pkgIndex
+  conf.packageIndex = PackageIndex()
   finalizePackageIndex(conf, projectDir)
 
   var m = graph.makeModule(scriptName)
