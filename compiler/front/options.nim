@@ -1474,7 +1474,7 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
   ## package's root directory (the `path` field from the index).
   ## If the module is not in a known package, the bare filename is returned.
   let pkgId = conf.getPackageId(file.string)
-  if pkgId == "" or pkgId == "project-local":
+  if pkgId in ["", "unknown", "project-local"]:
     return file.splitFile.name.nativeToUnixPath
 
   let
@@ -1488,7 +1488,11 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
   elif pkgId == "stdlib":
     result = "std" / relNoExt
   else:
-    result = pkgId / (if relNoExt.contains('/'): relNoExt else: "")
+    result = pkgId
+    if rel == relativePath(pkg.entrypoint, baseDir):
+      result = pkgId
+    else:
+      result = pkgId / relNoExt
 
 proc canonDynlibName*(s: string): string =
   ## Get 'canonical' dynamic library name - without optional `lib` prefix

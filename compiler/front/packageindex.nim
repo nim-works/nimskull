@@ -31,7 +31,8 @@ from compiler/ast/reports_packages import PackageReport
 from compiler/ast/report_enums import ReportKind
 
 proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: string) =
-  ## Normalise all paths inside a package to absolute paths.
+  if package.path.len == 0: return  # <-- Add this line
+  
   if not package.path.isAbsolute:
     package.path = baseDir / package.path
   package.path.normalizePath()
@@ -90,17 +91,13 @@ proc loadPackageIndexFile*(conf: ConfigRef; searchDir: string): tuple[found: boo
 proc finalizePackageIndex*(conf: ConfigRef; projectDir: string) =
   ## Add `stdlib` and `project-local` packages, resolve all paths,
   ## and check for duplicate aliases. Must be called after loading the index.
-  # Add stdlib
   conf.packageIndex.packages["stdlib"] = IndexedPackage(path: $conf.libpath)
   conf.packageIndex.packages["unknown"] = IndexedPackage(path: "")
-
-  if not projectDir.startsWith($conf.libpath):
+  if conf.packageDir.isEmpty and not projectDir.startsWith($conf.libpath):
     conf.packageIndex.packages["project-local"] = IndexedPackage(path: projectDir)
-
-  # Resolve paths for all packages and add implicit dependency
   for name, pkg in conf.packageIndex.packages.mpairs:
     pkg.dependencies.add DependencyLink(package: "stdlib", alias: "std")
-    conf.resolvePackagePaths(pkg, projectDir)
+    conf.resolvePackagePaths(pkg, $conf.packageDir)
 
   # Validate dependencies
   checkDuplicateAliases(conf, conf.packageIndex.packages)

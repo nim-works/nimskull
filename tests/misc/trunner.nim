@@ -90,8 +90,8 @@ when not defined(nimTestsTrunnerDebugging):
         let htmlFile = htmldocsDir/mainFname
         check htmlFile in outp # sanity check for `hintSuccessX`
         assertEquals ret, fmt"""
-{dotdotMangle}/imp.html
-{dotdotMangle}/imp.idx
+_._/imp.html
+_._/imp.idx
 {docHackJsFname}
 imp.html
 imp.idx

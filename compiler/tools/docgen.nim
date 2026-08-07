@@ -197,12 +197,16 @@ proc presentationPath*(conf: ConfigRef, file: AbsoluteFile): RelativeFile =
     getPkgDesc(conf, file2).pkgRoot
   case conf.docRoot:
   of docRootDefault:
-    result = getRelativePathFromConfigPath(conf, file)
     let
       dir = packageDir()
-      result2 = RelativeFile(getPackageId(conf, file2) / $relativeTo(file, dir))
-    if not result2.isEmpty and (result.isEmpty or result2.string.len < result.string.len):
-      result = result2
+      pkgId = getPackageId(conf, file2)
+    if pkgId.len > 0 and pkgId != "unknown" and not dir.isEmpty:
+      let rel = relativeTo(file, dir)
+      if not rel.isEmpty:
+        result = RelativeFile(pkgId / $rel)
+    if result.isEmpty:
+      result = getRelativePathFromConfigPath(conf, file)
+    if result.isEmpty: bail()
   of "@pkg":
     let dir = packageDir()
     result = RelativeFile(getPackageId(conf, file2) / $relativeTo(file, dir))
