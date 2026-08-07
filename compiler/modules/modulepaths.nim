@@ -66,20 +66,24 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     conf.localReport(n.info, reportAst(rsemInvalidModuleName, n))
     result = ""
 
-proc checkModuleName*(
-  conf: ConfigRef,
-  n: PNode,
-  pkgId: string,
-  doLocalError=true
-): FileIndex =
+proc checkModuleName*(conf: ConfigRef, modulename, currentModule, pkgId: string,
+                      info: TLineInfo, doLocalError=true): FileIndex =
   # This returns the full canonical path for a given module import
-  let modulename = getModuleName(conf, n)
-  let fullPath = findModule(conf, modulename, toFullPath(conf, n.info), pkgId)
+  let fullPath = findModule(conf, modulename, currentModule, pkgId)
   if fullPath.isEmpty:
     if doLocalError:
-      let m = if modulename.len > 0: modulename else: $n
-      conf.localReport(n.info, InternalReport(
-        kind: rintCannotOpenFile, file: m))
+      conf.localReport(info, InternalReport(
+        kind: rintCannotOpenFile, file: modulename))
     result = InvalidFileIdx
   else:
     result = fileInfoIdx(conf, fullPath)
+
+proc checkModuleName*(conf: ConfigRef, n: PNode, pkgId: string,
+                      doLocalError=true): FileIndex =
+  # This returns the full canonical path for a given module import
+  let modulename = getModuleName(conf, n)
+  if modulename.len == 0:
+    InvalidFileIdx
+  else:
+    checkModuleName(conf, modulename, toFullPath(conf, n.info), pkgId,
+                    n.info, doLocalError)

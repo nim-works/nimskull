@@ -11,6 +11,9 @@
 ## `TPass` interface.
 
 import
+  std/[
+    strutils
+  ],
   compiler/front/[
     options,
     msgs,
@@ -20,6 +23,7 @@ import
   ],
   compiler/ast/[
     ast,
+    idents,
     llstream,
     syntaxes,
     lineinfos,
@@ -130,9 +134,19 @@ proc processImplicits(
     # implicit imports should not lead to a module importing itself
     if m.position != resolveMod(graph.config, module, relativeTo, currentPkgId).int32:
       var importStmt = newNodeI(nodeKind, m.info)
-      var str = newStrNode(nkStrLit, module)
-      str.info = m.info
-      importStmt.add str
+      # turn slashes into '/' operators, so that later processing of the
+      # import path expression will yield `module` again
+      var path = PNode nil
+      for part in split(module, '/'):
+        let str = newStrNode(nkStrLit, part)
+        str.info = m.info
+        if path.isNil:
+          path = str
+        else:
+          path = newTreeI(nkInfix, m.info,
+            newIdentNode(graph.cache.getIdent("/"), m.info), path, str)
+
+      importStmt.add path
       if not processTopLevelStmt(graph, importStmt, a): break
 
 const

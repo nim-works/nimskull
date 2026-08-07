@@ -303,11 +303,15 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
   let
     modName = getModuleName(c.config, n)
     currentPkgId = c.module.getPackage().name.s
-    fullPath = findModule(c.config, modName, toFullPath(c.config, n.info), currentPkgId)
 
-  if fullPath.string.len > 0:
-    var isKnown: bool
-    let fileIdx = fileInfoIdx(c.config, fullPath, isKnown)
+  var fileIdx = InvalidFileIdx
+  if modName.len == 0:
+    discard "module path is invalid; an error was reported already"
+  else:
+    fileIdx = checkModuleName(c.config, modName, toFullPath(c.config, n.info),
+                              currentPkgId, n.info, true)
+
+  if fileIdx != InvalidFileIdx:
     addImportFileDep(c, fileIdx)
     let
       L = c.graph.importStack.len
