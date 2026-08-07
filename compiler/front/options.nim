@@ -1481,7 +1481,7 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
     pkg {.cursor.} = conf.packageIndex.packages[pkgId]
     baseDir = pkg.srcDir
     rel = relativePath(file.string, baseDir)
-    relNoExt = rel.changeFileExt("").nativeToUnixPath
+    relNoExt = rel.changeFileExt("")
 
   if rel.len == 0:
     result = pkgId
@@ -1493,6 +1493,8 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
       result = pkgId
     else:
       result = pkgId / relNoExt
+  
+  result = result.nativeToUnixPath
 
 proc canonDynlibName*(s: string): string =
   ## Get 'canonical' dynamic library name - without optional `lib` prefix
