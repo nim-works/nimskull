@@ -31,7 +31,7 @@ from compiler/ast/reports_packages import PackageReport
 from compiler/ast/report_enums import ReportKind
 
 proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: string) =
-  if package.path.len == 0: return  # <-- Add this line
+  if package.path.len == 0: return
   
   if not package.path.isAbsolute:
     package.path = baseDir / package.path
@@ -98,7 +98,6 @@ proc finalizePackageIndex*(conf: ConfigRef; projectDir: string) =
   for name, pkg in conf.packageIndex.packages.mpairs:
     pkg.dependencies.add DependencyLink(package: "stdlib", alias: "std")
     conf.resolvePackagePaths(pkg, $conf.packageDir)
-
   # Validate dependencies
   checkDuplicateAliases(conf, conf.packageIndex.packages)
 
