@@ -12,9 +12,6 @@ import
     sequtils,
     strtabs,
   ],
-  compiler/modules/[
-    nimblecmd,
-  ],
   compiler/ast/[
     lineinfos,
     wordrecg,
@@ -49,9 +46,6 @@ type
   CmdSwitchKind* = enum
     cmdSwitchFromcmd
     cmdSwitchPath
-    cmdSwitchNimblepath
-    cmdSwitchNonimblepath
-    cmdSwitchClearnimblepath
     cmdSwitchExcludepath
     cmdSwitchNimcache
     cmdSwitchOut
@@ -175,9 +169,6 @@ type
   CmdSwitchTextKind* = enum
     fullSwitchTxtFromcmd             = "fromcmd"
     fullSwitchTxtPath                = "path",        smolSwitchTxtPath        = "p",
-    fullSwitchTxtNimblepath          = "nimblepath"
-    fullSwitchTxtNonimblepath        = "nonimblepath"
-    fullSwitchTxtClearnimblepath     = "clearnimblepath"
     fullSwitchTxtExcludepath         = "excludepath"
     fullSwitchTxtNimcache            = "nimcache"
     fullSwitchTxtOut                 = "out",         smolSwitchTxtOut         = "o",
@@ -305,9 +296,6 @@ const
     cmdSwitchToTxt = [
       cmdSwitchFromcmd            : {fullSwitchTxtFromcmd},
       cmdSwitchPath               : {fullSwitchTxtPath, smolSwitchTxtPath},
-      cmdSwitchNimblepath         : {fullSwitchTxtNimblepath},
-      cmdSwitchNonimblepath       : {fullSwitchTxtNonimblepath},
-      cmdSwitchClearnimblepath    : {fullSwitchTxtClearnimblepath},
       cmdSwitchExcludepath        : {fullSwitchTxtExcludepath},
       cmdSwitchNimcache           : {fullSwitchTxtNimcache},
       cmdSwitchOut                : {fullSwitchTxtOut, smolSwitchTxtOut},
@@ -766,18 +754,13 @@ type
                                          ## of values
     procSwitchErrArgUnknownCCompiler
     procSwitchErrArgUnknownExperimentalFeature
-    procSwitchErrArgNimblePath
     procSwitchErrArgInvalidHintOrWarning ## rest is under `ProcessNoteResult`
 
   ProcSwitchResult* = object
     srcCodeOrigin*: InstantiationInfo
     givenSwitch*, givenArg*: string  # xxx: shouldn't be needed
-    case switch*: CmdSwitchKind:     ## the switch being processed, ignored if
-                                     ## `kind` is `procSwitchErrInvalid`
-      of cmdSwitchNimblepath:
-        processedNimblePath*: ProcSwitchNimblePathResult
-      else:
-        discard
+    switch*: CmdSwitchKind ## the switch being processed, ignored if
+                           ## `kind` is `procSwitchErrInvalid`
     case kind*: ProcSwitchResultKind:
       of procSwitchSuccess:
         # Note: if expanding with more info, then multi-level variant might be
@@ -794,21 +777,12 @@ type
           procSwitchErrArgExpectedFromList,
           procSwitchErrArgNotInValidList,
           procSwitchErrArgUnknownCCompiler,
-          procSwitchErrArgUnknownExperimentalFeature,
-          procSwitchErrArgNimblePath:
+          procSwitchErrArgUnknownExperimentalFeature:
         discard # givenArg covers this
       of procSwitchErrArgPathInvalid:
         pathAttempted*: string
       of procSwitchErrArgInvalidHintOrWarning:
         processNoteResult*: ProcessNoteResult
-
-  ProcSwitchNimblePathResult* = object
-    case didProcess*: bool:
-      of true:
-        nimblePathAttempted*: AbsoluteDir
-        nimblePathResult*: NimblePathResult
-      of false:
-        discard
   
   ProcSwitchResultErrorKind* =
     range[procSwitchErrInvalid..procSwitchErrArgInvalidHintOrWarning]
@@ -998,6 +972,10 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     of procNoteSuccess:
       discard "TODO: log a trace for success?"
 
+  template addPath(conf: ConfigRef; path: AbsoluteDir) =
+    if not conf.searchPaths.contains(path):
+      conf.active.searchPaths.insert(path, 0)
+
   case switch.normalize
   of "fromcmd":
     setSwitchAndSrc cmdSwitchFromcmd
@@ -1006,48 +984,16 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "path", "p":
     setSwitchAndSrc cmdSwitchPath
     expectArg(switch, arg)
-    for path in nimbleSubs(conf, arg):
-      let p =
-        case pass
-        of passPP: argProcessCfgPath(conf, path, switch)
-        else:      argProcessPath(conf, path, switch)
-      conf.addPath p
-  of "nimblepath":
-    setSwitchAndSrc cmdSwitchNimblepath
-    if pass in {passCmd2, passPP} and optNoNimblePath notin conf.globalOptions:
-      expectArg(switch, arg)
-      var path = argProcessPath(conf, arg, switch, notRelativeToProj=true)
-      # TODO: move up nimble stuff, then set path once
-      let nimbleDir = AbsoluteDir getEnv("NIMBLE_DIR")
-      if not nimbleDir.isEmpty and pass == passPP:
-        path = nimbleDir / RelativeDir"pkgs"
-      let res = nimblePath(conf, path)
-      result.processedNimblePath =
-        ProcSwitchNimblePathResult(didProcess: true,
-                                   nimblePathAttempted: path,
-                                   nimblePathResult: res)
-      if res.pkgs.anyIt(it.status == nimblePkgInvalid):
-        result = ProcSwitchResult(
-          kind: procSwitchErrArgNimblePath,
-          switch: cmdSwitchNimblepath,
-          processedNimblePath: result.processedNimblePath,
-          givenSwitch: result.givenSwitch,
-          givenArg: result.givenArg,
-          srcCodeOrigin: instLoc())
-  of "nonimblepath":
-    setSwitchAndSrc cmdSwitchNonimblepath
-    expectNoArg(switch, arg)
-    disableNimblePath(conf)
-  of "clearnimblepath":
-    setSwitchAndSrc cmdSwitchClearnimblepath
-    expectNoArg(switch, arg)
-    clearNimblePath(conf)
+    let p =
+      case pass
+      of passPP: argProcessCfgPath(conf, arg, switch)
+      else:      argProcessPath(conf, arg, switch)
+    conf.addPath p
   of "excludepath":
     setSwitchAndSrc cmdSwitchExcludepath
     expectArg(switch, arg)
     let path = argProcessPath(conf, arg, switch)
     conf.searchPaths = conf.searchPaths.filterIt(it != path)
-    conf.lazyPaths = conf.lazyPaths.filterIt(it != path)
   of "nimcache":
     setSwitchAndSrc cmdSwitchNimcache
     expectArg(switch, arg)
@@ -1355,17 +1301,13 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchImport
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
-      let info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
-      conf.implicitImportsAdd findModule(
-        conf, arg, toFullPath(conf, info)).string
+      conf.implicitImports.add arg
   of "include":
     setSwitchAndSrc cmdSwitchInclude
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       # xxx: pretty sure this should do path validation
-      let info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
-      conf.implicitIncludesAdd findModule(
-        conf, arg, toFullPath(conf, info)).string
+      conf.implicitIncludes.add arg
   of "listcmd":
     setSwitchAndSrc cmdSwitchListcmd
     processOnOffSwitchG(conf, {optListCmd}, arg, switch)
@@ -1705,19 +1647,6 @@ func procResultToHumanStr*(procResult: ProcSwitchResult): string =
     "unknown experiemental feature: '$1'. Available options are: $2" %
       [procResult.givenArg,
         allowedCompileOptionsArgs(procResult.switch).join(", ")]
-  of procSwitchErrArgNimblePath:
-    let
-      nimbleResult = procResult.processedNimblePath
-      msgPrefix = "in nimblepath ('$#') invalid package " %
-                            nimbleResult.nimblePathAttempted.string
-      invalidPaths = nimbleResult.nimblePathResult.pkgs
-                        .filterIt(it.status == nimblePkgInvalid)
-                        .mapIt(it.path)
-    case invalidPaths.len
-    of 0: unreachable("compiler bug")
-    of 1: msgPrefix & "name: '$#'" % invalidPaths[0]
-    else: (msgPrefix & "names:" & repeat("\n  '$#'", invalidPaths.len)) %
-            invalidPaths
   of procSwitchErrArgPathInvalid:
     "invalid path (option '$#'): $#" %
       [procResult.givenSwitch, procResult.pathAttempted]

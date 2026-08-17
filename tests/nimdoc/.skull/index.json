@@ -1,0 +1,10 @@
+{
+  "packages": {
+    "tests/nimdoc" : {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": "",
+      "dependencies": []
+    }
+  }
+}

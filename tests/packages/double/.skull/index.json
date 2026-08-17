@@ -1,0 +1,49 @@
+{
+  "packages": {
+    "github.com/nim-works/nimskull/tests/packages/double": {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double",
+          "alias": "double"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
+          "alias": "foo"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+          "alias": "bar"
+        }
+      ]
+    },
+    "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo": {
+      "path": "pkgs/foo",
+      "srcDir": ".",
+      "entrypoint": "lib.nim",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/foo",
+          "alias": "foo"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+          "alias": "barfoo"
+        }
+      ]
+    },
+    "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar": {
+      "path": "pkgs/bar",
+      "srcDir": ".",
+      "entrypoint": "lib.nim",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/double/pkgs/bar",
+          "alias": "bar"
+        }
+      ]
+    }
+  }
+}

@@ -172,7 +172,7 @@ proc getIdentLineInfo*(n: PNode): TLineInfo =
     of nkIdent, nkSym: n.info
     else:              unreachable(n.kind)
 
-proc getnimblePkg*(a: PSym): PSym =
+proc getPackage*(a: PSym): PSym =
   result = a
   while result != nil:
     case result.kind
@@ -217,8 +217,8 @@ proc `$`*(s: PSym): string =
     result = "<nil>"
 
 
-proc getnimblePkgId*(a: PSym): int =
-  let b = a.getnimblePkg
+proc getPackageId*(a: PSym): int =
+  let b = a.getPackage
   result = if b == nil: -1 else: b.id
 
 

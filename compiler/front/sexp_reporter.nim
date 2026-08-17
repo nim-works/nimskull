@@ -168,6 +168,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       of repDebug:    s.addFields(r.debugReport, f)
       of repInternal: s.addFields(r.internalReport, f)
       of repBackend:  s.addFields(r.backendReport, f)
+      of repPackage:  s.addFields(r.packageReport, f)
       of repExternal: s.addFields(r.externalReport, f)
 
     conf.writeln(s.toLine().toString(conf.useColor))

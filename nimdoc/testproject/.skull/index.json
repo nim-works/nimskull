@@ -1,0 +1,15 @@
+{
+  "packages": {
+    "testproject": {
+      "path": ".",
+      "srcDir": ".",
+      "entrypoint": "testproject.nim",
+      "dependencies": [
+        {
+          "package": "testproject",
+          "alias": "testproject"
+        }
+      ]
+    }
+  }
+}

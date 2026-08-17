@@ -34,7 +34,6 @@ if [ $# -eq 1 ] ; then
       libdir=/usr/lib/?proj
       docdir=/usr/share/?proj/doc
       datadir=/usr/share/?proj/data
-      nimbleDir="/opt/nimble/pkgs/?c.nimblePkgName-?c.version"
       ;;
     "/usr/local/bin")
       bindir=/usr/local/bin
@@ -42,7 +41,6 @@ if [ $# -eq 1 ] ; then
       libdir=/usr/local/lib/?proj
       docdir=/usr/local/share/?proj/doc
       datadir=/usr/local/share/?proj/data
-      nimbleDir="/opt/nimble/pkgs/?c.nimblePkgName-?c.version"
       ;;
     "/opt")
       bindir="/opt/?proj/bin"
@@ -50,7 +48,6 @@ if [ $# -eq 1 ] ; then
       libdir="/opt/?proj/lib"
       docdir="/opt/?proj/doc"
       datadir="/opt/?proj/data"
-      nimbleDir="/opt/nimble/pkgs/?c.nimblePkgName-?c.version"
       mkdir -p /opt/?proj
       mkdir -p $bindir
       mkdir -p $configdir
@@ -61,7 +58,6 @@ if [ $# -eq 1 ] ; then
       libdir="$1/?proj/lib"
       docdir="$1/?proj/doc"
       datadir="$1/?proj/data"
-      nimbleDir="$1/?proj"
       mkdir -p $1/?proj
       mkdir -p $bindir
       mkdir -p $configdir
@@ -71,17 +67,12 @@ if [ $# -eq 1 ] ; then
   mkdir -p $libdir
   mkdir -p $docdir
   mkdir -p $configdir
-  mkdir -p $nimbleDir/
   echo "copying files..."
 #var createdDirs = newStringTable()
-#for cat in {fcConfig..fcLib, fcNimble}:
+#for cat in {fcConfig..fcLib}:
 #  for f in items(c.cat[cat]):
 #    var mk = splitFile(f.skipRoot).dir
-#    if cat != fcNimble:
-#      mk = unixDirVars[cat] & "/" & mk
-#    else:
-#      mk = "$nimbleDir" / splitFile(f).dir
-#    end if
+#    mk = unixDirVars[cat] & "/" & mk
 #    if mk.len > 0 and not createdDirs.hasKey(mk):
 #      createdDirs[mk] = "true"
   mkdir -p ?{mk.toUnix}
@@ -113,12 +104,6 @@ if [ $# -eq 1 ] ; then
   cp ?f.toUnix $libdir/?f.skipRoot.toUnix
   chmod 644 $libdir/?f.skipRoot.toUnix
 #end for
-#for f in items(c.cat[fcNimble]):
-  cp ?f.toUnix $nimbleDir/?f.toUnix
-  chmod 644 $nimbleDir/?f.toUnix
-#end for
-cp ?{c.nimblePkgName}.nimble $nimbleDir/?{c.nimblePkgName}.nimble
-chmod 644 $nimbleDir/?{c.nimblePkgName}.nimble
 
   echo "installation successful"
 else

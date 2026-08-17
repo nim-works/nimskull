@@ -1,0 +1,1 @@
+proc greeter*(): string = "Hello from bar!"

@@ -193,21 +193,21 @@ proc presentationPath*(conf: ConfigRef, file: AbsoluteFile): RelativeFile =
   let file2 = $file
   template bail() =
     result = relativeTo(file, conf.projectPath)
-  proc nimbleDir(): AbsoluteDir =
+  proc packageDir(): AbsoluteDir =
     getPkgDesc(conf, file2).pkgRoot
   case conf.docRoot:
   of docRootDefault:
-    result = getRelativePathFromConfigPath(conf, file)
-    let dir = nimbleDir()
-    if not dir.isEmpty:
-      let result2 = relativeTo(file, dir)
-      if not result2.isEmpty and (result.isEmpty or result2.string.len < result.string.len):
-        result = result2
+    let
+      dir = packageDir()
+      pkgId = getPackageId(conf, file2)
+    if pkgId.len > 0 and pkgId != "unknown" and not dir.isEmpty:
+      result = RelativeFile(pkgId / relativeTo(file, dir).string)
+    if result.isEmpty:
+      result = getRelativePathFromConfigPath(conf, file)
     if result.isEmpty: bail()
   of "@pkg":
-    let dir = nimbleDir()
-    if dir.isEmpty: bail()
-    else: result = relativeTo(file, dir)
+    let dir = packageDir()
+    result = RelativeFile(getPackageId(conf, file2) / $relativeTo(file, dir))
   of "@path":
     result = getRelativePathFromConfigPath(conf, file)
     if result.isEmpty: bail()
@@ -429,7 +429,7 @@ proc getPlainDocstring(n: PNode): string =
       if result.len > 0: return
 
 proc belongsToPackage(conf: ConfigRef; module: PSym): bool =
-  result = module.kind == skModule and module.getnimblePkgId == conf.mainPackageId
+  result = module.kind == skModule and module.getPackageId == conf.mainPackageId
 
 proc externalDep(d: PDoc; module: PSym): string =
   if optWholeProject in d.conf.globalOptions or d.conf.docRoot.len > 0:
@@ -570,6 +570,7 @@ proc prepareExample(d: PDoc; n: PNode, topLevel: bool): tuple[rdoccmd: string, c
   ## returns `rdoccmd` and source code for this runnableExamples
   var rdoccmd = ""
   d.conf.internalAssert(n.len in 2..3, n.info, "runnableExamples invalid")
+  
 
   if n.len == 3:
     let n1 = n[1]
@@ -633,7 +634,7 @@ $#
 
   var codeShown: string
   if topLevel: # refs https://github.com/nim-lang/RFCs/issues/352
-    let title = canonicalImport(d.conf, AbsoluteFile d.filename)
+    let title = moduleUniqueName(d.conf, AbsoluteFile d.filename)
     codeShown = "import $#\n$#" % [title, code]
   else:
     codeShown = code
@@ -1387,7 +1388,7 @@ proc genOutFile(d: PDoc, groupedToc = false): string =
     setIndexTerm(d[], external, "", title)
   else:
     # Modules get an automatic title for the HTML, but no entry in the index.
-    title = canonicalImport(d.conf, AbsoluteFile d.filename)
+    title = moduleUniqueName(d.conf, AbsoluteFile d.filename)
   title = esc(d.target, title)
   var subtitle = ""
   if d.meta[metaSubtitle] != "":
@@ -1471,7 +1472,7 @@ proc writeOutputJson*(d: PDoc, useWarning = false) =
   for desc in d.modDescFinal:
     modDesc &= desc
   let content = %*{"orig": d.filename,
-    "nimble": if pkgDesc.pkgKnown: pkgDesc.pkgRootName else: "",
+    "package": if pkgDesc.pkgKnown: pkgDesc.pkgRootName else: "",
     "moduleDescription": modDesc,
     "entries": d.jEntriesFinal}
   if optStdout in d.conf.globalOptions:

@@ -38,6 +38,7 @@ proc initInterpreter(script: string, hook: ReportHook): Interpreter =
   let std = findNimStdLibCompileTime()
   result = createInterpreter(
     scriptName = script,
+    projectDir = currentSourcePath.parentDir(),
     hook = hook,
     searchPaths = [
       std,
@@ -92,6 +93,7 @@ block issue9180:
     let std = findNimStdLibCompileTime()
     var intr = createInterpreter(
       scriptName = moduleName,
+      projectDir = currentSourcePath.parentDir(),
       searchPaths = [std, std / "pure", std / "core"],
       hook = vmReport)
 

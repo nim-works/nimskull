@@ -36,9 +36,14 @@ type
     currentDir: string
     cmdline: string
     depfiles: seq[(string, string)]
+    packageIndex: (string, string)
+    packageManifests: seq[(string, string)]
     nimexe: string
 
-const cacheVersion* = "D20230310T000000" # update when `BuildCache` spec changes
+  BuildChangeKind* = enum
+    bcNone, bcGeneral, bcPackage
+
+const cacheVersion* = "D20251217T200000" # update when `BuildCache` spec changes
 
 template hashNimExe(): string = $secureHashFile(os.getAppFilename())
 
@@ -64,24 +69,45 @@ proc writeBuildInstructions*(conf: ConfigRef; bcache: sink BuildCache) =
         (path, $secureHashFile(path)))
     bcache.nimexe = hashNimExe()
 
+    if dirExists(conf.packageDir):
+      bcache.packageIndex = block:
+        let path = $conf.packageDir / ".skull" / "index.json"
+        if fileExists(path): (path, $secureHashFile(path)) else: ("", "")
+
+      bcache.packageManifests = collect(for pkg in conf.packageIndex.packages.values:
+        let manifestPath = $pkg.path / "package.skull.toml"
+        if fileExists(manifestPath):
+          (manifestPath, $secureHashFile(manifestPath))
+      )
+
   conf.jsonBuildFile = conf.getBuildInstructionsFile()
   conf.jsonBuildFile.string.writeFile(bcache.toJson.pretty)
 
-proc buildInstructionsStatus*(conf: ConfigRef; jsonFile: AbsoluteFile): bool =
+proc buildInstructionsStatus*(conf: ConfigRef; jsonFile: AbsoluteFile): BuildChangeKind =
   ## Returns true if the build instructions are out of date.
-  if not fileExists(jsonFile) or not fileExists(conf.absOutFile): return true
+  if not fileExists(jsonFile) or not fileExists(conf.absOutFile): return bcGeneral
   var bcache: BuildCache
   try: bcache.fromJson(jsonFile.string.parseFile)
   except IOError, OSError, ValueError:
     echo getCurrentException().msg
     stderr.write "Warning: JSON processing failed for: $#\n" % jsonFile.string
-    return true
+    return bcGeneral
   if bcache.currentDir != getCurrentDir() or # fixes bug #16271
      bcache.configFiles != conf.configFiles.mapIt(it.string) or
      bcache.cacheVersion != cacheVersion or bcache.outputFile != conf.absOutFile.string or
      bcache.cmdline != conf.commandLine or bcache.nimexe != hashNimExe() or
-     bcache.inputMode != conf.inputMode: return true
-  if bcache.inputMode != pimFile: return true
+     bcache.inputMode != conf.inputMode: return bcGeneral
+  if bcache.inputMode != pimFile: return bcGeneral
     # xxx optimize by returning false if stdin input was the same
   for (file, hash) in bcache.depfiles:
-    if $secureHashFile(file) != hash: return true
+    if $secureHashFile(file) != hash: return bcGeneral
+
+  if bcache.packageIndex[0].len > 0:
+    let file = $conf.packageDir / ".skull" / "index.json"
+    if not fileExists(file): return bcGeneral
+    if $secureHashFile(file) != bcache.packageIndex[1]: return bcGeneral
+    # If the package index hasn't changed, but a manifest has changed, then
+    # report it
+    for (file, hash) in bcache.packageManifests:
+      if not fileExists(file): return bcPackage
+      if $secureHashFile(file) != hash: return bcPackage

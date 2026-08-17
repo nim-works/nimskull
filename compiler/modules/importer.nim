@@ -12,8 +12,8 @@
 import
   std/[
     intsets,
-    sets,
-    tables
+    tables,
+    sets
   ],
   compiler/ast/[
     ast,
@@ -299,13 +299,25 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
   ## of `n`) to use for symbol suggestions.
   let transf = transformImportAs(c, n)
   n = transf.node
-  let f = checkModuleName(c.config, n)
-  if f != InvalidFileIdx:
-    addImportFileDep(c, f)
-    let L = c.graph.importStack.len
-    let recursion = c.graph.importStack.find(f)
-    c.graph.importStack.add f
-    #echo "adding ", toFullPath(f), " at ", L+1
+
+  let
+    modName = getModuleName(c.config, n)
+    currentPkgId = c.module.getPackage().name.s
+
+  var fileIdx = InvalidFileIdx
+  if modName.len == 0:
+    discard "module path is invalid; an error was reported already"
+  else:
+    fileIdx = checkModuleName(c.config, modName, toFullPath(c.config, n.info),
+                              currentPkgId, n.info, true)
+
+  if fileIdx != InvalidFileIdx:
+    addImportFileDep(c, fileIdx)
+    let
+      L = c.graph.importStack.len
+      recursion = c.graph.importStack.find(fileIdx)
+    c.graph.importStack.add fileIdx
+    #echo "adding ", toFullPath(fileIdx), " at ", L+1
     if recursion >= 0:
       for i in recursion ..< L:
         c.recursiveDep.add((
@@ -315,7 +327,15 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
 
     var realModule: PSym
     discard pushOptionEntry(c)
-    realModule = c.graph.importModuleCallback(c.graph, c.module, f)
+    realModule = c.graph.importModuleCallback(c.graph, c.module, fileIdx)
+
+    # if a name is not provided  via the `as`  syntax, package entrypoint modules
+    # are imported under the name of the package
+    let (pkgAlias, path) = processImportPath(c.config, modName, currentPkgId)
+    if pkgAlias.len > 0 and n.kind != nkImportAs and path.len == 0:
+      n = newTreeI(nkImportAs, n.info, n,
+        newIdentNode(getIdent(c.cache, pkgAlias), n.info))
+
     result = importModuleAs(c, n, realModule, transf.importHidden)
     popOptionEntry(c)
 

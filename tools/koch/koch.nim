@@ -136,7 +136,7 @@ proc csource(args: string) =
 proc bundleC2nim(args: string) =
   cloneDependency(distDir, "https://github.com/nim-lang/c2nim.git")
   nimCompile("dist/c2nim/c2nim",
-             options = "--noNimblePath --path:. " & args)
+             options = "--path:. " & args)
 
 proc bundleNimsuggest(args: string) =
   nimCompileFold("Compile nimsuggest", "nimsuggest/nimsuggest.nim",

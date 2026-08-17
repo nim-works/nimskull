@@ -11,7 +11,9 @@
 
 import
   std/[
-    os
+    json,
+    os,
+    tables
   ],
   std/options as std_options,
   compiler/ast/[
@@ -27,6 +29,7 @@ import
     commands,
     msgs,
     options,
+    packageindex,
     optionsprocessor,
     condsyms,
     cli_reporter,
@@ -255,6 +258,8 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
       result = true
   else:
     result = false
+
+  loadPackageIndex(conf)
 
 proc loadConfigsAndRunMainCommand*(
     self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph, argv: openArray[string]): bool =
