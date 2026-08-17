@@ -1,5 +1,0 @@
-format = 0
-
-[package]
-name = "nim.works/nimsuggest"
-srcDir = "."
