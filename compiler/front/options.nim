@@ -1483,9 +1483,7 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
     rel = relativePath(file.string, baseDir)
     relNoExt = rel.changeFileExt("")
 
-  if rel.len == 0:
-    result = pkgId
-  elif pkgId == "stdlib":
+  if pkgId == "stdlib":
     result = "std" / relNoExt
   else:
     if rel == relativePath(pkg.entrypoint, baseDir):
