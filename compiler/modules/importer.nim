@@ -329,6 +329,8 @@ proc myImportModule(c: PContext, n: var PNode, info: TLineInfo,
     discard pushOptionEntry(c)
     realModule = c.graph.importModuleCallback(c.graph, c.module, fileIdx)
 
+    # if a name is not provided  via the `as`  syntax, package entrypoint modules
+    # are imported under the name of the package
     let (pkgAlias, path) = processImportPath(c.config, modName, currentPkgId)
     if pkgAlias.len > 0 and n.kind != nkImportAs and path.len == 0:
       n = newTreeI(nkImportAs, n.info, n,

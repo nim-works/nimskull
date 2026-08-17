@@ -21,7 +21,7 @@ proc getPackageId*(conf: ConfigRef; path: string): string =
     maxPathLen = -1
 
   for id, pkg in conf.packageIndex.packages.pairs:
-    if path.startsWith($pkg.path) and ($pkg.path).len > maxPathLen:
+    if path.startsWith(pkg.path) and pkg.path.len > maxPathLen:
       maxPathLen = pkg.path.len
       owningId = id
   
@@ -44,7 +44,7 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
     result = "@m" & relativeTo(path, conf.projectPath).string.multiReplace(
       {$os.DirSep: "@s", $os.AltSep: "@s", "#": "@h", "@": "@@", ":": "@c"})
 
-  let x = getPackageId(conf, $path)
+  let x = getPackageId(conf, path.string)
   let (p, file, ext) = path.splitFile
   if x == "stdlib":
     # Hot code reloading now relies on 'stdlib_system' names etc.

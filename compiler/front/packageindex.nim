@@ -1,12 +1,3 @@
-#
-#
-#           The Nim Compiler
-#        (c) Copyright 2025 Andreas Rumpf
-#
-#    See the file "copying.txt", included in this
-#    distribution, for details about the copyright.
-#
-
 ## Package index loading and validation.
 
 import
@@ -52,7 +43,7 @@ proc resolvePackagePaths(conf: ConfigRef, package: var IndexedPackage, baseDir: 
       subject: $package.entrypoint, target: $package.srcDir))
 
 proc checkDuplicateAliases(conf: ConfigRef, packages: Table[string, IndexedPackage]) =
-  ## Emit a warning for each duplicate alias inside a package's dependencies.
+  ## Emits a warning for each duplicate alias inside a package's dependencies.
   for id, pkg in packages.pairs:
     var seen: Table[string, string]  # alias -> package id
     for dep in pkg.dependencies:

@@ -128,7 +128,6 @@ proc processImplicits(
 ) =
   let
     currentPkgId = getPackage(m).name.s
-    # XXX fixme this should actually be relative to the config file!
     relativeTo = toFullPath(graph.config, m.info)
   for module in items(implicits):
     # implicit imports should not lead to a module importing itself

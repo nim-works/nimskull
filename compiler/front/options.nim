@@ -1488,7 +1488,6 @@ proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
   elif pkgId == "stdlib":
     result = "std" / relNoExt
   else:
-    result = pkgId
     if rel == relativePath(pkg.entrypoint, baseDir):
       result = pkgId
     else:

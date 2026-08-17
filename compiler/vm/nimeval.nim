@@ -148,7 +148,7 @@ proc createInterpreter*(
     hook:        ReportHook,
     flags:       TSandboxFlags = {},
     defines:     seq[(string, string)] = @[("nimscript", "true")],
-    registerOps: bool = true,
+    registerOps: bool = true
   ): Interpreter =
 
   var conf = newConfigRef(hook)
