@@ -1072,7 +1072,8 @@ proc getPrefixDir*(conf: ConfigRef): AbsoluteDir =
     result = AbsoluteDir splitPath(getAppDir()).head
 
 proc setDefaultLibpath*(conf: ConfigRef) =
-  ## set default value (can be overwritten):
+  ## If unset, sets the standard and system library paths to their operating-
+  ## system-specific defaults.
   if conf.libpath.isEmpty:
     # choose default libpath:
     var prefix = getPrefixDir(conf)
@@ -1091,9 +1092,12 @@ proc setDefaultLibpath*(conf: ConfigRef) =
     let realNimPath = findExe("nim")
     # Find out if $nim/../../lib/system.nim exists.
     let parentNimLibPath = realNimPath.parentDir.parentDir / "lib"
-    if not fileExists(conf.libpath.string / "system.nim") and
-        fileExists(parentNimLibPath / "system.nim"):
+    if not fileExists(conf.libpath.string / "stdlib.nimble") and
+        fileExists(parentNimLibPath / "stdlib.nimble"):
       conf.libpath = AbsoluteDir parentNimLibPath
+
+  if conf.systemPath.isEmpty:
+    conf.systemPath = conf.libpath / RelativeDir"system"
 
 proc canonicalizePath*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
   result = AbsoluteFile path.string.expandFilename
