@@ -61,7 +61,8 @@ Advanced options:
   --showAllMismatches:on|off
                             show all mismatching candidates in overloading
                             resolution
-  --lib:PATH                set the system library path
+  --lib:PATH                set the standard library path
+  --system:PATH             set the system library path
   --import:PATH             add an automatically imported module
                             see also `patchFile` in nimscript which offers more flexibility.
   --include:PATH            add an automatically included module

@@ -138,6 +138,7 @@ type
     cmdSwitchGenscript
     cmdSwitchColors
     cmdSwitchLib
+    cmdSwitchSystem
     cmdSwitchPutenv
     cmdSwitchCc
     cmdSwitchStdout
@@ -267,6 +268,7 @@ type
     fullSwitchTxtGenscript           = "genscript"
     fullSwitchTxtColors              = "colors"
     fullSwitchTxtLib                 = "lib"
+    fullSwitchTxtSystem              = "system"
     fullSwitchTxtPutenv              = "putenv"
     fullSwitchTxtCc                  = "cc"
     fullSwitchTxtStdout              = "stdout"
@@ -394,6 +396,7 @@ const
       cmdSwitchGenscript          : {fullSwitchTxtGenscript},
       cmdSwitchColors             : {fullSwitchTxtColors},
       cmdSwitchLib                : {fullSwitchTxtLib},
+      cmdSwitchSystem             : {fullSwitchTxtSystem},
       cmdSwitchPutenv             : {fullSwitchTxtPutenv},
       cmdSwitchCc                 : {fullSwitchTxtCc},
       cmdSwitchStdout             : {fullSwitchTxtStdout},
@@ -1471,6 +1474,10 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     setSwitchAndSrc cmdSwitchLib
     expectArg(switch, arg)
     conf.libpath = argProcessPath(conf, arg, switch, notRelativeToProj=true)
+  of "system":
+    setSwitchAndSrc cmdSwitchSystem
+    expectArg(switch, arg)
+    conf.systemPath = argProcessPath(conf, arg, switch, notRelativeToProj=true)
   of "putenv":
     setSwitchAndSrc cmdSwitchPutenv
     expectArg(switch, arg)
