@@ -187,8 +187,15 @@ proc connectCallbacks*(graph: ModuleGraph) =
 proc compileSystemModule*(graph: ModuleGraph) =
   if graph.systemModule == nil:
     connectCallbacks(graph)
-    graph.config.m.systemFileIdx = fileInfoIdx(graph.config,
-        graph.config.libpath / RelativeFile"system.nim")
+    if fileExists(graph.config.systemPath / RelativeFile"system.nim"):
+      graph.config.m.systemFileIdx = fileInfoIdx(graph.config,
+          graph.config.systemPath / RelativeFile"system.nim")
+    else:
+      # XXX: for compatibility with the current csources compiler, the system
+      #      module may also be located in the lib directory rather than in the
+      #      system directory
+      graph.config.m.systemFileIdx = fileInfoIdx(graph.config,
+          graph.config.libpath / RelativeFile"system.nim")
     discard graph.compileModule(graph.config.m.systemFileIdx, {sfSystemModule})
 
 proc wantMainModule*(conf: ConfigRef) =
