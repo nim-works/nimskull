@@ -234,6 +234,7 @@ type
     ## files to.
 
     libpath*: AbsoluteDir ## Path to the standard library
+    systemPath*: AbsoluteDir ## Path to the system directory
     nimblePaths*: seq[AbsoluteDir] ## List of provided `--nimblePath`
     ## directories
     searchPaths*: seq[AbsoluteDir] ## Explicitly added list of the search

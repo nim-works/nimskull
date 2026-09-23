@@ -369,6 +369,7 @@ passField backend,            TBackend
 passField symbolFiles,        SymbolFilesOption
 passField prefixDir,          AbsoluteDir
 passField libpath,            AbsoluteDir
+passField systemPath,         AbsoluteDir
 passField nimcacheDir,        AbsoluteDir
 passField target,             Target
 passField cppDefines,         HashSet[string]
@@ -1346,6 +1347,7 @@ const stdlibDirs = [
 const
   pkgPrefix = "pkg/"
   stdPrefix = "std/"
+  systemPrefix = "system/"
 
 proc getRelativePathFromConfigPath*(conf: ConfigRef; f: AbsoluteFile, isTitle = false): RelativeFile =
   let f = $f
@@ -1399,6 +1401,13 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       if fileExists(path):
         result = AbsoluteFile path
         break
+  elif m.startsWith(systemPrefix):
+    # the module is looked up relative to the system directory
+    result = conf.active.systemPath / RelativeFile(m.substr(systemPrefix.len))
+    if fileExists(result):
+      result = canonicalizePath(conf, result)
+    else:
+      result = AbsoluteFile ""
   else:
     # look in the current directory first, then try the search paths
     result = AbsoluteFile(currentModule.splitFile.dir / m)
