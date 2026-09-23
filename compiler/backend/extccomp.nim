@@ -591,8 +591,16 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
     options.add ' '
     options.add cfile.customArgs
 
+  let nimbaseDir =
+    if fileExists(conf.systemPath / RelativeFile"nimbase.h"):
+      conf.systemPath
+    else:
+      # XXX: libpath is only picked for backwards compatibility with
+      #      legacy compiler/system distributions
+      conf.libpath
+
   # compute include paths
-  let includeDirs = @[conf.libpath, conf.projectPath] & conf.cIncludes
+  let includeDirs = @[nimbaseDir, conf.projectPath] & conf.cIncludes
   let includeCmd = join(includeDirs.mapIt(CC[c].includeCmd & it.quoteShell))
 
   let cf =
