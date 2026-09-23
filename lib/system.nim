@@ -61,7 +61,7 @@ proc `$`*[Enum: enum](x: Enum): string {.magic: "EnumToStr", noSideEffect.}
   ## If a `$` operator for a concrete enumeration is provided, this is
   ## used instead. (In other words: *Overwriting* is possible.)
 
-include "system/basic_types"
+include system/basic_types
 
 
 proc runnableExamples*(rdoccmd = "", body: untyped) {.magic: "RunnableExamples".} =
@@ -532,22 +532,22 @@ let nimvm* {.magic: "Nimvm", compileTime.}: bool = false
   ## It is true in Nim VM context and false otherwise.
 {.pop.}
 
-include "system/arithmetics"
-include "system/comparisons"
+include system/arithmetics
+include system/comparisons
 
 const
   appType* {.magic: "AppType".}: string = ""
     ## A string that describes the application type. Possible values:
     ## `"console"`, `"gui"`, `"lib"`.
 
-include "system/inclrtl"
+include system/inclrtl
 
 const
   isNimVmTarget = defined(nimscript) or defined(vm)
   notJSnotNims = not defined(js) and not isNimVmTarget
 
 when notJSnotNims:
-  include "system/hti"
+  include system/hti
 
 type
   byte* = uint8 ## This is an alias for `uint8`, that is an unsigned
@@ -569,7 +569,7 @@ type
   RootRef* = ref RootObj ## Reference to `RootObj`.
 
 
-include "system/exceptions"
+include system/exceptions
 
 when defined(js) or defined(nimdoc):
   type
@@ -801,7 +801,7 @@ proc `<=`*(x, y: float): bool {.magic: "LeF64", noSideEffect.}
 proc `<`*(x, y: float): bool {.magic: "LtF64", noSideEffect.}
 
 
-include "system/setops"
+include system/setops
 
 
 proc contains*[U, V, W](s: HSlice[U, V], value: W): bool {.noSideEffect, inline.} =
@@ -1202,7 +1202,7 @@ template sysAssert(cond: bool, msg: string) =
 const hasAlloc = not isNimVmTarget
 
 when notJSnotNims and hostOS != "standalone" and hostOS != "any":
-  include "system/cgprocs"
+  include system/cgprocs
 
 when isNimVmTarget or not defined(nimSeqsV2):
   proc add*[T](x: var seq[T], y: sink T) {.magic: "AppendSeqElem", noSideEffect.}
@@ -1486,8 +1486,8 @@ const
     ## in the `math module <math.html>`_ for checking for NaN.
 
 
-include "system/memalloc"
-include "system/iterators_1"
+include system/memalloc
+include system/iterators_1
 
 
 {.push stackTrace: off.}
@@ -1719,8 +1719,8 @@ when notJSnotNims:
 
 when not defined(js) and hasThreadSupport and hostOS != "standalone":
   const insideRLocksModule = false
-  include "system/syslocks"
-  include "system/threadlocalstorage"
+  include system/syslocks
+  include system/threadlocalstorage
 
 when not defined(js) and not isNimVmTarget:
   type
@@ -1739,8 +1739,8 @@ when not defined(js) and not isNimVmTarget:
     PNimTypeV2 = ptr TNimTypeV2
 
 when notJSnotNims and defined(nimSeqsV2):
-  include "system/strs_v2"
-  include "system/seqs_v2"
+  include system/strs_v2
+  include system/seqs_v2
 
 {.pop.}
 
@@ -1751,12 +1751,12 @@ when not isNimVmTarget:
     ## is proclaimed to have no IO effect!
 
 when not declared(sysFatal):
-  include "system/fatal"
+  include system/fatal
 
 when not isNimVmTarget:
   {.push stackTrace: off, profiler: off.}
 
-  include "system/atomics"
+  include system/atomics
 
   {.pop.}
 
@@ -1853,7 +1853,7 @@ func abs*(x: int64): int64 {.magic: "AbsI", inline.} =
   result = if x < 0: -x else: x
 {.pop.}
 
-include "system/gc_interface"
+include system/gc_interface
 
 # we have to compute this here before turning it off in except.nim anyway ...
 const NimStackTrace {.used.} = compileOption("stacktrace")
@@ -2231,7 +2231,7 @@ when not defined(js) and declared(alloc0) and declared(dealloc):
     dealloc(a)
 
 when not defined(js) and hasThreadSupport and hostOS != "standalone":
-  include "system/threads"
+  include system/threads
 
 when notJSnotNims:
   proc setControlCHook*(hook: proc () {.noconv.})
@@ -2261,20 +2261,20 @@ when notJSnotNims:
 
   {.push stackTrace: off, profiler: off.}
   when defined(memtracker):
-    include "system/memtracker"
+    include system/memtracker
 
   when hostOS == "standalone":
-    include "system/embedded"
+    include system/embedded
   else:
-    include "system/excpt"
-  include "system/chcks"
+    include system/excpt
+  include system/chcks
 
   # we cannot compile this with stack tracing on
   # as it would recurse endlessly!
   when defined(nimNewIntegerOps):
-    include "system/integerops"
+    include system/integerops
   else:
-    include "system/arithm"
+    include system/arithm
   {.pop.}
 
 
@@ -2290,10 +2290,10 @@ proc chckNilDisp(p: pointer) {.compilerproc.} =
 
 when notJSnotNims:
   when hostOS != "standalone" and hostOS != "any":
-    include "system/dyncalls"
+    include system/dyncalls
 
   import system/countbits_impl
-  include "system/sets"
+  include system/sets
 
   proc getDiscriminant(aa: pointer, n: ptr TNimNode): uint =
     sysAssert(n.kind == nkCase, "getDiscriminant: node != nkCase")
@@ -2320,14 +2320,14 @@ when notJSnotNims:
 
 when notJSnotNims and hasAlloc:
   {.push profiler: off.}
-  include "system/mmdisp"
+  include system/mmdisp
   {.pop.}
 
-  include "system/strmantle"
-  include "system/assign"
+  include system/strmantle
+  include system/assign
 
 when notJSnotNims and hasThreadSupport and hostOS != "standalone":
-  include "system/channels_builtin"
+  include system/channels_builtin
 
 
 when notJSnotNims and hostOS != "standalone":
@@ -2382,7 +2382,7 @@ elif isNimVmTarget:
 when notJSnotNims:
   {.push stackTrace: off, profiler: off.}
   when (defined(profiler) or defined(memProfiler)):
-    include "system/profiler"
+    include system/profiler
   {.pop.}
 
   proc rawProc*[T: proc](x: T): pointer {.noSideEffect, inline.} =
@@ -2423,8 +2423,8 @@ from std/private/digitsutils import addInt
 export addInt
 
 when defined(js):
-  include "system/jssys"
-  include "system/reprjs"
+  include system/jssys
+  include system/reprjs
 
 proc quit*(errormsg: string, errorcode = QuitFailure) {.noreturn.} =
   ## A shorthand for `echo(errormsg); quit(errorcode)`.
@@ -2912,7 +2912,7 @@ when hasAlloc and notJSnotNims:
     ## Convenience wrapper around `deepCopy` overload.
     deepCopy(result, y)
 
-  include "system/deepcopy"
+  include system/deepcopy
 
 proc procCall*(x: untyped) {.magic: "ProcCall", compileTime.} =
   ## Special magic to prohibit dynamic binding for `method`:idx: calls.
@@ -3014,7 +3014,7 @@ proc substr*(s: string, first = 0): string =
   result = substr(s, first, high(s))
 
 when defined(nimscript):
-  include "system/nimscript"
+  include system/nimscript
 
 when not defined(js):
   proc toOpenArray*[T](x: ptr UncheckedArray[T]; first, last: int): openArray[T] {.

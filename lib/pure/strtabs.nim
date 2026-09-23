@@ -58,7 +58,7 @@ else:
   {.pragma: rtlFunc, rtl.}
   import std/os
 
-include "system/inclrtl"
+include system/inclrtl
 
 type
   StringTableMode* = enum ## Describes the tables operation mode.

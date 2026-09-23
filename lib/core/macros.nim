@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-include "system/inclrtl"
+include system/inclrtl
 import std/private/since
 
 ## This module contains the interface to the compiler's abstract syntax

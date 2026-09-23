@@ -13,7 +13,7 @@ runnableExamples:
   doAssert countProcessors() > 0
 
 
-include "system/inclrtl"
+include system/inclrtl
 
 when defined(posix) and not (defined(macosx) or defined(bsd)):
   import std/posix

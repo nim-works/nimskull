@@ -24,7 +24,7 @@ when defined(nimHasUsed):
 import std/[hashes, algorithm, strutils, tables, sets]
 
 when not defined(memProfiler):
-  include "system/timers"
+  include system/timers
 
 const
   withThreads = compileOption("threads")

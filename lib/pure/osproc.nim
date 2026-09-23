@@ -15,7 +15,7 @@
 ## * `streams module <streams.html>`_
 ## * `memfiles module <memfiles.html>`_
 
-include "system/inclrtl"
+include system/inclrtl
 
 import
   std/[strutils, os, strtabs, streams, cpuinfo, streamwrapper],

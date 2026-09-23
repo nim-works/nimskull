@@ -78,7 +78,7 @@ import std/enumutils
 from std/unicode import toLower, toUpper
 export toLower, toUpper
 
-include "system/inclrtl"
+include system/inclrtl
 import std/private/since
 from std/private/strimpl import cmpIgnoreStyleImpl, cmpIgnoreCaseImpl, startsWithImpl, endsWithImpl
 

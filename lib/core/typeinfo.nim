@@ -35,8 +35,8 @@ runnableExamples:
 
 {.push hints: off.}
 
-include "system/inclrtl.nim"
-include "system/hti.nim"
+include system/inclrtl.nim
+include system/hti.nim
 
 {.pop.}
 

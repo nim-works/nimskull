@@ -4,7 +4,7 @@
 ## imported directly (with `system/assertions`).
 
 when not declared(sysFatal):
-  include "system/fatal"
+  include system/fatal
 
 import std/private/miscdollars
 # ---------------------------------------------------------------------------

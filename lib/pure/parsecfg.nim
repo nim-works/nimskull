@@ -175,7 +175,7 @@ import std/[strutils, lexbase, streams, tables]
 import std/private/decode_helpers
 import std/private/since
 
-include "system/inclrtl"
+include system/inclrtl
 
 type
   CfgEventKind* = enum ## enumeration of all events that may occur when parsing

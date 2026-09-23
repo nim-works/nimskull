@@ -786,7 +786,7 @@ proc setStdIoUnbuffered*() {.tags: [], benign.} =
 when declared(stdout):
   when defined(windows) and compileOption("threads"):
     const insideRLocksModule = false
-    include "system/syslocks"
+    include system/syslocks
 
     var echoLock: SysLock
     initSysLock echoLock

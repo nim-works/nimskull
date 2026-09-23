@@ -604,7 +604,7 @@ proc castFloatToInt(val: float32): int {.compilerproc, asmNoStackFrame.} =
     return (new Int32Array(buf))[0];
   """
 
-include "system/hti"
+include system/hti
 
 proc isFatPointer(ti: PNimType): bool =
   # This has to be consistent with the code generator!

@@ -199,7 +199,7 @@
 import std/strutils, math, options
 
 import std/private/since
-include "system/inclrtl"
+include system/inclrtl
 
 when defined(js):
   import std/jscore

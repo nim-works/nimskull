@@ -15,7 +15,7 @@
 ## .. include:: ../../doc/pegdocs.txt
 ##
 
-include "system/inclrtl"
+include system/inclrtl
 
 const
   useUnicode = true ## change this to deactivate proper UTF-8 support

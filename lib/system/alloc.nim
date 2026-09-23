@@ -303,7 +303,7 @@ proc addHeapLink(a: var MemRegion; p: PBigChunk, size: int) =
     it.chunks[L] = (p, size)
     inc it.len
 
-include "system/avltree"
+include system/avltree
 
 proc llDeallocAll(a: var MemRegion) =
   var it = a.llmem

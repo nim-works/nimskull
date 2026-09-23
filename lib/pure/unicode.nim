@@ -20,7 +20,7 @@
 ## * `unidecode module <unidecode.html>`_
 ## * `encodings module <encodings.html>`_
 
-include "system/inclrtl"
+include system/inclrtl
 
 type
   RuneImpl = int32 # underlying type of Rune

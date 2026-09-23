@@ -149,7 +149,7 @@
 
 {.push debugger: off.}
 
-include "system/inclrtl"
+include system/inclrtl
 
 import std/os
 

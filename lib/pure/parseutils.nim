@@ -48,7 +48,7 @@
 {.push debugger: off.} # the user does not want to trace a part
                        # of the standard library!
 
-include "system/inclrtl"
+include system/inclrtl
 
 const
   Whitespace = {' ', '\t', '\v', '\r', '\l', '\f'}
