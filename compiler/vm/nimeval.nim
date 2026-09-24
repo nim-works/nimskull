@@ -165,6 +165,9 @@ proc createInterpreter*(
     conf.searchPathsAdd(AbsoluteDir p)
     if conf.libpath.isEmpty: conf.libpath = AbsoluteDir p
 
+  # initialize the system directory path:
+  setDefaultLibpath(conf)
+
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
   var idgen = idGeneratorFromModule(m)
