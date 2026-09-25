@@ -68,7 +68,7 @@ import
   ]
 
 when defined(nimsuggest):
-  import compiler/sem/passes, compiler/utils/pathutils # importer
+  import compiler/utils/pathutils # importer
 else:
   # prevent warnings from routines only used by nimsuggest
   {.push hint[XDeclaredButNotUsed]: off.}
@@ -348,7 +348,8 @@ proc suggestFieldAccess(c: PContext, n, field: PNode, outputs: var Suggestions) 
   when defined(nimsuggest):
     if n.kind == nkSym and n.sym.kind == skError:
       # consider 'foo.|' where 'foo' is some not imported module.
-      let fullPath = findModule(c.config, n.sym.name.s, toFullPath(c.config, n.info))
+      let fullPath = findModule(
+        c.config, n.sym.name.s, toFullPath(c.config, n.info), getPackage(c.module).name.s)
       if fullPath.isEmpty:
         # error: no known module name:
         typ = nil

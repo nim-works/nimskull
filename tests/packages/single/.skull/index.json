@@ -1,0 +1,30 @@
+{
+  "packages": {
+    "github.com/nim-works/nimskull/tests/packages/single": {
+      "path": ".",
+      "srcDir": "src",
+      "entrypoint": "",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/single",
+          "alias": "single"
+        },
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
+          "alias": "foo"
+        }
+      ]
+    },
+    "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo": {
+      "path": "pkgs/foo",
+      "srcDir": ".",
+      "entrypoint": "lib.nim",
+      "dependencies": [
+        {
+          "package": "github.com/nim-works/nimskull/tests/packages/single/pkgs/foo",
+          "alias": "foo"
+        }
+      ]
+    }
+  }
+}

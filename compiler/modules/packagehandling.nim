@@ -7,33 +7,27 @@
 #    distribution, for details about the copyright.
 #
 
-iterator myParentDirs(p: string): string =
-  # XXX os's parentDirs is stupid (multiple yields) and triggers an old bug...
-  var current = p
-  while true:
-    current = current.parentDir
-    if current.len == 0: break
-    yield current
+proc getPackageId*(conf: ConfigRef; path: string): string =
+  ## returns the id of a package from its path or an empty string if not
+  ## found. e.g.: `github.com/luyten-orion/faepkg`
+  var d = path
+  if not d.dirExists(): d = d.parentDir
 
-proc getNimbleFile(conf: ConfigRef; path: string): string =
-  ## returns absolute path to nimble file, e.g.: /pathto/cligen.nimble
-  # xxx: make this private
-  var parents = 0
-  block packageSearch:
-    for d in myParentDirs(path):
-      if conf.packageCache.hasKey(d):
-        #echo "from cache ", d, " |", packageCache[d], "|", path.splitFile.name
-        return conf.packageCache[d]
-      inc parents
-      for file in walkFiles(d / "*.nimble"):
-        result = file
-        break packageSearch
-  # we also store if we didn't find anything:
-  for d in myParentDirs(path):
-    #echo "set cache ", d, " |", result, "|", parents
+  if d.len > 0 and conf.packageCache.hasKey(d):
+    return conf.packageCache[d]
+  
+  var
+    owningId = ""
+    maxPathLen = -1
+
+  for id, pkg in conf.packageIndex.packages.pairs:
+    if path.startsWith(pkg.path) and pkg.path.len > maxPathLen:
+      maxPathLen = pkg.path.len
+      owningId = id
+  
+  result = owningId
+  if d.len > 0:
     conf.packageCache[d] = result
-    dec parents
-    if parents <= 0: break
 
 proc demanglePackageName*(path: string): string =
   # legacy stuff for backends
@@ -41,11 +35,6 @@ proc demanglePackageName*(path: string): string =
 
 proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
   # legacy stuff for backends
-
-  proc getPackageName(conf: ConfigRef; path: string): string =
-    ## returns nimble package name, e.g.: `cligen`
-    let path = getNimbleFile(conf, path)
-    result = path.splitFile.name
 
   proc fakePackageName(conf: ConfigRef; path: AbsoluteFile): string =
     ## Convert `path` so that 2 modules with same name
@@ -55,7 +44,7 @@ proc withPackageName*(conf: ConfigRef; path: AbsoluteFile): AbsoluteFile =
     result = "@m" & relativeTo(path, conf.projectPath).string.multiReplace(
       {$os.DirSep: "@s", $os.AltSep: "@s", "#": "@h", "@": "@@", ":": "@c"})
 
-  let x = getPackageName(conf, path.string)
+  let x = getPackageId(conf, path.string)
   let (p, file, ext) = path.splitFile
   if x == "stdlib":
     # Hot code reloading now relies on 'stdlib_system' names etc.
@@ -68,16 +57,13 @@ type
     ## describes the package, and optional sub-package, used in conjunction
     ## with a module to determine its relationship to a package.
     # todo: support project/default vs unknown vs explicit package
-    case pkgKnown*: bool:
-      of true:
-        pkgFile*: AbsoluteFile ## if applicable, package file
-      of false:
-        discard
+    pkgKnown*: bool
     pkgRootName*: string  ## name of the package root
     pkgRoot*: AbsoluteDir ## path to the root or project path if unknown pkg
     pkgSubpath*: string   ## if not empty, sub-package it's a part of
     pkgName*: string      ## fully escaped package name with any subpaths, same
                           ## as `pkgRootName` if no subpaths present
+
 
 proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
   ## get a description of a package for a given module path
@@ -89,19 +75,17 @@ proc getPkgDesc*(conf: ConfigRef, modulePath: string): PkgDesc =
                     "#": "@h",
                     "@": "@@",
                     ":": "@c"})
-  let
-    pkgFile = getNimbleFile(conf, modulePath)
-    (pkgFileRoot, pkgFileName, _) = pkgFile.splitFile
-    pkgKnown = pkgFileName != ""
+  let pkgId = getPackageId(conf, modulePath)
+  let pkgKnown = pkgId.len > 0
 
   result =
     if pkgKnown:
+      let pkg = conf.packageIndex.packages[pkgId]
       PkgDesc(pkgKnown: true,
-              pkgFile: AbsoluteFile pkgFile,
-              pkgRootName: pkgFileName, pkgRoot: AbsoluteDir pkgFileRoot)
+              pkgRootName: pkgId, pkgRoot: pkg.path.AbsoluteDir)
     else:
       PkgDesc(pkgKnown: false,
-              pkgRootName: "unknown",   pkgRoot: conf.projectPath)
+              pkgRootName: "unknown", pkgRoot: conf.projectPath)
 
   result.pkgSubpath =
     block:

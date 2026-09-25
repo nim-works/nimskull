@@ -396,18 +396,6 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
                               flagInfo: info)
     N.callEvtWriter(evt, instLoc())
 
-  case r.switch
-  of cmdSwitchNimblepath:
-    if r.processedNimblePath.didProcess:
-      for res in r.processedNimblePath.nimblePathResult.addedPaths:
-        N.callEvtWriter(ConfigFileEvent(kind: cekProgressPathAdded,
-                                        msg: res.string,
-                                        location: info,
-                                        instLoc: instLoc()),
-                        instLoc())
-  else:
-    discard
-
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
                     cache: IdentCache): bool =
   ## assumes `cfgEvtWriter` has already been set, do not export

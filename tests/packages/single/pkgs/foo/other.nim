@@ -1,0 +1,1 @@
+proc farewell*(): string = "Goodbye from foo"

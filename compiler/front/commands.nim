@@ -35,9 +35,6 @@ import
     parseopt,
     sequtils,
   ],
-  compiler/modules/[
-    nimblecmd,
-  ],
   compiler/ast/[
     lineinfos,
   ],
@@ -271,13 +268,6 @@ iterator procSwitchResultToEvents*(conf: ConfigRef, pass: TCmdLinePass,
                    origParseOptVal: origParseOptVal,
                    procResult: r,
                    srcCodeOrigin: instLoc())
-  case r.switch
-  of cmdSwitchNimblepath:
-    if conf.hasHint(rextPath) and r.processedNimblePath.didProcess:
-      for res in r.processedNimblePath.nimblePathResult.addedPaths:
-        yield CliEvent(kind: cliEvtHintPathAdded, pathAdded: res.string)
-  else:
-    discard
 
 proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
   conf.writeLog(msg, evt.srcCodeOrigin)

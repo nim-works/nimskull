@@ -63,20 +63,3 @@ suite "Basic command parsing":
     check(conf.noteSets[cnCurrent] * repWarningKinds == {rsemUnusedImport})
 
 # import hmisc/other/hpprint
-
-let csd = currentSourcePath().parentDir()
-
-suite "Path options specification":
-  test "Inferring lazy paths for packages":
-    let conf = parse(
-      ["--nimblePath=$#/nimbleDir/simplePkgs" % csd],
-      passCmd2).conf
-
-    let lazy = conf.lazyPaths.mapIt(it.string).sorted()
-    let pkg = csd / "nimbleDir/simplePkgs"
-    let expect = sorted(@[pkg, pkg / "pkgA-0.0.1", pkg / "pkgB-0.0.2"])
-    check lazy[0] == expect[0]
-    check lazy[1] == expect[1]
-    check lazy[2] == expect[2]
-
-    # pprint(conf, ignore = matchField("noteSets"))

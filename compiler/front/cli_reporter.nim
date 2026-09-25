@@ -41,6 +41,7 @@ import
     reports_sem,
     reports_vm,
     reports_backend,
+    reports_packages,
     reports_debug,
     reports_internal,
     reports_external,
@@ -2929,6 +2930,41 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
     result.add conf.suffixShort(r)
 
 
+proc reportBody*(conf: ConfigRef, r: PackageReport): string =
+  assertKind r
+  case PackageReportKind(r.kind)
+  # Errors
+  of rpkgDuplicateAliasForPackageDependencies:
+    "Alias `$1` is already used for `$2`, in the context of `$3`" %
+      [r.alias, r.package, r.parentPackage]
+
+  of rpkgIndexPresentButMalformed:
+    "Malformed package index found!"
+
+  of rpkgSrcDirNotRelativeToPackageDir:
+    "The source directory `$1` is not relative to the package directory `$2`" %
+      [r.subject, r.target]
+  
+  of rpkgEntrypointNotRelativeToPackageDir:
+    "The entrypoint `$1` is not relative to the source directory `$2`" %
+      [r.subject, r.target]
+
+  # Warnings
+  of rpkgPackagesOutOfSync:
+    "package index out of sync, please resync using your package manager"
+
+proc reportFull*(conf: ConfigRef, r: PackageReport): string =
+  assertKind r
+  result.add(
+    conf.prefix(r),
+    conf.reportBody(r),
+    conf.suffix(r))
+
+proc reportShort*(conf: ConfigRef, r: PackageReport): string =
+  # mostly created for nimsuggest
+  assertKind r
+  result = reportBody(conf, r)
+
 proc reportBody*(conf: ConfigRef, r: VMReport): string =
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
 
@@ -3149,6 +3185,7 @@ proc reportBody*(conf: ConfigRef, r: Report): string =
   of repDebug:    conf.reportBody(r.debugReport)
   of repInternal: conf.reportBody(r.internalReport)
   of repBackend:  conf.reportBody(r.backendReport)
+  of repPackage:  conf.reportBody(r.packageReport)
   of repExternal: conf.reportBody(r.externalReport)
   of repVM:       conf.reportBody(r.vmReport)
 
@@ -3164,6 +3201,7 @@ proc reportFull*(conf: ConfigRef, r: Report): string =
   of repDebug:    conf.reportFull(r.debugReport)
   of repInternal: conf.reportFull(r.internalReport)
   of repBackend:  conf.reportFull(r.backendReport)
+  of repPackage:  conf.reportFull(r.packageReport)
   of repExternal: conf.reportFull(r.externalReport)
   of repVM:       conf.reportFull(r.vmReport)
 
@@ -3178,6 +3216,7 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
   of repDebug:    conf.reportShort(r.debugReport)
   of repInternal: conf.reportShort(r.internalReport)
   of repBackend:  conf.reportShort(r.backendReport)
+  of repPackage:  conf.reportShort(r.packageReport)
   of repExternal: conf.reportShort(r.externalReport)
   of repVM:       conf.reportShort(r.vmReport)
 

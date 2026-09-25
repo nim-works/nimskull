@@ -71,6 +71,7 @@ import compiler/backend/cbackend as cbackend2
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
+from compiler/ast/reports_packages import PackageReport
 from compiler/ast/report_enums import ReportKind,
   repHintKinds,
   repWarningKinds,
@@ -94,8 +95,6 @@ type
     projectPath*: string
     definedSymbols*: seq[string]
     libPaths*: seq[string]
-    lazyPaths*: seq[string]
-    nimbleDir*: string
     outdir*: string
     `out`*: string
     nimcache*: string
@@ -193,9 +192,15 @@ proc commandCompileToC(graph: ModuleGraph) =
     registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
-      if not buildInstructionsStatus(conf, conf.getBuildInstructionsFile()):
+      case buildInstructionsStatus(conf, conf.getBuildInstructionsFile())
+      of bcNone:
+        # nothing changed
         graph.config.notes = graph.config.mainPackageNotes
         return
+      of bcPackage:
+        localReport(conf, PackageReport(kind: rpkgPackagesOutOfSync))
+      of bcGeneral:
+        discard "continue with compilation"
 
   if not extccomp.ccHasSaneOverflow(conf):
     conf.defineSymbol("nimEmulateOverflowChecks")
@@ -565,9 +570,6 @@ proc mainCommand*(graph: ModuleGraph) =
     for dir in conf.searchPaths:
       state.libPaths.add(dir.string)
 
-    for dir in conf.lazyPaths:
-      state.lazyPaths.add(dir.string)
-
     for a in repHintKinds:
       state.hints.add(($a, a in conf.notes))
 
@@ -592,10 +594,6 @@ proc mainCommand*(graph: ModuleGraph) =
       for dir in conf.searchPaths:
         libpaths.elems.add(%dir.string)
 
-      var lazyPaths = newJArray()
-      for dir in conf.lazyPaths:
-        lazyPaths.elems.add(%dir.string)
-
       var hints = newJObject()
       for (a, s) in state.hints:
         hints[$a] = %(s)
@@ -612,7 +610,6 @@ proc mainCommand*(graph: ModuleGraph) =
           (key: "project_path",    val: %state.projectPath),
           (key: "defined_symbols", val: definedSymbols),
           (key: "lib_paths",       val: libpaths),
-          (key: "lazyPaths",       val: lazyPaths),
           (key: "outdir",          val: %state.outdir),
           (key: "out",             val: %state.out),
           (key: "nimcache",        val: %state.nimcache),

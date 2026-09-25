@@ -258,9 +258,7 @@ when defined(nimHasInvariant):
       for i in field: result.add i.string
 
     case MultipleValueSetting(switch)
-    of MultipleValueSetting.nimblePaths: copySeq(conf.nimblePaths)
     of MultipleValueSetting.searchPaths: copySeq(conf.searchPaths)
-    of MultipleValueSetting.lazyPaths: copySeq(conf.lazyPaths)
     of MultipleValueSetting.commandArgs: result = conf.commandArgs
     of MultipleValueSetting.cincludes: copySeq(conf.cIncludes)
     of MultipleValueSetting.clibs: copySeq(conf.cLibs)

@@ -127,7 +127,7 @@ type
 proc getCmd*(s: TSpec): string =
   ## Get runner command for a given test specification
   if s.cmd.len == 0:
-    result = compilerPrefix & " $target --hints:on -d:testing --clearNimblePath --nimblePath:build/deps/pkgs $options $file"
+    result = compilerPrefix & " $target --hints:on -d:testing $options $file"
   else:
     result = s.cmd
 

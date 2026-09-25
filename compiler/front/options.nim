@@ -10,7 +10,7 @@
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
   compiler/utils/[prefixmatches, pathutils, platform, tracer],
-  compiler/ast/[lineinfos],
+  compiler/ast/[ast_query, lineinfos],
   compiler/modules/nimpaths
 
 import compiler/front/in_options
@@ -209,6 +209,23 @@ type
     ## This is useful for environments such as nimsuggest, which discard
     ## the output.
 
+  DependencyLink* = object
+    ## Describes how a package is exposed to its dependee.
+    package*: string
+    alias*: string
+
+  IndexedPackage* = object
+    path*: string
+    srcDir*: string
+      ## the directory to which module paths are relative to
+    entrypoint*: string
+      ## module to import when doing `import <package>`. May be empty, to
+      ## indicate that there's no such module
+    dependencies*: seq[DependencyLink]
+
+  PackageIndex* = object
+    packages*: Table[string, IndexedPackage]
+
   ConfigRef* = ref object
     ## every global configuration fields marked with '*' are subject to the
     ## incremental compilation mechanisms (+) means "part of the dependency"
@@ -254,6 +271,10 @@ type
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
 
     packageCache*: StringTableRef      ## absolute path -> absolute path
+    packageIndex*: PackageIndex
+    packageDir*: AbsoluteDir
+      ## the directory that contains the `.skull` folder, or an empty string,
+      ## when no package index was loaded from disk
 
     jsonBuildFile*: AbsoluteFile
     nimStdlibVersion*: NimVer
@@ -392,9 +413,7 @@ passSeqField cLibs,             AbsoluteDir
 passSeqField cLinkedLibs,       string
 passSeqField linkOptionsCmd,    string
 passSeqField compileOptionsCmd, string
-passSeqField nimblePaths,       AbsoluteDir
 passSeqField searchPaths,       AbsoluteDir
-passSeqField lazyPaths,         AbsoluteDir
 
 passSetField localOptions,   TOptions,           TOption
 passSetField globalOptions,  TGlobalOptions,     TGlobalOption
@@ -1201,15 +1220,6 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
 proc newLineInfo*(conf: ConfigRef; filename: AbsoluteFile, line, col: int): TLineInfo {.inline.} =
   result = newLineInfo(fileInfoIdx(conf, filename), line, col)
 
-proc disableNimblePath*(conf: ConfigRef) =
-  conf.incl optNoNimblePath
-  conf.lazyPaths = @[]
-  conf.nimblePaths = @[]
-
-proc clearNimblePath*(conf: ConfigRef) =
-  conf.lazyPaths = @[]
-  conf.nimblePaths = @[]
-
 include compiler/modules/packagehandling
 
 proc getOsCacheDir(): string =
@@ -1254,17 +1264,6 @@ proc pathSubs*(conf: ConfigRef; p, config: string): string =
     "projectdir", conf.projectPath.string,
     "nimcache", getNimcacheDir(conf).string]).expandTilde
 
-iterator nimbleSubs*(conf: ConfigRef; p: string): string =
-  ## Iterate over possible interpolations of the path string `p` and known
-  ## package directories.
-  let pl = p.toLowerAscii
-  if "$nimblepath" in pl or "$nimbledir" in pl:
-    for i in countdown(conf.nimblePaths.len-1, 0):
-      let nimblePath = removeTrailingDirSep(conf.nimblePaths[i].string)
-      yield p % ["nimblepath", nimblePath, "nimbledir", nimblePath]
-  else:
-    yield p
-
 proc toGeneratedFile*(
     conf: CurrentConf | ConfigRef,
     path: AbsoluteFile,
@@ -1302,28 +1301,11 @@ proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
   result = changeFileExt(completeGeneratedFilePath(conf,
     withPackageName(conf, f)), ext)
 
-proc rawFindFile(conf: ConfigRef; f: RelativeFile; suppressStdlib: bool): AbsoluteFile =
+proc rawFindFile(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
   ## Find file using list of explicit search paths
   for it in conf.searchPaths:
-    if suppressStdlib and it.string.startsWith(conf.libpath.string):
-      continue
     result = it / f
     if fileExists(result):
-      return canonicalizePath(conf, result)
-  result = AbsoluteFile""
-
-proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
-  ## Find file using list of lazy paths. If relative file is found bring
-  ## lazy path forward. TODO - lazy path reordering appears to be an
-  ## 'optimization' feature, but it might have some implicit dependencies
-  ## elsewhere.
-  for i, it in conf.lazyPaths:
-    result = it / f
-    if fileExists(result):
-      # bring to front
-      for j in countdown(i, 1):
-        swap(conf.active.lazyPaths[j], conf.active.lazyPaths[j-1])
-
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
@@ -1360,60 +1342,113 @@ proc getRelativePathFromConfigPath*(conf: ConfigRef; f: AbsoluteFile, isTitle = 
       if f.isRelativeTo(it):
         return relativePath(f, it).RelativeFile
   search(conf.searchPaths)
-  search(conf.lazyPaths)
 
-proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile =
-  ## Find module file using search paths or lazy search paths (in that
-  ## order). If suppress stdlib is used - do not try to return files that
-  ## start with current `conf.libpath` prefix. First explicit search paths
-  ## are queried, and then lazy load paths (generated from directories) are
-  ## used.
+proc findFile*(conf: ConfigRef; f: string): AbsoluteFile =
+  ## Find module file using search paths. If suppress stdlib is used - do not
+  ## try to return files that start with current `conf.libpath` prefix.
+  ## Explicit search paths are queried first.
   if f.isAbsolute:
     result = if f.fileExists: AbsoluteFile(f) else: AbsoluteFile""
   else:
-    result = rawFindFile(conf, RelativeFile f, suppressStdlib)
+    result = rawFindFile(conf, RelativeFile f)
     if result.isEmpty:
-      result = rawFindFile(conf, RelativeFile f.toLowerAscii, suppressStdlib)
-      if result.isEmpty:
-        result = rawFindFile2(conf, RelativeFile f)
-        if result.isEmpty:
-          result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
+      result = rawFindFile(conf, RelativeFile f.toLowerAscii)
 
-proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
-  ## Returns the absolute path for the module addressed by import path
-  ## `modulename`, or an empty string when the import path cannot be resolved
-  ## to a module. The imported path may be:
-  ## 1. a relative path. If it's not relative to the directory of
-  ##    `currentModule`, it's searched for on the search paths
-  ## 2. an `std/`-prefixed path. The part past the prefix is treated as a
-  ##    path relative to one of the standard library directories
-  ## 3. a `pkg/`-prefixed path. The module is searched for on the search paths
-  ##   (except that of the standard library)
-  var m = addFileExt(modulename, NimExt)
-  if m.startsWith(pkgPrefix):
-    result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
-  elif m.startsWith(stdPrefix):
-    let stripped = m.substr(stdPrefix.len)
-    for candidate in stdlibDirs:
-      let path = (conf.libpath.string / candidate / stripped)
-      if fileExists(path):
-        result = AbsoluteFile path
-        break
+proc processImportPath*(conf: ConfigRef, importPath, currentPackageId: string,
+                       ): tuple[pkgAlias, module: string] =
+  ## Splits an import path into a package alias and the remainder.
+  ## Handles the special "pkg/" prefix and dependency aliases.
+  ##
+  ## If the first component of `importPath` matches an alias in the dependencies
+  ## of `currentPackageId`, that alias is returned as `pkgAlias` and the rest
+  ## as `module`. Otherwise `pkgAlias` is empty and `module` is the whole path.
+  var path = importPath
+  if path.startsWith(pkgPrefix):
+    path = path.substr(pkgPrefix.len)
+
+  let
+    parts = path.split('/', 1)
+    first = parts[0].nimIdentNormalize()
+    remainder = if parts.len > 1: parts[1] else: ""
+
+  let pkg = conf.packageIndex.packages[currentPackageId]
+  for dep in pkg.dependencies:
+    if dep.alias.nimIdentNormalize() == first:
+      return (dep.alias, remainder)
+
+  result = ("", importPath)
+
+proc packageIdFromAlias(conf: ConfigRef, alias, currentPackageId: string): string =
+  ## Resolves a dependency alias to its package ID within the context
+  ## of `currentPackageId`.  Returns an empty string when no dependency with
+  ## the given alias exists.
+  let pkg = conf.packageIndex.packages[currentPackageId]
+  for dep in pkg.dependencies:
+    if dep.alias.nimIdentNormalize() == alias.nimIdentNormalize():
+      return dep.package
+  result = ""
+
+proc findPathModule*(conf: ConfigRef, modulepath, currentModule: string): AbsoluteFile =
+  ## Resolves a module by path, using the directory of `currentModule` and the
+  ## global search paths (`--path`).
+  let
+    m = addFileExt(modulepath, NimExt)
+    path = AbsoluteFile(currentModule.splitFile.dir / m)
+
+  if fileExists(path):
+    canonicalizePath(conf, path)
   else:
-    # look in the current directory first, then try the search paths
-    result = AbsoluteFile(currentModule.splitFile.dir / m)
-    if not fileExists(result):
-      result = findFile(conf, m)
+    findFile(conf, m)
+
+proc findPackageModule*(conf: ConfigRef, packageId, modulepath: string): AbsoluteFile =
+  ## Resolves a module path that belongs to a specific package.
+  ## For the "stdlib" package, this implements the traditional path flattening
+  ## (searching in `stdlibDirs`). For other packages it uses the `srcDir`
+  ## and `entrypoint` from the package index.
+  let pkg {.cursor.} = conf.packageIndex.packages[packageId]
+
+  if packageId == "stdlib":
+    for subdir in stdlibDirs:
+      let
+        candidate = conf.libpath.string / subdir / modulepath
+        full = AbsoluteFile(addFileExt(candidate, NimExt))
+      if fileExists(full):
+        return canonicalizePath(conf, full)
+    return AbsoluteFile""
+
+  var path: string
+  if modulepath.len == 0:
+    if pkg.entrypoint.len != 0:
+      path = pkg.entrypoint
+    else:
+      return AbsoluteFile""
+  else:
+    path = pkg.srcDir / modulepath
+
+  result = AbsoluteFile(addFileExt(path, NimExt))
+  if fileExists(result):
+    result = canonicalizePath(conf, result)
+  else:
+    result = AbsoluteFile""
+
+proc findModule*(conf: ConfigRef, importPath, currentModule, currentPackageId: string): AbsoluteFile =
+  ## Top‑level module resolver. Uses `processImportPath` to detect a package
+  ## alias and then either `findPackageModule` or `findPathModule`.
+  let (pkgAlias, modulePath) = processImportPath(conf, importPath, currentPackageId)
+  if pkgAlias.len > 0:
+    let pkgId = packageIdFromAlias(conf, pkgAlias, currentPackageId)
+    assert pkgId.len > 0
+    findPackageModule(conf, pkgId, modulePath)
+  else:
+    findPathModule(conf, importPath, currentModule)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
-  const extensions = [".nims", ".cfg", ".nimble"]
-    # xxx: remove '.nimble' (and nimble files from compiler src)
+  const extensions = [".nims", ".cfg"]
   var
     candidates: seq[string] = @[]
     dir = pkg
     prev = dir
-    nimblepkg = ""
   let pkgname = pkg.lastPathPart()
   while true:
     for k, f in os.walkDir(dir, relative = true):
@@ -1421,23 +1456,7 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
         let (_, name, ext) = splitFile(f)
         if ext in extensions:
           let x = changeFileExt(dir / name, ".nim")
-          if fileExists(x):
-            candidates.add x
-          if ext == ".nimble":
-            if nimblepkg.len == 0:
-              nimblepkg = name
-              # Since nimble packages can have their source in a subfolder,
-              # check the last folder we were in for a possible match.
-              if dir != prev:
-                let x = prev / x.extractFilename()
-                if fileExists(x):
-                  candidates.add x
-            else:
-              # If we found more than one nimble file, chances are that we
-              # missed the real project file, or this is an invalid nimble
-              # package. Either way, bailing is the better choice.
-              return ""
-    let pkgname = if nimblepkg.len > 0: nimblepkg else: pkgname
+          candidates.add x
     for c in candidates:
       if pkgname in c.extractFilename(): return c
     if candidates.len > 0:
@@ -1447,29 +1466,31 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
     if dir == "": break
   return ""
 
-proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
-  ## Shows the canonical module import, e.g.: system, std/tables,
-  ## fusion/pointers, system/assertions, std/private/asciitables
-  ## 
-  ## A canonical import path is:
-  ## 
-  ## - typically `pkgroot/pkgsubpath/module`
-  ## - if a module is at the base of a package, then `pkgroot/module`
-  ## - if a module is within the project's package, `pkgroot` is skipped like
-  ##   so `pkgsubpath/module` or `module` (if the module is at the package root).
+proc moduleUniqueName*(conf: ConfigRef, file: AbsoluteFile): string =
+  ## Returns a canonical import path for the module file, used for
+  ## documentation titles and cross‑references.
+  ## For the standard library, the path is prefixed with "std/".
+  ## For all other packages, it returns the module's path relative to the
+  ## package's root directory (the `path` field from the index).
+  ## If the module is not in a known package, the bare filename is returned.
+  let pkgId = conf.getPackageId(file.string)
+  if pkgId in ["", "unknown", "project-local"]:
+    return file.splitFile.name.nativeToUnixPath
+
   let
-    desc = getPkgDesc(conf, file.string)
-    (_, moduleName, _) = file.splitFile
-  if desc.pkgKnown and
-     desc.pkgFile != AbsoluteFile(conf.getNimbleFile(conf.projectFull.string)):
-    # we ignore the pkg root name for intra-package module imports, allows for
-    # easier pkg renames (without changing all files using canonical imports).
-    result = desc.pkgRootName
-    if desc.pkgSubpath != "":
-      result = result / desc.pkgSubpath
+    pkg {.cursor.} = conf.packageIndex.packages[pkgId]
+    baseDir = pkg.srcDir
+    rel = relativePath(file.string, baseDir)
+    relNoExt = rel.changeFileExt("")
+
+  if pkgId == "stdlib":
+    result = "std" / relNoExt
   else:
-    result = desc.pkgSubpath
-  result = if result == "": moduleName else: result / moduleName
+    if rel == relativePath(pkg.entrypoint, baseDir):
+      result = pkgId
+    else:
+      result = pkgId / relNoExt
+  
   result = result.nativeToUnixPath
 
 proc canonDynlibName*(s: string): string =

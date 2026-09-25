@@ -11,6 +11,9 @@
 ## `TPass` interface.
 
 import
+  std/[
+    strutils
+  ],
   compiler/front/[
     options,
     msgs,
@@ -20,6 +23,7 @@ import
   ],
   compiler/ast/[
     ast,
+    idents,
     llstream,
     syntaxes,
     lineinfos,
@@ -105,8 +109,11 @@ proc processTopLevelStmt(
 
   result = true
 
-proc resolveMod(conf: ConfigRef; module, relativeTo: string): FileIndex =
-  let fullPath = findModule(conf, module, relativeTo)
+proc resolveMod(
+  conf: ConfigRef,
+  modulename, relativeTo, relativeModulePkgId: string
+): FileIndex =
+  let fullPath = conf.findModule(modulename, relativeTo, relativeModulePkgId)
   if fullPath.isEmpty:
     result = InvalidFileIdx
   else:
@@ -118,17 +125,27 @@ proc processImplicits(
     nodeKind: TNodeKind,
     a: var TPassContextArray,
     m: PSym
-  ) =
-
-  # XXX fixme this should actually be relative to the config file!
-  let relativeTo = toFullPath(graph.config, m.info)
+) =
+  let
+    currentPkgId = getPackage(m).name.s
+    relativeTo = toFullPath(graph.config, m.info)
   for module in items(implicits):
     # implicit imports should not lead to a module importing itself
-    if m.position != resolveMod(graph.config, module, relativeTo).int32:
+    if m.position != resolveMod(graph.config, module, relativeTo, currentPkgId).int32:
       var importStmt = newNodeI(nodeKind, m.info)
-      var str = newStrNode(nkStrLit, module)
-      str.info = m.info
-      importStmt.add str
+      # turn slashes into '/' operators, so that later processing of the
+      # import path expression will yield `module` again
+      var path = PNode nil
+      for part in split(module, '/'):
+        let str = newStrNode(nkStrLit, part)
+        str.info = m.info
+        if path.isNil:
+          path = str
+        else:
+          path = newTreeI(nkInfix, m.info,
+            newIdentNode(graph.cache.getIdent("/"), m.info), path, str)
+
+      importStmt.add path
       if not processTopLevelStmt(graph, importStmt, a): break
 
 const
@@ -138,7 +155,7 @@ const
 
 proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
   # don't be verbose unless the module belongs to the main package:
-  if module.getnimblePkgId == graph.config.mainPackageId:
+  if module.getPackageId == graph.config.mainPackageId:
     graph.config.asgn(cnCurrent, cnMainPackage)
   else:
     # QUESTION what are the exact conditions that lead to this branch being
@@ -154,12 +171,6 @@ proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
 proc moduleHasChanged*(graph: ModuleGraph; module: PSym): bool {.inline.} =
   result = true
   #module.id >= 0 or isDefined(graph.config, "nimBackendAssumesChange")
-
-proc partOfStdlib(x: PSym): bool =
-  var it = x.owner
-  while it != nil and it.kind == skPackage and it.owner != nil:
-    it = it.owner
-  result = it != nil and it.name.s == "stdlib"
 
 proc processModule*(
     graph: ModuleGraph,
@@ -196,19 +207,14 @@ proc processModule*(
     # Start file parsing
     openParser(parser, fileIdx, stream, graph.cache, graph.config)
 
-    if not partOfStdlib(module) or module.name.s == "distros":
-      # XXX what about caching? no processing then? what if I change the
-      # modules to include between compilation runs? we'd need to track that
-      # in ROD files. I think we should enable this feature only
-      # for the interactive mode.
-      if module.name.s != "nimscriptapi":
-        processImplicits(
-          graph, graph.config.active.implicitImports,
-          nkImportStmt, passesArray, module)
+    if module.getPackageId() == graph.config.mainPackageId:
+      processImplicits(
+        graph, graph.config.active.implicitImports,
+        nkImportStmt, passesArray, module)
 
-        processImplicits(
-          graph, graph.config.active.implicitIncludes,
-          nkIncludeStmt, passesArray, module)
+      processImplicits(
+        graph, graph.config.active.implicitIncludes,
+        nkIncludeStmt, passesArray, module)
 
     # Until toplevel compilation fails (returns `false` from processing),
     # execute the compilation
