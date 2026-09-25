@@ -747,6 +747,16 @@ proc genLiteral(c: var TCtx, n: CgNode): int =
   of cnkFloatLit: toFloatCnst(c, n.floatVal)
   else:           unreachable(n.kind)
 
+proc loadInt(c: var TCtx, n: CgNode, dest: TRegister, val: Int128) =
+  ## Loads the integer `val` into `dest`, choosing the most efficient way to
+  ## do so.
+  if val in regBxMin-1..regBxMax:
+    # can be loaded as an immediate
+    c.gABx(n, opcLdImmInt, dest, toInt(val))
+  else:
+    # requires a constant
+    c.gABx(n, opcLdConst, dest, c.toIntCnst(val))
+
 template fillSliceList[T](sl: var seq[Slice[T]], nodes: openArray[CgNode],
                           get: untyped) =
   sl.newSeq(nodes.len)
@@ -1099,7 +1109,20 @@ proc genIndex(c: var TCtx; n: CgNode; arr: PType): TRegister =
     # freeing the temporary here means we can produce:  regA = regA - Imm
     c.freeTemp(tmp)
     result = c.getTemp(n.typ)
-    c.gABI(n, opcSubImmInt, result, tmp, toInt(x))
+
+    if x notin -127..127:
+      # too large for ABI encoding; we need to load a constant
+      let
+        typ = skipTypes(n.typ, IrrelevantTypes + {tyRange})
+        imm = c.getTemp(typ)
+        opc =
+          if isUnsigned(typ): opcSubu
+          else:               opcSubInt
+      c.loadInt(n, imm, x)
+      c.gABC(n, opc, result, tmp, imm)
+      c.freeTemp(imm)
+    else:
+      c.gABI(n, opcSubImmInt, result, tmp, toInt(x))
   else:
     result = c.genx(n)
 
@@ -1590,16 +1613,6 @@ proc genVoidBC(c: var TCtx, n: CgNode, dest: TDest, opcode: TOpcode) =
   c.gABC(n, opcode, 0, tmp1, tmp2)
   c.freeTemp(tmp1)
   c.freeTemp(tmp2)
-
-proc loadInt(c: var TCtx, n: CgNode, dest: TRegister, val: Int128) =
-  ## Loads the integer `val` into `dest`, choosing the most efficient way to
-  ## do so.
-  if val in regBxMin-1..regBxMax:
-    # can be loaded as an immediate
-    c.gABx(n, opcLdImmInt, dest, toInt(val))
-  else:
-    # requires a constant
-    c.gABx(n, opcLdConst, dest, c.toIntCnst(val))
 
 proc genSetElem(c: var TCtx, n: CgNode, first: Int128): TRegister =
   result = c.getTemp(n.typ)
