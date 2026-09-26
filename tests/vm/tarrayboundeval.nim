@@ -42,4 +42,4 @@ block bigUintOffset:
   let idx = 200_001u
   doAssert bigOffset[idx] == 4
   # static indexing
-  doAssert bigOffset[-200_001] == 4
+  doAssert bigOffset[200_001] == 4
