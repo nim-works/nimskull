@@ -535,16 +535,28 @@ iterator macroOps*(): Override =
     let b = getNode(a, 1)
     if b.kind == nkNilLit: a.currentLineInfo else: b.info
 
-  override "stdlib.macros.error", proc (a: VmArgs) {.nimcall.} =
+  proc errorImpl(a: VmArgs) {.nimcall.} =
     raiseVmError(VmEvent(
       kind: vmEvtUserError,
       errMsg: getString(a, 0),
       errLoc: a.getInfo()))
 
-  override "stdlib.macros.warning", proc (a: VmArgs) {.nimcall.} =
+  proc warnImpl (a: VmArgs) {.nimcall.} =
     a.config.localReport(a.getInfo(),
                          SemReport(kind: rsemUserWarning, str: getString(a, 0)))
 
-  override "stdlib.macros.hint", proc (a: VmArgs) {.nimcall.} =
+  proc hintImpl (a: VmArgs) {.nimcall.} =
     a.config.localReport(a.getInfo(),
                          SemReport(kind: rsemUserHint, str: getString(a, 0)))
+
+  override "stdlib.magics.error", errorImpl
+  override "stdlib.magics.warning", warnImpl
+  override "stdlib.magics.hint", hintImpl
+
+  # XXX: these overrides are needed because the magics are still (also)
+  #      declared in the macros module for compatibility with the csources
+  #      compiler. Remove the overrides once the corresponding declarations
+  #      in macros.nim are gone
+  override "stdlib.macros.error", errorImpl
+  override "stdlib.macros.warning", warnImpl
+  override "stdlib.macros.hint", hintImpl

@@ -3089,3 +3089,26 @@ type
 
 when defined(c) and defined(systemHasMainDef):
   include system/cboot
+
+import system/magics
+
+proc quoteImpl(n: NimNode, args: varargs[NimNode]): NimNode {.compilerproc,
+    compileTime.} =
+  ## Substitutes the placeholders in `n` with the corresponding AST from
+  ## `args`. Invoked by the compiler for implementating ``quote``.
+  proc aux(n: NimNode, args: openArray[NimNode]): NimNode =
+    case n.kind
+    of nnkAccQuoted:
+      if n[0].kind == nnkAccQuoted:
+        result = n[0] # an escaped accquoted tree
+      else:
+        result = args[n[0].intVal] # a placeholder
+    else:
+      result = n
+      for i in 0..<n.len:
+        result[i] = aux(n[i], args)
+
+  result = aux(n, args)
+  # unwrap single-element statement lists:
+  if n.kind == nnkStmtList and n.len == 1:
+    result = n[0]

@@ -32,9 +32,7 @@ add a way to customize serialization, for e.g.:
 
 import std/macros
 from std/enumutils import symbolName
-from std/typetraits import OrdinalEnum
-
-proc isNamedTuple(T: typedesc): bool {.magic: "TypeTrait".}
+from std/typetraits import OrdinalEnum, isNamedTuple, distinctBase
 
 type
   Joptions* = object # xxx rename FromJsonOptions
@@ -62,9 +60,6 @@ type
 proc initToJsonOptions*(): ToJsonOptions =
   ## initializes `ToJsonOptions` with sane options.
   ToJsonOptions(enumMode: joptEnumOrd, jsonNodeMode: joptJsonNodeAsRef)
-
-proc distinctBase(T: typedesc, recursive: static bool = true): typedesc {.magic: "TypeTrait".}
-template distinctBase[T](a: T, recursive: static bool = true): untyped = distinctBase(typeof(a), recursive)(a)
 
 macro getDiscriminants(a: typedesc): seq[string] =
   ## return the discriminant keys

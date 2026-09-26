@@ -29,14 +29,18 @@ import std/macros
 import std/private/since
 from std/private/bitops_utils import forwardImpl, toUnsigned
 
-func bitnot*[T: SomeInteger](x: T): T {.magic: "BitnotI".}
+func bitnot*[T: SomeInteger](x: T): T {.inline.} =
   ## Computes the `bitwise complement` of the integer `x`.
+  system.`not`(x)
 
-func internalBitand[T: SomeInteger](x, y: T): T {.magic: "BitandI".}
+func internalBitand[T: SomeInteger](x, y: T): T {.inline.} =
+  system.`and`(x, y)
 
-func internalBitor[T: SomeInteger](x, y: T): T {.magic: "BitorI".}
+func internalBitor[T: SomeInteger](x, y: T): T {.inline.} =
+  system.`or`(x, y)
 
-func internalBitxor[T: SomeInteger](x, y: T): T {.magic: "BitxorI".}
+func internalBitxor[T: SomeInteger](x, y: T): T {.inline.} =
+  system.`xor`(x, y)
 
 macro bitand*[T: SomeInteger](x, y: T; z: varargs[T]): T =
   ## Computes the `bitwise and` of all arguments collectively.

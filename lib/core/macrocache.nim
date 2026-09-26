@@ -43,89 +43,11 @@ runnableExamples:
     mcCounter.inc(3)
     assert mcCounter.value == 3
 
+import system/magics
 
-type
-  CacheSeq* = distinct string
-    ## Compile-time sequence of `NimNode`s.
-  CacheTable* = distinct string
-    ## Compile-time table of key-value pairs.
-    ##
-    ## Keys are `string`s and values are `NimNode`s.
-  CacheCounter* = distinct string
-    ## Compile-time counter, uses `int` for storing the count.
-
-proc value*(c: CacheCounter): int {.magic: "NccValue".} =
-  ## Returns the value of a counter `c`.
-  runnableExamples:
-    static:
-      let counter = CacheCounter"valTest"
-      # default value is 0
-      assert counter.value == 0
-
-      inc counter
-      assert counter.value == 1
-
-proc inc*(c: CacheCounter; by = 1) {.magic: "NccInc".} =
-  ## Increments the counter `c` with the value `by`.
-  runnableExamples:
-    static:
-      let counter = CacheCounter"incTest"
-      inc counter
-      inc counter, 5
-
-      assert counter.value == 6
-
-proc add*(s: CacheSeq; value: NimNode) {.magic: "NcsAdd".} =
-  ## Adds `value` to `s`.
-  runnableExamples:
-    import std/macros
-    const mySeq = CacheSeq"addTest"
-
-    static:
-      mySeq.add(newLit(5))
-      mySeq.add(newLit("hello ic"))
-
-      assert mySeq.len == 2
-      assert mySeq[1].strVal == "hello ic"
-
-proc incl*(s: CacheSeq; value: NimNode) {.magic: "NcsIncl".} =
-  ## Adds `value` to `s`.
-  ##
-  ## .. hint:: This doesn't do anything if `value` is already in `s`.
-  runnableExamples:
-    import std/macros
-    const mySeq = CacheSeq"inclTest"
-
-    static:
-      mySeq.incl(newLit(5))
-      mySeq.incl(newLit(5))
-
-      # still one element
-      assert mySeq.len == 1
-
-proc len*(s: CacheSeq): int {.magic: "NcsLen".} =
-  ## Returns the length of `s`.
-  runnableExamples:
-    import std/macros
-
-    const mySeq = CacheSeq"lenTest"
-    static:
-      let val = newLit("helper")
-      mySeq.add(val)
-      assert mySeq.len == 1
-
-      mySeq.add(val)
-      assert mySeq.len == 2
-
-proc `[]`*(s: CacheSeq; i: int): NimNode {.magic: "NcsAt".} =
-  ## Returns the `i`th value from `s`.
-  runnableExamples:
-    import std/macros
-
-    const mySeq = CacheSeq"subTest"
-    static:
-      mySeq.add(newLit(42))
-      assert mySeq[0].intVal == 42
+export magics.CacheSeq, magics.CacheTable, magics.CacheCounter
+export magics.value, magics.len
+export magics.inc, magics.add, magics.incl, magics.`[]`, magics.`[]=`
 
 iterator items*(s: CacheSeq): NimNode =
   ## Iterates over each item in `s`.
@@ -142,47 +64,6 @@ iterator items*(s: CacheSeq): NimNode =
         assert val.kind == nnkIntLit
 
   for i in 0 ..< len(s): yield s[i]
-
-proc `[]=`*(t: CacheTable; key: string, value: NimNode) {.magic: "NctPut".} =
-  ## Inserts a `(key, value)` pair into `t`.
-  ##
-  ## .. warning:: `key` has to be unique! Assigning `value` to a `key` that is already
-  ##   in the table will result in a compiler error.
-  runnableExamples:
-    import std/macros
-
-    const mcTable = CacheTable"subTest"
-    static:
-      # assign newLit(5) to the key "value"
-      mcTable["value"] = newLit(5)
-
-      # check that we can get the value back
-      assert mcTable["value"].kind == nnkIntLit
-
-proc len*(t: CacheTable): int {.magic: "NctLen".} =
-  ## Returns the number of elements in `t`.
-  runnableExamples:
-    import std/macros
-
-    const dataTable = CacheTable"lenTest"
-    static:
-      dataTable["key"] = newLit(5)
-      assert dataTable.len == 1
-
-proc `[]`*(t: CacheTable; key: string): NimNode {.magic: "NctGet".} =
-  ## Retrieves the `NimNode` value at `t[key]`.
-  runnableExamples:
-    import std/macros
-
-    const mcTable = CacheTable"subTest"
-    static:
-      mcTable["toAdd"] = newStmtList()
-
-      # get the NimNode back
-      assert mcTable["toAdd"].kind == nnkStmtList
-
-proc hasNext(t: CacheTable; iter: int): bool {.magic: "NctHasNext".}
-proc next(t: CacheTable; iter: int): (string, NimNode, int) {.magic: "NctNext".}
 
 iterator pairs*(t: CacheTable): (string, NimNode) =
   ## Iterates over all `(key, value)` pairs in `t`.
