@@ -38,7 +38,7 @@ block bigIntOffset:
   doAssert bigOffset[-100_001] == 1
 
 block bigUintOffset:
-  const bigOffset: array[200_000u..200_001u, int] = [3, 4]
+  let bigOffset: array[200_000u..200_001u, int] = [3, 4]
   let idx = 200_001u
   doAssert bigOffset[idx] == 4
   # static indexing
