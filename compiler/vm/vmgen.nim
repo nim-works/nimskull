@@ -747,6 +747,16 @@ proc genLiteral(c: var TCtx, n: CgNode): int =
   of cnkFloatLit: toFloatCnst(c, n.floatVal)
   else:           unreachable(n.kind)
 
+proc loadInt(c: var TCtx, n: CgNode, dest: TRegister, val: Int128) =
+  ## Loads the integer `val` into `dest`, choosing the most efficient way to
+  ## do so.
+  if val in regBxMin-1..regBxMax:
+    # can be loaded as an immediate
+    c.gABx(n, opcLdImmInt, dest, toInt(val))
+  else:
+    # requires a constant
+    c.gABx(n, opcLdConst, dest, c.toIntCnst(val))
+
 template fillSliceList[T](sl: var seq[Slice[T]], nodes: openArray[CgNode],
                           get: untyped) =
   sl.newSeq(nodes.len)
@@ -1092,16 +1102,39 @@ proc genField(c: TCtx; n: CgNode): TRegister =
 
   result = s.position
 
+proc genBiased(c: var TCtx, n: CgNode, first: Int128): TRegister =
+  result = c.getTemp(n.typ)
+
+  if first != 0:
+    if n.kind in {cnkIntLit, cnkUIntLit}:
+      c.loadInt(n, result, getInt(n) - first)
+    else:
+      gen(c, n, result)
+      if first notin -127..127:
+        # too large for the ABI encoding; we need to load a constant
+        let
+          typ = skipTypes(n.typ, IrrelevantTypes + {tyRange})
+          tmp = c.getTemp(typ)
+          opc =
+            if isUnsigned(typ): opcSubu
+            else:               opcSubInt
+        c.loadInt(n, tmp, first)
+        c.gABC(n, opc, result, result, tmp)
+        c.freeTemp(tmp)
+      elif first > 0:
+        c.gABI(n, opcSubImmInt, result, result, toInt(first))
+      else:
+        c.gABI(n, opcAddImmInt, result, result, toInt(-first))
+
+  else:
+    gen(c, n, result)
+
 proc genIndex(c: var TCtx; n: CgNode; arr: PType): TRegister =
   if arr.skipTypes(abstractInst).kind == tyArray and (let x = firstOrd(c.config, arr);
       x != Zero):
-    let tmp = c.genx(n)
-    # freeing the temporary here means we can produce:  regA = regA - Imm
-    c.freeTemp(tmp)
-    result = c.getTemp(n.typ)
-    c.gABI(n, opcSubImmInt, result, tmp, toInt(x))
+    c.genBiased(n, x)
   else:
-    result = c.genx(n)
+    c.genx(n)
 
 proc genNarrowUnsigned(c: var TCtx; info: TLineInfo, typ: PType,
                        dest: TRegister)
@@ -1591,45 +1624,8 @@ proc genVoidBC(c: var TCtx, n: CgNode, dest: TDest, opcode: TOpcode) =
   c.freeTemp(tmp1)
   c.freeTemp(tmp2)
 
-proc loadInt(c: var TCtx, n: CgNode, dest: TRegister, val: Int128) =
-  ## Loads the integer `val` into `dest`, choosing the most efficient way to
-  ## do so.
-  if val in regBxMin-1..regBxMax:
-    # can be loaded as an immediate
-    c.gABx(n, opcLdImmInt, dest, toInt(val))
-  else:
-    # requires a constant
-    c.gABx(n, opcLdConst, dest, c.toIntCnst(val))
-
-proc genSetElem(c: var TCtx, n: CgNode, first: Int128): TRegister =
-  result = c.getTemp(n.typ)
-
-  if first != 0:
-    if n.kind in {cnkIntLit, cnkUIntLit}:
-      # a literal value. Since sem makes sure sets cannot store elements
-      # with an adjusted value of >= 2^16, we know that the result of the
-      # subtraction fits into the encodable range for ABX
-      c.gABx(n, opcLdImmInt, result, toInt(getInt(n) - first))
-    else:
-      gen(c, n, result)
-      if first notin -127..127:
-        # too large for the ABI encoding; we need to load a constant
-        let
-          typ = skipTypes(n.typ, IrrelevantTypes + {tyRange})
-          tmp = c.getTemp(typ)
-          opc =
-            if isUnsigned(typ): opcSubu
-            else:               opcSubInt
-        c.loadInt(n, tmp, first)
-        c.gABC(n, opc, result, result, tmp)
-        c.freeTemp(tmp)
-      elif first > 0:
-        c.gABI(n, opcSubImmInt, result, result, toInt(first))
-      else:
-        c.gABI(n, opcAddImmInt, result, result, toInt(-first))
-
-  else:
-    gen(c, n, result)
+proc genSetElem(c: var TCtx, n: CgNode, first: Int128): TRegister {.inline.} =
+  c.genBiased(n, first)
 
 proc genSetElem(c: var TCtx, n: CgNode, typ: PType): TRegister {.inline.} =
   ## `typ` is the type to derive the lower bound from
