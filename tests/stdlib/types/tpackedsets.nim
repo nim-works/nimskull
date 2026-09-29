@@ -4,6 +4,134 @@ import std/sets
 import std/sequtils
 import std/algorithm
 
+import std/typetraits
+
+import experimental/property_testing
+
+proc genOrdSet[T: SomeOrdinal](
+  g: sink Gen[T],
+  minLen = 0.Natural,
+  maxLen = 100.Natural,
+  exclude = HashSet[T](),
+  maxRetries = 100
+): Gen[HashSet[T]] =
+  assert minLen <= maxLen
+
+  result = proc (s: Source): HashSet[T] =
+    let (len, oldLen, _) = s.beginArray(minLen.uint32, maxLen.uint32)
+
+    var output = initHashSet[T](len.int)
+    let
+      pred = proc (x: T): bool =
+        x notin output and x notin exclude
+      filtered = filter(g, pred, maxRetries)
+    for _ in 0 ..< len:
+      output.incl filtered(s)
+
+    s.skipNodes(oldLen.int - len.int)
+
+    output
+
+proc toPackedSet[T: SomeOrdinal](hs: HashSet[T]): PackedSet[T] =
+  for i in hs.items:
+    result.incl i
+
+proc genPackedOrdSet[T: SomeOrdinal](
+  g: sink Gen[T],
+  minLen = 0.Natural,
+  maxLen = 100.Natural,
+  exclude = HashSet[T](),
+  maxRetries = 100
+): Gen[PackedSet[T]] =
+  map(
+    genOrdSet(g, minLen, maxLen, exclude, maxRetries),
+    toPackedSet
+  )
+
+proc `==`[T](ps: PackedSet[T], hs: HashSet[T]): bool =
+  if ps.len != hs.len:
+    return false
+
+  for i in hs.items:
+    if i notin ps:
+      return false
+
+  return true
+
+template property(name, gens, check: untyped): untyped =
+  block name:
+    let result = runProperty:
+      forAll gens: check
+
+    doAssert result.status == psPass, $result
+
+property canStoreInts, (hs: genOrdSet(genInt())):
+  let ps = toPackedSet(hs)
+  if ps == hs:
+    psPass
+  else:
+    psFail
+
+property canStoreUints, (hs: genOrdSet(genUint64())):
+  let ps = toPackedSet(hs)
+  if ps == hs:
+    psPass
+  else:
+    psFail
+
+block:
+  type Enum = enum A, B, C, D, E, F
+  property canStoreEnum, (hs: genOrdSet(genEnum[Enum](), maxLen = enumLen(Enum))):
+    let ps = toPackedSet(hs)
+    if ps == hs:
+      psPass
+    else:
+      psFail
+
+property toPackedSetDedups, (s: genSeq(genInt())):
+  let
+    hs = toHashSet(s)
+    ps = toPackedSet(s)
+
+  if ps == hs:
+    psPass
+  else:
+    psFail
+
+property iterateAllMembers, (hs: genOrdSet(genInt())):
+  let
+    ps = toPackedSet(hs)
+    hsElems = toSeq(hs.items).sorted()
+    psElems = toSeq(ps.items).sorted()
+
+  if ps == hs:
+    psPass
+  else:
+    psFail
+
+property containsOrIncl, (i: genInt(), ps: genPackedOrdSet(genInt(), exclude = [i].toHashSet)):
+  # Add once, should not be in the set
+  if ps.containsOrIncl(i):
+    return psFail
+
+  # Should now be in the set
+  if not ps.containsOrIncl(i):
+    return psFail
+
+  return psPass
+
+property missingOrExcl, (i: genInt()):
+  var ps = PackedSet[int]()
+  # Add once, should not be in the set
+  if ps.containsOrIncl(i):
+    return psFail
+
+  # Should now be in the set
+  if not ps.containsOrIncl(i):
+    return psFail
+
+  return psPass
+
 block basicIntSetTests:
   var y = initPackedSet[int]()
   y.incl(1)
@@ -15,7 +143,7 @@ block basicIntSetTests:
   y.excl(1044)
 
   doAssert y == [1, 2, 7, 1056].toPackedSet
-  doAssert toSeq(y.items) == [1, 2, 7, 1056]
+  doAssert toSeq(y.items).sorted() == [1, 2, 7, 1056]
 
   doAssert y.containsOrIncl(888) == false
   doAssert 888 in y
@@ -254,6 +382,12 @@ block legacyMainModuleTests:
 
   var intGenericInit = initPackedSet[int]()
   genericTests(int, intGenericInit)
+
+  var int32GenericInit = initPackedSet[int32]()
+  genericTests(int32, int32GenericInit)
+
+  var int64GenericInit = initPackedSet[int64]()
+  genericTests(int64, int64GenericInit)
 
   var intDistinct = initPackedSet[Id]()
   genericTests(Id, intDistinct)
