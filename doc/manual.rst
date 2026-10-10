@@ -2560,6 +2560,23 @@ matches) is preferred:
   gen(ri) # "ref T"
 
 
+Overload Set
+------------
+
+The set of routines from which the final routine is picked is called the
+"overload set", also referred to as the "set of overloads".
+
+The overload set for an identifier `x` is comprised of all routines with name
+`x` that are *reachable* from the point where overload resolution happens.
+
+> TODO: this description is far from properly describing how the overload set
+>       is formed, elaborate
+
+If the initial overload set is not empty and any of the call expression's
+arguments is of applied signature type, the routine with name `x` bound by
+the applied signature is added to the overload set.
+
+
 Overloading based on 'var T'
 --------------------------------------
 
@@ -4165,6 +4182,83 @@ The static constraints are as follows:
 For the above `openArray` and `var` rules, whether the expressions refers to
 a location derived from a parameter or global must be visible directly from the
 argument expression, no indirection through locals is allowed.
+
+
+Signatures
+=============
+
+A *signature* is a static interface. It's a collection of routine declarations
+describing the routines and their shape that need to be available for a type
+in order for said type to satisfy the interface.
+
+Signature types are introduced via the non-overloadable binary `signature` type
+constructor, only available in a type context. The first operand must be an
+identifier (referred to as `self`), the second operand a non-empty listing of
+routine declarations.
+
+Within the scope of the routine declarations, the `self` identifier - which
+shadows identifiers from enclosing scopes - provides the name of the type
+variable that represents the described type. Form this point onwards, the type
+variable representing the described type is called `Self`.
+
+Only `func`:idx:, `proc`:idx:, and `iterator`:idx:, declarations are allowed
+in the body, `method`:idx:, `template`:idx:, and `macro`:idx: declarations
+are not.
+
+For every routine declaration in the body, at least one parameter must be of
+type `Self`, `var Self`, or `sink Self`. Declarations must not have explicit
+or implicit generic parameter. For pragmas, only calling conventions
+(except `.closure`) and `tags` and `raises` specifications are allowed.
+
+The special names `.`, `.=`, `.()`, and the names of hooks are *not* allowed
+for the routine declarations. All other operators (e.g., `[]`, `field=`, etc.)
+are allowed.
+
+In addition, no two declarations must have same name *and* parameter lists.
+Same parameter list means the same number of parameters, in the same order
+and with the same types (parameter names are ignored).
+
+A signature type is a *meta type*. An *applied* signature `A` is a signature
+type `S` applied to a concrete type `T`. The relations and properties are as
+follows:
+* `A` is a concrete type and may be used as such
+* `S` is a super-type of `A`
+* `A` is a super-type of `T`, meaning that an instance of `T` may be used where
+  `A` is expected
+* `T` is l-value convertible to `A`
+
+Application of signature type `S` happens when a value of type `T` is
+implicitly or explicitly converted to `S`.
+
+On application of `S` to `T`, for every routine declaration `x` of `S`, a
+routine `y` must be *visible* in the current context such that:
+* `x` and `y` have the same name
+* after replacing `Self` with `T` in the parameter list of `x`, the parameter
+  lists of `x` and `y` are the same, ignoring parameter names
+* the return type of `x` and `y` are the same (after replacing `Self` in the
+  return type of `x` with `T`)
+* the routine kinds of `x` and `y` are the same
+* the calling conventions of `x` and `y` are the same
+* (only if `tags` is provided for `x`) the tags of `x` must be a superset of
+  those of `y`
+* (only if `raises` is provided for `x`) the raised exceptions must be a
+  superset of the one of `y`
+
+If `y` is generic, it is instantiated first. If there are either none, or two
+or more candidates that satisfy the requirements listed above, application
+fails. If sucessful, the resulting application is said to *bind* to `y`.
+
+Two applied signatures are equal if and only if both are applications of the
+same signature `S` to the same `T` and bind the exact same routines.
+
+
+Generic Signatures
+------------------
+
+Signature types may be generic, but the types passed to the type parameter
+cannot be inferred by application, meaning that generic signature must be
+explicitly instantiated before application can work.
+
 
 Methods
 =============

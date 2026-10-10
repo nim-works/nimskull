@@ -337,6 +337,40 @@ proc resolveOverloads(c: PContext, n: PNode,
                       result, alt, errors)
   pickBest(f)
 
+  if n[0].kind in {nkIdent, nkAccQuoted}:
+    # argument-dependent lookup only takes place when the callee is an
+    # unqualified identifier
+    if result.state in {csNoMatch, csEmpty}:
+      # sem-check all arguments that haven't been yet
+      for i in 1..<n.len:
+        case n[i].kind
+        of nkExprEqExpr:
+          if n[i][1].typ.isNil:
+            n[i][1] = c.semOperand(c, n[i][1])
+        else:
+          if n[i].typ.isNil:
+            n[i] = c.semOperand(c, n[i])
+
+    let ident = legacyConsiderQuotedIdent(c, n[0], n[0])
+    var marker: IntSet
+    # for all signature-typed arguments, add their attached routines with
+    # matching names (and kind) to the candidate set, at least in effect
+    var cand: TCandidate
+    for i in 1..<n.len:
+      if n[i].typ != nil and n[i].typ.kind in {tySignature, tySignatureInst}:
+        for it in n[i].typ.n.items:
+          if it.sym.name.id == ident.id and not containsOrIncl(marker, it.sym.id):
+            initCallCandidate(c, cand, it.sym)
+            matches(c, n, nOrig, diags, cand)
+            # TODO: use the same logic as pickBestCandidate does
+            case result.state
+            of csEmpty, csNoMatch:
+              result = cand
+            of csMatch:
+              let cmp = cmpCandidates(result, cand)
+              if cmp < 0: result = cand
+              elif cmp == 0: alt = cand
+
   let overloadsState = result.state
   if overloadsState != csMatch:
     template tryOp(x) =

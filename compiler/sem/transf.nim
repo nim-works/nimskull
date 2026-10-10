@@ -758,7 +758,7 @@ proc transformFor(c: PTransf, n: PNode): PNode =
     let loopBody = transformLoopBody(c, n[^1])
     discard c.breakSyms.pop
 
-    let iter = call[0].sym
+    let iter = transformSym(c, call[0]).sym
 
     if isSimpleIteratorVar(c, iter):
       # the iterator only yields locations that it owns -> the for-vars can be cursors

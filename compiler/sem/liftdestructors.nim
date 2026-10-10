@@ -762,12 +762,13 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of tyTuple:
     fillBodyTup(c, t, body, x, y)
   of tyFromExpr, tyProxy, tyBuiltInTypeClass, tyUserTypeClass,
-     tyUserTypeClassInst, tyCompositeTypeClass, tyAnd, tyOr, tyNot, tyAnything,
+     tyUserTypeClassInst, tySignature, tyCompositeTypeClass,
+     tyAnd, tyOr, tyNot, tyAnything,
      tyGenericParam, tyGenericBody, tyNil, tyUntyped, tyTyped,
      tyTypeDesc, tyGenericInvocation, tyForward, tyStatic:
     #internalError(c.g.config, c.info, "assignment requested for type: " & typeToString(t))
     discard
-  of tyOrdinal, tyRange, tyInferred,
+  of tyOrdinal, tyRange, tyInferred, tySignatureInst,
      tyGenericInst, tyAlias, tySink:
     fillBody(c, lastSon(t), body, x, y)
 

@@ -117,6 +117,8 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
   of tyGenericBody, tyGenericParam, tyGenericInvocation,
      tyNone, tyForward, tyFromExpr:
     result = t
+  of tySignatureInst:
+    result = nil
   of tyNil:
     if kind != skConst and kind != skParam: result = t
   of tyString, tyBool, tyChar, tyEnum, tyInt..tyInt32, tyUInt..tyUInt32,
