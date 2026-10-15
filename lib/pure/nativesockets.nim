@@ -69,6 +69,7 @@ type
     SOCK_SEQPACKET = 5 ## reliable sequenced packet service
 
   Protocol* = enum    ## third argument to `socket` proc
+    IPPROTO_DEFAULT = 0,
     IPPROTO_TCP = 6,  ## Transmission control protocol.
     IPPROTO_UDP = 17, ## User datagram protocol.
     IPPROTO_IP,       ## Internet protocol.
@@ -153,6 +154,7 @@ when not useWinVersion:
 
   proc toInt(p: Protocol): cint =
     case p
+    of IPPROTO_DEFAULT: result = posix.IPPROTO_DEFAULT
     of IPPROTO_TCP: result = posix.IPPROTO_TCP
     of IPPROTO_UDP: result = posix.IPPROTO_UDP
     of IPPROTO_IP: result = posix.IPPROTO_IP
@@ -178,7 +180,7 @@ else:
 
   proc toInt(p: Protocol): cint =
     case p
-    of IPPROTO_IP:
+    of IPPROTO_IP, IPPROTO_DEFAULT:
       result = 0.cint
     of IPPROTO_ICMP:
       result = 1.cint
@@ -192,15 +194,6 @@ else:
       result = 58.cint
     else:
       result = cint(ord(p))
-
-proc toSockType*(protocol: Protocol): SockType =
-  result = case protocol
-  of IPPROTO_TCP:
-    SOCK_STREAM
-  of IPPROTO_UDP:
-    SOCK_DGRAM
-  of IPPROTO_IP, IPPROTO_IPV6, IPPROTO_RAW, IPPROTO_ICMP, IPPROTO_ICMPV6:
-    SOCK_RAW
 
 proc getProtoByName*(name: string): int {.since: (1, 3, 5).} =
   ## Returns a protocol code from the database that matches the protocol `name`.
@@ -254,7 +247,7 @@ proc createNativeSocket*(domain: cint, sockType: cint, protocol: cint,
 
 proc createNativeSocket*(domain: Domain = AF_INET,
                          sockType: SockType = SOCK_STREAM,
-                         protocol: Protocol = IPPROTO_TCP,
+                         protocol: Protocol = IPPROTO_DEFAULT,
                          inheritable: bool = defined(nimInheritHandles)): SocketHandle =
   ## Creates a new socket; returns `osInvalidSocket` if an error occurs.
   ##
@@ -278,7 +271,7 @@ proc listen*(socket: SocketHandle, backlog = SOMAXCONN): cint {.tags: [
 
 proc getAddrInfo*(address: string, port: Port, domain: Domain = AF_INET,
                   sockType: SockType = SOCK_STREAM,
-                  protocol: Protocol = IPPROTO_TCP): ptr AddrInfo =
+                  protocol: Protocol = IPPROTO_DEFAULT): ptr AddrInfo =
   ##
   ##
   ## .. warning:: The resulting `ptr AddrInfo` must be freed using `freeAddrInfo`!
