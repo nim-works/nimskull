@@ -158,7 +158,7 @@ jobs:
           brew update
 
           # Downgrade to OpenSSL 3.0
-          brew unlink openssl
+          brew unlink openssl || :
           brew install openssl@3.0
           brew link --overwrite openssl@3.0
 
