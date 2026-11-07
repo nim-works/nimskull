@@ -131,6 +131,7 @@ type
     skArray        ## Array of bytes, with size stored as a range in the
                    ## immediately following bytes and elements thereafter
     skGroup        ## Group of values, with size stored in the next byte
+    skConst        ## Constant value (0 payload bytes)
 
   ScalarStorageKind = range[skByte..sk8Bytes]
 
@@ -292,6 +293,14 @@ proc rngNextUInt32(s: Source): uint32 =
   uint32(s.rng.next() and 0xFFFFFFFF'u64)
 
 
+proc recordConst*(s: Source) =
+  ## Records or reads a constant value marker (`skConst`) in the source.
+  if s.recording:
+    s.writeStorageKind(skConst)
+  else:
+    discard s.readStorageKind(skConst)
+
+
 proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
   ## Produces a random scalar of `kind` when recording, otherwise reads a
   ## scalar of `kind` from the buffer.
@@ -447,6 +456,8 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
     pos += 1
     doAssert pos + n <= buffer.len, "skipNode buffer ran out before children for group"
     for _ in 0 ..< n: pos = skipNode(buffer, pos)
+  of skConst:
+    discard
 
   doAssert pos <= buffer.len, "skipNode pos out of bounds"
   pos
@@ -688,7 +699,9 @@ proc chooseRanked[T: Ordinal](s: Source, min, max, simplest: T,
     uSimp = renumerateInt64ToUint64(simplestO)
     rangeSize = uMax - uMin
 
-  if rangeSize == 0: return simplest
+  if rangeSize == 0:
+    s.recordConst()
+    return simplest
 
   let rank = s.chooseRange(0'u64, rangeSize, kind)
   let uRes = rankToOrdinal(rank, uMin, uMax, uSimp)
@@ -701,7 +714,9 @@ proc genFromList*[T](vals: sink seq[T], simplestIdx: int = 0): Gen[T] =
   ## ranked shrinking targeting the `simplestIdx`.
   let len = vals.len
   if len == 0:
-    result = proc(s: Source): T = default(T)
+    result = proc(s: Source): T =
+      s.recordConst()
+      default(T)
   elif len <= 256:
     let g = genExhaustiveRanked(0, len - 1, simplestIdx)
     result = proc(s: Source): T = vals[g(s)]
@@ -762,7 +777,9 @@ proc genScalar[T: Ordinal](min, max: T): Gen[T] =
 
 proc genConst*[T](v: T): Gen[T] =
   ## Create a generator that always returns `v`.
-  return proc(s: Source): T = v
+  return proc(s: Source): T =
+    s.recordConst()
+    v
 
 
 proc genByte*(): Gen[byte] =
@@ -1307,6 +1324,8 @@ proc treeRepr*(buffer: seq[byte]): string =
       of skNBytes:
         let n = int(decodeUint64(buffer, p, 1))
         result &= "  ".repeat(indent) & $kind & " (size: " & $n & ")"
+      of skConst:
+        result &= "  ".repeat(indent) & $kind
     result &= "\n"
 
   while counters.len > 0:
@@ -1704,7 +1723,7 @@ proc genProc10*[T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, R](retGen: sink Gen[R])
 proc genVoidProc*(): Gen[proc()] =
   ## Create a generator for a procedure that takes no arguments and returns
   ## nothing.
-  return proc(s: Source): proc() = (proc() = discard)
+  genConst((proc() {.closure.} = discard))
 
 # For void procs with args, they just consume args but return nothing.
 # They don't need to be deterministic for return value since there is none.
