@@ -73,13 +73,56 @@ proc genUniqueOrdSeqPartitions[T: SomeOrdinal](
   exclude: HashSet[T] = HashSet[T](),
   maxRetries = 100
 ): Gen[SeqPartitions[T]] =
-  genUniqueOrdSeq(g, minPoolLen, maxPoolLen, exclude, maxRetries).flatMap do (pool: seq[int]) -> Gen[SeqPartitions[T]]:
+  genUniqueOrdSeq(g, minPoolLen, maxPoolLen, exclude, maxRetries).flatMap do (pool: seq[T]) -> Gen[SeqPartitions[T]]:
     let poolEnd = pool.len - 1
     genTuple: (
       a: genInt(min(0, poolEnd), poolEnd).map(proc (send: auto): auto = 0..send),
       b: genInt(0, max(0, poolEnd)).map(proc (start: auto): auto = start..poolEnd),
       pool: genConst(pool)
     )
+
+type
+  Operation {.pure.} = enum
+    Incl
+    Excl
+    Clear
+
+  TestValue[T] = object
+    case isSequence: bool
+    of true: seq: seq[T]
+    of false: value: T
+
+proc genOrdSetOps[T: SomeOrdinal](
+  g: sink Gen[T],
+  minOpsLen = 0.Natural,
+  maxOpsLen = 100.Natural,
+  minPoolLen = 0.Natural,
+  maxPoolLen = 200.Natural,
+  maxRetries = 100
+): Gen[seq[(Operation, TestValue[T])]] =
+  genUniqueOrdSeq(g, minPoolLen, maxPoolLen, maxRetries = maxRetries).flatMap do (pool: seq[T]) -> auto:
+    let genValue = genBool().flatMap do (isSequence: bool) -> Gen[TestValue[T]]:
+      if isSequence:
+        genUniqueOrdSeq(genExhaustive(pool), maxLen = pool.len).map do (s: seq[T]) -> TestValue[T]:
+          TestValue[T](isSequence: true, seq: s)
+      else:
+        genExhaustive(pool).map do (x: T) -> TestValue[T]:
+          TestValue[T](isSequence: false, value: x)
+
+    let genOp =
+      if pool != []:
+        genEnum[Operation]().flatMap do (op: Operation) -> Gen[(Operation, TestValue[T])]:
+          genTuple: (
+            operation: genConst(op),
+            value: if op == Clear: genConst(default(TestValue[T])) else: genValue
+          )
+      else:
+        genConst: (
+          operation: Clear,
+          value: default(TestValue[T])
+        )
+
+    genSeq(genOp, minOpsLen.uint32, maxOpsLen.uint32)
 
 proc `==`[T](ps: PackedSet[T], hs: HashSet[T]): bool =
   if ps.len != hs.len:
@@ -310,6 +353,39 @@ property intersection, (
     b = toPackedSet(pool[secondSpan])
 
   if a * b != overlap or b * a != overlap:
+    psFail
+  else:
+    psPass
+
+property mutation, (
+  input: genOrdSetOps(genInt())
+):
+  type Element = typeof(input[0][1].value)
+  var
+    reference = initHashSet[Element]()
+    subject = initPackedSet[Element]()
+
+  for (operation, value) in input.items:
+    case operation
+    of Incl:
+      if value.isSequence:
+        reference.incl toHashSet(value.seq)
+        subject.incl toPackedSet(value.seq)
+      else:
+        reference.incl value.value
+        subject.incl value.value
+    of Excl:
+      if value.isSequence:
+        reference.excl toHashSet(value.seq)
+        subject.excl toPackedSet(value.seq)
+      else:
+        reference.excl value.value
+        subject.excl value.value
+    of Clear:
+      reference.clear()
+      subject.clear()
+
+  if subject != reference:
     psFail
   else:
     psPass
