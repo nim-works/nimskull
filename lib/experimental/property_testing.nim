@@ -1349,17 +1349,21 @@ type
     seed*: uint32
     failingValue*: Option[T]
     failingBuffer*: seq[byte]
-    errorMsg*: Option[string]
+    error*: Option[ref Exception]
     shrunk*: bool
     shrunkValue*: Option[T]
     shrunkBuffer*: seq[byte]
     debugBuffer*: seq[byte]
+  
+  DiscardExhaustionError* = object of CatchableError
+    ## Error when a generator exhausts the number of discards while checking a
+    ## property.
 
 
 const defaultTrials* = 1024 ## number of trials to run per property
 
 
-proc evaluate[T](p: Property[T], s: Source): (PropertyStatus, T, Option[string]) =
+proc evaluate[T](p: Property[T], s: Source): (PropertyStatus, T, Option[ref Exception]) =
   ## Internal helper to run a generator and check its property status.
   ##
   ## Error Handling:
@@ -1369,20 +1373,19 @@ proc evaluate[T](p: Property[T], s: Source): (PropertyStatus, T, Option[string])
   try:
     result[1] = p.gen(s)
   except FilterExhaustedError:
-    return (psDiscard, default(T), none(string))
+    return (psDiscard, default(T), none(ref Exception))
   except SourceLimitExceededError:
-    return (psDiscard, default(T), none(string))
+    return (psDiscard, default(T), none(ref Exception))
   except:
     let e = getCurrentException()
-    return (psError, default(T), some(if e != nil: e.msg
-                                      else: "Unknown error during generation"))
+    return (psError, default(T), some(e))
 
   try:
     result[0] = p.check(result[1])
   except:
     let e = getCurrentException()
     result[0] = psFail
-    result[2] = some(if e != nil: e.msg else: "Unknown error during check")
+    result[2] = some(e)
 
 
 proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
@@ -1409,14 +1412,15 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
   while result.runCount < trials:
     if discardCount >= actualMaxDiscards:
       result.status = psFail
-      result.errorMsg = some("Gave up: too many discards (" & $discardCount & ")")
+      let e = (ref DiscardExhaustionError)(msg: "Gave up: too many discards (" & $discardCount & ")")
+      result.error = some[ref Exception](e)
       return
 
     let runSeed = uint32(rng.next() and 0xFFFFFFFF'u64)
     result.seed = runSeed
 
     var s = newSource(runSeed)
-    let (status, val, valErrorMsg) = p.evaluate(s)
+    let (status, val, err) = p.evaluate(s)
 
     if status == psDiscard:
       discardCount.inc
@@ -1428,7 +1432,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       result.status = psFail
       result.failingValue = some(val)
       result.failingBuffer = s.buffer
-      result.errorMsg = valErrorMsg
+      result.error = err
       return
 
     if status == psFail:
@@ -1436,7 +1440,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       result.status = psFail
       result.failingValue = some(val)
       result.failingBuffer = s.buffer
-      result.errorMsg = valErrorMsg
+      result.error = err
       if debug:
         result.debugBuffer = s.buffer
 
@@ -1444,7 +1448,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
       var
         bestBuffer = s.buffer
         bestVal = val
-        bestErrorMsg = valErrorMsg
+        bestErrorMsg = err
         attempts = 0
         validProbes = false
 
@@ -1462,7 +1466,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
 
           # Try candidate
           var sCand = newSource(cand)
-          let (cStatus, cVal, cErrorMsg) = p.evaluate(sCand)
+          let (cStatus, cVal, cError) = p.evaluate(sCand)
 
           if cStatus != psError:
             validProbes = true
@@ -1473,7 +1477,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
             # We accept the first one that fails:
             bestBuffer = cand
             bestVal = cVal
-            bestErrorMsg = cErrorMsg
+            bestErrorMsg = cError
             improved = true
             result.shrunk = true
             break # Restart candidates iterator with new bestBuffer
@@ -1485,7 +1489,7 @@ proc runProperty*[T](p: Property[T], trials: int = defaultTrials,
 
       result.shrunkBuffer = bestBuffer
       result.shrunkValue = some(bestVal)
-      result.errorMsg = bestErrorMsg
+      result.error = bestErrorMsg
       return # Return immediately on failure+shrink
 
   # If loop finishes without returning, it's a pass
