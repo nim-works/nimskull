@@ -85,7 +85,7 @@ jobs:
             },
             {
               "name": "macOS (M1)",
-              "runner": "macos-14"
+              "runner": "macos-15"
             },
             {
               "name": "Linux (AArch64)",

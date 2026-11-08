@@ -56,12 +56,12 @@ jobs:
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "15.0.1"
+          xcode-version: "16.0.0"
 
       - name: Set macOS SDK version (macOS M1)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         run: |
-          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          sdkpath=$(xcrun --sdk macosx15.0 --show-sdk-path)
           echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - name: Download source archive

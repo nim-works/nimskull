@@ -88,12 +88,12 @@ jobs:
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "15.0.1"
+          xcode-version: "16.0.0"
 
       - name: Set macOS SDK version (macOS M1)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         run: |
-          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          sdkpath=$(xcrun --sdk macosx15.0 --show-sdk-path)
           echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - name: Build release binaries
@@ -144,12 +144,12 @@ jobs:
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "15.0.1"
+          xcode-version: "16.0.0"
 
       - name: Set macOS SDK version (macOS M1)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         run: |
-          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          sdkpath=$(xcrun --sdk macosx15.0 --show-sdk-path)
           echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - name: Install dependencies (macOS)
@@ -158,7 +158,7 @@ jobs:
           brew update
 
           # Downgrade to OpenSSL 3.0
-          brew unlink openssl
+          brew unlink openssl || :
           brew install openssl@3.0
           brew link --overwrite openssl@3.0
 
@@ -215,12 +215,12 @@ jobs:
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "15.0.1"
+          xcode-version: "16.0.0"
 
       - name: Set macOS SDK version (macOS M1)
         if: runner.os == 'macOS' && runner.arch == 'ARM64'
         run: |
-          sdkpath=$(xcrun --sdk macosx14.0 --show-sdk-path)
+          sdkpath=$(xcrun --sdk macosx15.0 --show-sdk-path)
           echo "SDKROOT=$sdkpath" >> "$GITHUB_ENV"
 
       - uses: ./.github/actions/download-compiler
