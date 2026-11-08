@@ -301,6 +301,14 @@ suite "Structural API & Parser":
     check endArray == 1 + 3 + 4 + 2 + 2 + 2
     check endArray == sA.buffer.len
 
+    # 4. Const testing
+    var sC = newSource(seed = 4)
+    sC.recordConst()
+    check sC.buffer == @[byte(ord(skConst))]
+    let endConst = skipNode(sC.buffer, 0)
+    check endConst == 1
+    check endConst == sC.buffer.len
+
 
   test "Structural Iterator Parsing - candidates":
     # 1. Scalar Lowering Validation
@@ -1289,6 +1297,20 @@ suite "Public API & Properties":
         else: psFail
 
     check result.status == psPass
+
+
+  test "genTuple with genConst shrinking (https://github.com/nim-works/nimskull/issues/1729)":
+    let prop =
+      forAll((i: genTuple((genInt(), genConst(0))))):
+        if (i[0] and 0x10) != 0:
+          return psFail
+        return psPass
+    let result = runProperty(prop, seed = 1)
+
+    check result.status == psFail
+    check result.shrunk
+    check (result.shrunkValue.get()[0] and 0x10) != 0
+    check result.shrunkValue.get()[1] == 0
 
 
 suite "Floating Point Support":
