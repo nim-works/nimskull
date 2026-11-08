@@ -2511,7 +2511,7 @@ proc `[]`*[T, U: Ordinal](s: string, x: HSlice[T, U]): string {.inline.} =
   ##    var s = "abcdef"
   ##    assert s[1..3] == "bcd"
   let a = s ^^ x.a
-  let L = (s ^^ x.b) - a + 1
+  let L = max(0, (s ^^ x.b) - a + 1)
   result = newString(L)
   for i in 0 ..< L: result[i] = s[i + a]
 
@@ -2527,7 +2527,7 @@ proc `[]=`*[T, U: Ordinal](s: var string, x: HSlice[T, U], b: string) =
     assert s == "axyzh"
 
   var a = s ^^ x.a
-  var L = (s ^^ x.b) - a + 1
+  var L = max(0, (s ^^ x.b) - a + 1)
   if L == b.len:
     for i in 0..<L: s[i+a] = b[i]
   else:
@@ -2541,7 +2541,7 @@ proc `[]`*[Idx, T; U, V: Ordinal](a: array[Idx, T], x: HSlice[U, V]): seq[T] =
   ##    var a = [1, 2, 3, 4]
   ##    assert a[0..2] == @[1, 2, 3]
   let xa = a ^^ x.a
-  let L = (a ^^ x.b) - xa + 1
+  let L = max(0, (a ^^ x.b) - xa + 1)
   result = newSeq[T](L)
   for i in 0..<L: result[i] = a[Idx(i + xa)]
 
@@ -2553,7 +2553,7 @@ proc `[]=`*[Idx, T; U, V: Ordinal](a: var array[Idx, T], x: HSlice[U, V], b: ope
   ##   a[1..2] = @[99, 88]
   ##   assert a == [10, 99, 88, 40, 50]
   let xa = a ^^ x.a
-  let L = (a ^^ x.b) - xa + 1
+  let L = max(0, (a ^^ x.b) - xa + 1)
   if L == b.len:
     for i in 0..<L: a[Idx(i + xa)] = b[i]
   else:
@@ -2567,7 +2567,7 @@ proc `[]`*[T; U, V: Ordinal](s: openArray[T], x: HSlice[U, V]): seq[T] =
   ##    var s = @[1, 2, 3, 4]
   ##    assert s[0..2] == @[1, 2, 3]
   let a = s ^^ x.a
-  let L = (s ^^ x.b) - a + 1
+  let L = max(0, (s ^^ x.b) - a + 1)
   newSeq(result, L)
   for i in 0 ..< L: result[i] = s[i + a]
 
@@ -2582,7 +2582,7 @@ proc `[]=`*[T; U, V: Ordinal](s: var seq[T], x: HSlice[U, V], b: openArray[T]) =
     assert s == @"axyzh"
 
   let a = s ^^ x.a
-  let L = (s ^^ x.b) - a + 1
+  let L = max(0, (s ^^ x.b) - a + 1)
   if L == b.len:
     for i in 0 ..< L: s[i+a] = b[i]
   else:
