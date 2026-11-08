@@ -1,8 +1,8 @@
 #
 #
 #                 NimSkull's runtime library
-#              (c) Copyright 2012 Andreas Rumpf
 #     (c) Copyright 2024 Leorize <leorize+oss@disroot.org>
+#              (c) Copyright 2012 Andreas Rumpf
 #
 # See the file "copying.txt", included in this distribution, for
 # details about copyright.
