@@ -593,7 +593,7 @@ func `<`(a, b: SemSpellCandidate): bool =
   # the world this code even works?
   toOrderTup(a) < toOrderTup(b)
 
-proc mustFixSpelling(c: PContext): bool {.inline.} =
+proc mustFixSpelling*(c: PContext): bool {.inline.} =
   result = c.config.spellSuggestMax != 0 and c.compilesContextId == 0
     # don't slowdown inside compiles()
 
