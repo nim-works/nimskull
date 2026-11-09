@@ -353,7 +353,7 @@ const
   }
 
 type
-  TSymFlag* = enum    # 48 flags!
+  TSymFlag* = enum    # 43 flags!
     sfUsed            ## read access of sym (for warnings) or simply used
     sfExported        ## symbol is exported from module
     sfFromGeneric     ## symbol is instantiation of a generic; this is needed
@@ -415,6 +415,12 @@ type
     sfUsedInFinallyOrExcept  ## symbol is used inside an 'except' or 'finally'
     sfNoalias         ## 'noalias' annotation, means C's 'restrict'
     sfEffectsDelayed  ## an 'effectsDelayed' parameter
+    # HACK: forceInline should not exist as a flag. The .inline calling
+    #       convention should take on the "always inline" meaning instead 
+    sfForceInline     ## when the procedure is used directly as a callee, it
+                      ## must be inlined. Used for caching the result of the
+                      ## costly inline-eligibility check; don't use the flag
+                      ## for anything else
 
   TSymFlags* = set[TSymFlag]
 
