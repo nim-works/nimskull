@@ -8,13 +8,20 @@ import std/typetraits
 
 import experimental/property_testing
 
-proc genOrdSet[T: SomeOrdinal](
+proc genOrdSet[T: Ordinal](
   g: sink Gen[T],
   minLen = 0.Natural,
   maxLen = 100.Natural,
   exclude: HashSet[T] = HashSet[T](),
   maxRetries = 100
 ): Gen[HashSet[T]] =
+  # Cap maximum length to number of unique elements
+  let maxLen =
+    when sizeof(T) < sizeof(int):
+      min(maxLen, len(low(T)..high(T)) - len(exclude))
+    else:
+      maxLen
+
   assert minLen <= maxLen
 
   result = proc (s: Source): HashSet[T] =
@@ -32,11 +39,11 @@ proc genOrdSet[T: SomeOrdinal](
 
     output
 
-proc toPackedSet[T: SomeOrdinal](hs: HashSet[T]): PackedSet[T] =
+proc toPackedSet[T: Ordinal](hs: HashSet[T]): PackedSet[T] =
   for i in hs.items:
     result.incl i
 
-proc genPackedOrdSet[T: SomeOrdinal](
+proc genPackedOrdSet[T: Ordinal](
   g: sink Gen[T],
   minLen = 0.Natural,
   maxLen = 100.Natural,
@@ -48,7 +55,7 @@ proc genPackedOrdSet[T: SomeOrdinal](
     proc (s: HashSet[T]): PackedSet[T] = toPackedSet(s)
   )
 
-proc genUniqueOrdSeq[T: SomeOrdinal](
+proc genUniqueOrdSeq[T: Ordinal](
   g: sink Gen[T],
   minLen = 0.Natural,
   maxLen = 100.Natural,
@@ -66,7 +73,7 @@ type
     b: Slice[int]
     pool: seq[T]
 
-proc genUniqueOrdSeqPartitions[T: SomeOrdinal](
+proc genUniqueOrdSeqPartitions[T: Ordinal](
   g: sink Gen[T],
   minPoolLen = 0.Natural,
   maxPoolLen = 200.Natural,
@@ -92,7 +99,7 @@ type
     of true: seq: seq[T]
     of false: value: T
 
-proc genOrdSetOps[T: SomeOrdinal](
+proc genOrdSetOps[T: Ordinal](
   g: sink Gen[T],
   minOpsLen = 0.Natural,
   maxOpsLen = 100.Natural,
@@ -144,251 +151,249 @@ template property(name, gens, check: untyped): untyped =
       {.line: instantiationInfo().}:
         raise newException(AssertionDefect, "Test: `" & astToStr(name) & "` failed: " & $result)
 
-property canStoreInts, (hs: genOrdSet(genInt())):
-  let ps = toPackedSet(hs)
-  if ps == hs:
-    psPass
-  else:
-    psFail
+proc testProperties[T](g: sink Gen[T]) =
+  property toPackedSetDedups, (
+    input: genUniqueOrdSeq(g).flatMap(
+      proc (s: seq[T]): auto =
+        genTuple: (
+          maxElems: genConst(s.len),
+          samples: genSeq(genExhaustive(s), minLen = s.len.uint32, maxLen = s.len.uint32 * 2)
+        )
+    )
+  ):
+    let (maxElems, samples) = input
+    let ps = toPackedSet(samples)
 
-property canStoreUints, (hs: genOrdSet(genUint64())):
-  let ps = toPackedSet(hs)
-  if ps == hs:
-    psPass
-  else:
-    psFail
+    if ps.len > maxElems:
+      return psFail
 
-block:
-  type Enum = enum A, B, C, D, E, F
-  property canStoreEnum, (hs: genOrdSet(genEnum[Enum](), maxLen = enumLen(Enum))):
-    let ps = toPackedSet(hs)
+    let hs = toHashSet(samples)
+    if ps == hs:
+      return psPass
+    else:
+      return psFail
+
+  property iterateAllMembers, (hs: genOrdSet(g)):
+    let
+      ps = toPackedSet(hs)
+      hsElems = toSeq(hs.items).sorted()
+      psElems = toSeq(ps.items).sorted()
+
     if ps == hs:
       psPass
     else:
       psFail
 
-property toPackedSetDedups, (
-  input: genUniqueOrdSeq(genInt()).flatMap(
-    proc (s: seq[int]): auto =
-      genTuple: (
-        maxElems: genConst(s.len),
-        samples: genSeq(genExhaustive(s), minLen = s.len.uint32, maxLen = s.len.uint32 * 2)
-      )
-  )
-):
-  let (maxElems, samples) = input
-  let ps = toPackedSet(samples)
+  property containsOrIncl, (
+    input: g.flatMap(
+      proc (testElem: T): auto =
+        genTuple: (
+          testElem: genConst(testElem),
+          set: genPackedOrdSet(g, exclude = toHashSet([testElem]))
+        )
+    )
+  ):
+    let (testElem, set) = input
+    var ps = set
 
-  if ps.len > maxElems:
-    return psFail
+    # Add once, should not be in the set
+    if ps.containsOrIncl(testElem):
+      return psFail
 
-  let hs = toHashSet(samples)
-  if ps == hs:
+    # Should now be in the set
+    if testElem notin ps or not ps.containsOrIncl(testElem):
+      return psFail
+
     return psPass
-  else:
-    return psFail
 
-property iterateAllMembers, (hs: genOrdSet(genInt())):
-  let
-    ps = toPackedSet(hs)
-    hsElems = toSeq(hs.items).sorted()
-    psElems = toSeq(ps.items).sorted()
+  property missingOrExcl, (
+    input: genUniqueOrdSeq(g, minLen = 1).flatMap(
+      proc (s: seq[T]): auto =
+        genTuple: (
+          testElem: genExhaustive(s),
+          set: genConst(toPackedSet(s))
+        )
+    )
+  ):
+    let (testElem, set) = input
+    var ps = set
 
-  if ps == hs:
-    psPass
-  else:
-    psFail
-
-property containsOrIncl, (
-  input: genInt().flatMap(
-    proc (testElem: int): auto =
-      genTuple: (
-        testElem: genConst(testElem),
-        set: genPackedOrdSet(genInt(), exclude = toHashSet([testElem]))
-      )
-  )
-):
-  let (testElem, set) = input
-  var ps = set
-
-  # Add once, should not be in the set
-  if ps.containsOrIncl(testElem):
-    return psFail
-
-  # Should now be in the set
-  if testElem notin ps or not ps.containsOrIncl(testElem):
-    return psFail
-
-  return psPass
-
-property missingOrExcl, (
-  input: genUniqueOrdSeq(genInt(), minLen = 1).flatMap(
-    proc (s: seq[int]): auto =
-      genTuple: (
-        testElem: genExhaustive(s),
-        set: genConst(toPackedSet(s))
-      )
-  )
-):
-  let (testElem, set) = input
-  var ps = set
-
-  # Should be in the set, will be removed
-  if ps.missingOrExcl(testElem):
-    return psFail
-
-  # Should not be in the set
-  if testElem in ps or not ps.missingOrExcl(testElem):
-    return psFail
-
-  return psPass
-
-property subset, (
-  input: genUniqueOrdSeq(genInt()).flatMap(
-    proc (s: seq[int]): auto =
-      genTuple: (
-        set: genConst(toPackedSet(s)),
-        subset: genPackedOrdSet(genExhaustive(s), maxLen = s.len)
-      )
-  )
-):
-  let (set, subset) = input
-
-  if not (subset <= set and set >= subset):
-    return psFail
-
-  if subset > set or set < subset:
-    return psFail
-
-  if subset.len < set.len:
-    if not (subset < set and set > subset):
+    # Should be in the set, will be removed
+    if ps.missingOrExcl(testElem):
       return psFail
 
-    if set == subset:
+    # Should not be in the set
+    if testElem in ps or not ps.missingOrExcl(testElem):
       return psFail
 
-  return psPass
+    return psPass
 
-property equivalence, (
-  input: genPackedOrdSet(genInt())
-):
-  let cloned = input
-  if input != cloned:
-    return psFail
+  property subset, (
+    input: genUniqueOrdSeq(g).flatMap(
+      proc (s: seq[T]): auto =
+        genTuple: (
+          set: genConst(toPackedSet(s)),
+          subset: genPackedOrdSet(genExhaustive(s), maxLen = s.len)
+        )
+    )
+  ):
+    let (set, subset) = input
 
-  return psPass
+    if not (subset <= set and set >= subset):
+      return psFail
 
-property union, (
-  input: genUniqueOrdSeqPartitions(genInt())
-):
-  let
-    (firstSpan, secondSpan, pool) = input
-    reference = toPackedSet(pool[firstSpan] & pool[secondSpan])
-    a = toPackedSet(pool[firstSpan])
-    b = toPackedSet(pool[secondSpan])
+    if subset > set or set < subset:
+      return psFail
 
-  if a + b != reference or b + a != reference:
-    return psFail
+    if subset.len < set.len:
+      if not (subset < set and set > subset):
+        return psFail
 
-  var mutIncl = a
-  mutIncl.incl b
-  if mutIncl != reference:
-    return psFail
+      if set == subset:
+        return psFail
 
-  mutIncl = b
-  mutIncl.incl a
-  if mutIncl != reference:
-    return psFail
+    return psPass
 
-  return psPass
+  property equivalence, (
+    input: genPackedOrdSet(g)
+  ):
+    let cloned = input
+    if input != cloned:
+      return psFail
 
-property difference, (
-  input: genUniqueOrdSeqPartitions(genInt())
-):
-  let
-    (firstSpan, secondSpan, pool) = input
-    aOnlySpan = 0..min(firstSpan.b, secondSpan.a - 1)
-    bOnlySpan = max(firstSpan.b + 1, secondSpan.a)..pool.high
-    a = toPackedSet(pool[firstSpan])
-    b = toPackedSet(pool[secondSpan])
-    aOnly = toPackedSet(pool[aOnlySpan])
-    bOnly = toPackedSet(pool[bOnlySpan])
+    return psPass
 
-  if a - b != aOnly:
-    return psFail
+  property union, (
+    input: genUniqueOrdSeqPartitions(g)
+  ):
+    let
+      (firstSpan, secondSpan, pool) = input
+      reference = toPackedSet(pool[firstSpan] & pool[secondSpan])
+      a = toPackedSet(pool[firstSpan])
+      b = toPackedSet(pool[secondSpan])
 
-  if b - a != bOnly:
-    return psFail
+    if a + b != reference or b + a != reference:
+      return psFail
 
-  return psPass
+    var mutIncl = a
+    mutIncl.incl b
+    if mutIncl != reference:
+      return psFail
 
-property disjoint, (
-  input: genUniqueOrdSeqPartitions(genInt())
-):
-  let
-    (firstSpan, secondSpan, pool) = input
-    overlapSpan = max(0, secondSpan.a)..min(firstSpan.b, secondSpan.b)
-    a = toPackedSet(pool[firstSpan])
-    b = toPackedSet(pool[secondSpan])
+    mutIncl = b
+    mutIncl.incl a
+    if mutIncl != reference:
+      return psFail
 
-  if overlapSpan.len > 0:
-    if a.disjoint(b) or b.disjoint(a):
-      psFail
+    return psPass
+
+  property difference, (
+    input: genUniqueOrdSeqPartitions(g)
+  ):
+    let
+      (firstSpan, secondSpan, pool) = input
+      aOnlySpan = 0..min(firstSpan.b, secondSpan.a - 1)
+      bOnlySpan = max(firstSpan.b + 1, secondSpan.a)..pool.high
+      a = toPackedSet(pool[firstSpan])
+      b = toPackedSet(pool[secondSpan])
+      aOnly = toPackedSet(pool[aOnlySpan])
+      bOnly = toPackedSet(pool[bOnlySpan])
+
+    if a - b != aOnly:
+      return psFail
+
+    if b - a != bOnly:
+      return psFail
+
+    return psPass
+
+  property disjoint, (
+    input: genUniqueOrdSeqPartitions(g)
+  ):
+    let
+      (firstSpan, secondSpan, pool) = input
+      overlapSpan = max(0, secondSpan.a)..min(firstSpan.b, secondSpan.b)
+      a = toPackedSet(pool[firstSpan])
+      b = toPackedSet(pool[secondSpan])
+
+    if overlapSpan.len > 0:
+      if a.disjoint(b) or b.disjoint(a):
+        psFail
+      else:
+        psPass
     else:
-      psPass
-  else:
-    if not a.disjoint(b) or not b.disjoint(a):
+      if not a.disjoint(b) or not b.disjoint(a):
+        psFail
+      else:
+        psPass
+
+  property intersection, (
+    input: genUniqueOrdSeqPartitions(g)
+  ):
+    let
+      (firstSpan, secondSpan, pool) = input
+      overlapSpan = max(0, secondSpan.a)..min(firstSpan.b, secondSpan.b)
+      overlap = toPackedSet(pool[overlapSpan])
+      a = toPackedSet(pool[firstSpan])
+      b = toPackedSet(pool[secondSpan])
+
+    if a * b != overlap or b * a != overlap:
       psFail
     else:
       psPass
 
-property intersection, (
-  input: genUniqueOrdSeqPartitions(genInt())
-):
-  let
-    (firstSpan, secondSpan, pool) = input
-    overlapSpan = max(0, secondSpan.a)..min(firstSpan.b, secondSpan.b)
-    overlap = toPackedSet(pool[overlapSpan])
-    a = toPackedSet(pool[firstSpan])
-    b = toPackedSet(pool[secondSpan])
+  property mutation, (
+    input: genOrdSetOps(g)
+  ):
+    type Element = typeof(input[0][1].value)
+    var
+      reference = initHashSet[Element]()
+      subject = initPackedSet[Element]()
 
-  if a * b != overlap or b * a != overlap:
-    psFail
-  else:
-    psPass
+    for (operation, value) in input.items:
+      case operation
+      of Incl:
+        if value.isSequence:
+          reference.incl toHashSet(value.seq)
+          subject.incl toPackedSet(value.seq)
+        else:
+          reference.incl value.value
+          subject.incl value.value
+      of Excl:
+        if value.isSequence:
+          reference.excl toHashSet(value.seq)
+          subject.excl toPackedSet(value.seq)
+        else:
+          reference.excl value.value
+          subject.excl value.value
+      of Clear:
+        reference.clear()
+        subject.clear()
 
-property mutation, (
-  input: genOrdSetOps(genInt())
-):
-  type Element = typeof(input[0][1].value)
-  var
-    reference = initHashSet[Element]()
-    subject = initPackedSet[Element]()
+      if subject != reference:
+        return psFail
 
-  for (operation, value) in input.items:
-    case operation
-    of Incl:
-      if value.isSequence:
-        reference.incl toHashSet(value.seq)
-        subject.incl toPackedSet(value.seq)
-      else:
-        reference.incl value.value
-        subject.incl value.value
-    of Excl:
-      if value.isSequence:
-        reference.excl toHashSet(value.seq)
-        subject.excl toPackedSet(value.seq)
-      else:
-        reference.excl value.value
-        subject.excl value.value
-    of Clear:
-      reference.clear()
-      subject.clear()
+    if subject != reference:
+      return psFail
+    return psPass
 
-  if subject != reference:
-    psFail
-  else:
-    psPass
+block ints:
+  testProperties(genInt())
+  testProperties(genInt8())
+  testProperties(genInt16())
+  testProperties(genInt32())
+  testProperties(genInt64())
+
+  testProperties(genUint8())
+  testProperties(genUint16())
+  testProperties(genUint32())
+  testProperties(genUint64())
+
+block enums:
+  type SmallEnum = enum A, B, C, D
+  testProperties(genBool())
+  testProperties(genChar())
+  testProperties(genEnum[SmallEnum]())
 
 proc sortedPairs[T](t: T): auto = toSeq(t.pairs).sorted
 template sortedItems(t: untyped): untyped = sorted(toSeq(t))
@@ -399,74 +404,8 @@ proc cmp(a: Id, b: Id): int {.borrow.}
 proc `==`(a: Id, b: Id): bool {.borrow.}
 proc `<`(a: Id, b: Id): bool {.borrow.}
 
-block genericTests: 
-  # we use HashSet as groundtruth, it's well tested elsewhere
-  template testDel(A: typedesc, t: typed, t0: typed) =
-
-    block:
-      template checkEquals() =
-        doAssert t.len == t0.len
-        for k in t0:
-          doAssert k in t
-        for k in t:
-          doAssert k in t0
-
-        doAssert sortedItems(t) == sortedItems(t0)
-
-      template incl2(i) =
-        t.incl i
-        t0.incl i
-
-      template excl2(i) =
-        t.excl i
-        t0.excl i
-
-      var expected: seq[A]
-      let n = 100
-      let n2 = n*2
-      for i in 0..<n:
-        incl2(A(i))
-      checkEquals()
-      for i in 0..<n:
-        if i mod 3 == 0:
-          if i < n div 2:
-            excl2(A(i))
-          else:
-            t0.excl A(i)
-            doAssert A(i) in t
-            doAssert not t.missingOrExcl A(i)
-
-      checkEquals()
-      for i in n..<n2:
-        incl2(A(i))
-      checkEquals()
-      for i in 0..<n2:
-        if i mod 7 == 0:
-          excl2(A(i))
-      checkEquals()
-
-      # notin check
-      for i in 0..<t.len:
-        if i mod 7 == 0:
-          doAssert A(i) notin t0
-          doAssert A(i) notin t
-          # issue #13505
-          doAssert t.missingOrExcl(A(i))
-
-  var t: PackedSet[int]
-  var t0: HashSet[int]
-  testDel(int, t, t0)
-
-  var distT: PackedSet[Id]
-  var distT0: HashSet[Id]
-  testDel(Id, distT, distT0)
-
-  doAssert union(distT, initPackedSet[Id]()) == distT
-
-  var charT: PackedSet[char]
-  var charT0: HashSet[char]
-  testDel(char, charT, charT0)
-
+block special:
+  testProperties(genInt().map(proc (x: int): Id = Id(x)))
 
 block typeSafetyTest:
   # mixing sets of different types shouldn't compile
@@ -480,151 +419,8 @@ block typeSafetyTest:
   type NonOrdinal = string
   doAssert not compiles( initPackedSet[NonOrdinal]() )
 
-type EnumABCD = enum A, B, C, D
-
-block enumTest:
-  var letterSet = initPackedSet[EnumABCD]()
-
-  for x in [A, C]:
-    letterSet.incl(x)
-
-  doAssert A in letterSet
-  doAssert B notin letterSet
-  doAssert C in letterSet
-  doAssert D notin letterSet
-
-type Foo = distinct int16
-proc `$`(a: Foo): string {.borrow.} # `echo a` below won't work without `$` defined, as expected
-
 block printTest:
   var a = initPackedSet[EnumABCD]()
   a.incl A
-  a.incl C 
-  doAssert $a == "{A, C}"
-
-import std/intsets
-
-block legacyMainModuleTests:
-  template genericTests(A: typedesc[Ordinal], x: typed) =
-    block:
-      proc typSeq(s: seq[int]): seq[A] = s.map(proc (i: int): A = A(i))
-      x.incl(A(1))
-      x.incl(A(2))
-      x.incl(A(7))
-      x.incl(A(1056))
-
-      x.incl(A(1044))
-      x.excl(A(1044))
-
-      doAssert x == typSeq(@[1, 2, 7, 1056]).toPackedSet
-
-      doAssert x.containsOrIncl(A(888)) == false
-      doAssert A(888) in x
-      doAssert x.containsOrIncl(A(888)) == true
-
-      doAssert x.missingOrExcl(A(888)) == false
-      doAssert A(888) notin x
-      doAssert x.missingOrExcl(A(888)) == true
-
-      var xs = toSeq(items(x))
-      xs.sort(cmp[A])
-      doAssert xs == typSeq(@[1, 2, 7, 1056])
-
-      var y: PackedSet[A]
-      assign(y, x)
-      var ys = toSeq(items(y))
-      ys.sort(cmp[A])
-      doAssert ys == typSeq(@[1, 2, 7, 1056])
-
-      doAssert x == y
-
-      var z: PackedSet[A]
-      for i in 0..1000:
-        incl z, A(i)
-        doAssert z.len() == i+1
-      for i in 0..1000:
-        doAssert z.contains(A(i))
-
-      var w = initPackedSet[A]()
-      w.incl(A(1))
-      w.incl(A(4))
-      w.incl(A(50))
-      w.incl(A(1001))
-      w.incl(A(1056))
-
-      var xuw = x.union(w)
-      var xuws = toSeq(items(xuw))
-      xuws.sort(cmp)
-      doAssert xuws == typSeq(@[1, 2, 4, 7, 50, 1001, 1056])
-
-      var xiw = x.intersection(w)
-      var xiws = toSeq(items(xiw))
-      xiws.sort(cmp)
-      doAssert xiws == @[A(1), A(1056)]
-
-      var xdw = x.difference(w)
-      var xdws = toSeq(items(xdw))
-      xdws.sort(cmp[A])
-      doAssert xdws == @[A(2), A(7)]
-
-      var xsw = x.symmetricDifference(w)
-      var xsws = toSeq(items(xsw))
-      xsws.sort(cmp[A])
-      doAssert xsws == typSeq(@[2, 4, 7, 50, 1001])
-
-      x.incl(w)
-      xs = toSeq(items(x))
-      xs.sort(cmp[A])
-      doAssert xs == typSeq(@[1, 2, 4, 7, 50, 1001, 1056])
-
-      doAssert w <= x
-
-      doAssert w < x
-
-      doAssert(not disjoint(w, x))
-
-      var u = initPackedSet[A]()
-      u.incl(A(3))
-      u.incl(A(5))
-      u.incl(A(500))
-      doAssert disjoint(u, x)
-
-      var v = initPackedSet[A]()
-      v.incl(A(2))
-      v.incl(A(50))
-
-      x.excl(v)
-      xs = toSeq(items(x))
-      xs.sort(cmp[A])
-      doAssert xs == typSeq(@[1, 4, 7, 1001, 1056])
-
-      proc bug12366 =
-        var
-          a = initPackedSet[A]()
-          y = initPackedSet[A]()
-          n = 3584
-
-        for i in 0..n:
-          a.incl(A(i))
-          y.incl(A(i))
-
-        let z = symmetricDifference(a, y)
-        doAssert z.len == 0
-        doAssert $z == "{}"
-
-      bug12366()
-
-  var legacyInit = initIntSet()
-  genericTests(int, legacyInit)
-
-  var intGenericInit = initPackedSet[int]()
-  genericTests(int, intGenericInit)
-
-  var int32GenericInit = initPackedSet[int32]()
-  genericTests(int32, int32GenericInit)
-
-  var int64GenericInit = initPackedSet[int64]()
-  genericTests(int64, int64GenericInit)
-
-  var intDistinct = initPackedSet[Id]()
-  genericTests(Id, intDistinct)
+  a.incl C
+  doAssert $a == "{A, C}" or $a == "{C, A}"
