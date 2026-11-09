@@ -1085,3 +1085,19 @@ block typed_macro_in_generic_object_when:
   doAssert not compiles(o1.val)
   var o2 = Object[1](val: 2)
   doAssert o2.val == 2
+
+block builtin_generic_type_in_template:
+  # regression test for templates expanding to builtin generic types not being
+  # usable as invocation head
+  template get(): typedesc = seq
+  var x: get()[int]
+  doAssert x is seq[int]
+
+block generic_type_in_template:
+  # regression test for templates expanding to generic types not being
+  # usable as invocation head
+  type Generic[T] = object
+
+  template get(): typedesc = Generic
+  var x: get()[int]
+  doAssert x is Generic[int]
