@@ -19,7 +19,8 @@ import std/private/since
 
 ## .. include:: ../../doc/astspec.txt
 
-from system/magics import NimNodeKind, NimSymKind, NimTypeKind, BindSymRule
+from system/magics import NimNodeKind, NimSymKind, NimTypeKind, BindSymRule,
+                          bindSym
 
 export
   magics.NimNodeKind, magics.NimSymKind, magics.NimTypeKind,
@@ -321,7 +322,15 @@ proc ident*(name: string): NimNode {.magicImport.} =
   ## Create a new ident node from a string.
   magics.newIdentNode(name)
 
-template bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): NimNode =
+proc bindSymImpl(ident, rule: NimNode): NimNode =
+  # this procedure cannot be inlined into the bindSym macro directly,
+  # as the `bindSym` would yield the macro symbol, not the magic
+  result = newNimNode(nnkCall)
+  result.add bindSym("bindSym", brClosed)
+  result.add ident
+  result.add rule
+
+macro bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): untyped =
   ## Creates a node that binds `ident` to a symbol node. The bound symbol
   ## may be an overloaded symbol.
   ## if `ident` is a NimNode, it must have `nnkIdent` kind.
@@ -333,7 +342,9 @@ template bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): NimNod
   ## returned even if the symbol is not ambiguous.
   ##
   ## See the `manual <manual.html#macros-bindsym>`_ for more details.
-  magics.bindSym(ident, rule)
+  # it's not possible to use a template, as that would wrap the expression
+  # in a statement list expression
+  bindSymImpl(ident, rule)
 
 when defined(nimskullHasUnaryGenSym):
   proc genSym*(ident = ""): NimNode {.magicImport.} =
