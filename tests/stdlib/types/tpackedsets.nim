@@ -420,6 +420,7 @@ block typeSafetyTest:
   doAssert not compiles( initPackedSet[NonOrdinal]() )
 
 block printTest:
+  type EnumABCD = enum A, B, C, D
   var a = initPackedSet[EnumABCD]()
   a.incl A
   a.incl C
