@@ -179,7 +179,7 @@ proc testProperties[T](g: sink Gen[T]) =
       hsElems = toSeq(hs.items).sorted()
       psElems = toSeq(ps.items).sorted()
 
-    if ps == hs:
+    if psElems == hsElems:
       psPass
     else:
       psFail
@@ -400,7 +400,6 @@ template sortedItems(t: untyped): untyped = sorted(toSeq(t))
 
 type Id = distinct int
 proc `$`(x: Id): string {.borrow.}
-proc cmp(a: Id, b: Id): int {.borrow.}
 proc `==`(a: Id, b: Id): bool {.borrow.}
 proc `<`(a: Id, b: Id): bool {.borrow.}
 
