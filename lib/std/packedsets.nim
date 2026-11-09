@@ -291,7 +291,7 @@ proc intersection*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
     assert c.len == 1
     assert c == [3].toPackedSet
 
-  if s1.bitmap.len < s2.bitmap.len:
+  if s1.bitmap.len > s2.bitmap.len:
     result = intersection(s2, s1)
   else:
     result = initPackedSet[A](s1.bitmap.len)
@@ -351,7 +351,7 @@ proc disjoint*[A](s1, s2: PackedSet[A]): bool {.inline.} =
     assert disjoint(a, b) == false
     assert disjoint(a, c) == true
 
-  if s1.bitmap.len < s2.bitmap.len:
+  if s1.bitmap.len > s2.bitmap.len:
     result = disjoint(s2, s1)
   else:
     result = true
