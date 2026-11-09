@@ -144,8 +144,8 @@ proc `==`[T](ps: PackedSet[T], hs: HashSet[T]): bool =
 template property(name, gens, check: untyped): untyped =
   block name:
     {.line: instantiationInfo().}:
-      let result = runProperty:
-        forAll gens: check
+      let prop = forAll gens: check
+      let result = runProperty(prop, trials = 100)
 
     if result.status in {psFail, psError}:
       {.line: instantiationInfo().}:
