@@ -278,39 +278,26 @@ proc rangeBase*(t: typedesc): typedesc {.magic: "TypeTrait".}
 
 proc isCyclical*(t: typedesc): bool {.magic: "TypeTrait".}
 
-type
-  CacheSeq* = distinct string
-    ## Compile-time sequence of `NimNode`s.
-  CacheTable* = distinct string
-    ## Compile-time table of key-value pairs.
-    ##
-    ## Keys are `string`s and values are `NimNode`s.
-  CacheCounter* = distinct string
-    ## Compile-time counter, uses `int` for storing the count.
+proc nccValue*(c: string): int {.magic: "NccValue".}
 
-# TODO: remove the distinct types for the cache names and have the macrocache
-#       magics accept raw strings. Providing a type-safe macro-cache access is
-#       the responsibility of the version of the standard library
+proc nccInc*(c: string; by: int) {.magic: "NccInc".}
 
-proc value*(c: CacheCounter): int {.magic: "NccValue".}
+proc ncsAdd*(s: string; value: NimNode) {.magic: "NcsAdd".}
 
-proc inc*(c: CacheCounter; by: int) {.magic: "NccInc".}
+proc ncsIncl*(s: string; value: NimNode) {.magic: "NcsIncl".}
 
-proc add*(s: CacheSeq; value: NimNode) {.magic: "NcsAdd".}
+proc ncsLen*(s: string): int {.magic: "NcsLen".}
 
-proc incl*(s: CacheSeq; value: NimNode) {.magic: "NcsIncl".}
+proc ncsAt*(s: string; i: int): NimNode {.magic: "NcsAt".}
 
-proc len*(s: CacheSeq): int {.magic: "NcsLen".}
+proc nctPut*(t: string; key: string, value: NimNode) {.magic: "NctPut".}
 
-proc `[]`*(s: CacheSeq; i: int): NimNode {.magic: "NcsAt".}
+proc nctLen*(t: string): int {.magic: "NctLen".}
 
-proc `[]=`*(t: CacheTable; key: string, value: NimNode) {.magic: "NctPut".}
+proc nctGet*(t: string; key: string): NimNode {.magic: "NctGet".}
 
-proc len*(t: CacheTable): int {.magic: "NctLen".}
+proc nctHasNext*(t: string; iter: int): bool {.magic: "NctHasNext".}
 
-proc `[]`*(t: CacheTable; key: string): NimNode {.magic: "NctGet".}
-
-proc hasNext*(t: CacheTable; iter: int): bool {.magic: "NctHasNext".}
-proc next*(t: CacheTable; iter: int): (string, NimNode, int) {.magic: "NctNext".}
+proc nctNext*(t: string; iter: int): (string, NimNode, int) {.magic: "NctNext".}
 
 proc privateAccess*(t: typedesc) {.magic: "PrivateAccess".}
