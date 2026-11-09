@@ -719,7 +719,7 @@ proc newLit*[T: tuple](arg: T): NimNode =
   ## use -d:nimHasWorkaround14720 to restore behavior prior to PR, forcing
   ## a named tuple even when `arg` is unnamed.
   result = nnkTupleConstr.newTree
-  when defined(nimHasWorkaround14720) or isNamedTuple(T):
+  when defined(nimHasWorkaround14720) or magics.isNamedTuple(T):
     for a, b in arg.fieldPairs:
       result.add nnkExprColonExpr.newTree(newIdentNode(a), newLit(b))
   else:
