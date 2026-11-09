@@ -13,4 +13,7 @@ Possible future APIs:
 ]#
 
 import system/magics
-export magics.privateAccess
+
+template privateAccess*(t: typedesc) =
+  ## Enables access to private fields of `t` in current scope.
+  magics.privateAccess(t)
