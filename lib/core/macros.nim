@@ -19,33 +19,16 @@ import std/private/since
 
 ## .. include:: ../../doc/astspec.txt
 
-import system/magics except error, warning, hint
+from system/magics import NimNodeKind, NimSymKind, NimTypeKind, BindSymRule
 
 export
   magics.NimNodeKind, magics.NimSymKind, magics.NimTypeKind,
-  magics.BindSymRule, magics.bindSym,
-  magics.kind, magics.strVal, magics.floatVal, magics.intVal, magics.len,
-  magics.symKind, magics.owner, magics.callsite,
-  magics.`[]`, magics.`[]=`,
-  magics.`floatVal=`, magics.`intVal=`, magics.`strVal=`,
-  magics.`==`, magics.eqIdent, magics.sameType,
-  magics.newNimNode, magics.newIdentNode, magics.ident,
-  magics.genSym,
-  magics.copyNimNode, magics.copyNimTree,
-  magics.isInstantiationOf,
-  magics.signatureHash,
-  magics.copyLineInfo,
-  magics.getAst, magics.quote,
-  magics.add, magics.del,
-  magics.getImpl,
-  magics.getType, magics.getTypeInst, magics.getTypeImpl, magics.typeKind,
-  magics.getSize, magics.getAlign, magics.getOffset
+  magics.BindSymRule
 
 export magics.evalToAst
 # ^leaked implementation detail, should ideally not be exported 
 
-type
-  NimNodeKinds* = set[NimNodeKind]
+{.pragma: magicImport, stackTrace: off, lineTrace: off, benign, inline.}
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
@@ -56,6 +39,24 @@ const
   nnkRequireInitKinds* = {nnkError, nnkIdent, nnkSym, nnkType}
     ## `NimNodeKind`s that require initialization and cannot be created via
     ## general construction routines e.g. `newNimNode`.
+
+proc `==`*(a, b: NimNode): bool {.magicImport.} =
+  ## Compare two Nim nodes. Return true if nodes are structurally
+  ## equivalent. This means two independently created nodes can be equal.
+  magics.`==`(a, b)
+
+proc sameType*(a, b: NimNode): bool {.magicImport.} =
+  ## Compares two Nim nodes' types. Return true if the types are the same,
+  ## e.g. true when comparing alias with original type.
+  magics.sameType(a, b)
+
+proc len*(n: NimNode): int {.magicImport.} =
+  ## Returns the number of children of `n`.
+  magics.len(n)
+
+proc `[]`*(n: NimNode, i: int): NimNode {.magicImport.} =
+  ## Get `n`'s `i`'th child.
+  magics.`[]`(n, i)
 
 proc `[]`*(n: NimNode, i: BackwardsIndex): NimNode = n[n.len - i.int]
   ## Get `n`'s `i`'th child.
@@ -71,6 +72,10 @@ proc `[]`*[T, U: Ordinal](n: NimNode, x: HSlice[T, U]): seq[NimNode] =
   result = newSeq[NimNode](L)
   for i in 0..<L:
     result[i] = n[i + xa]
+
+proc `[]=`*(n: NimNode, i: int, child: NimNode) {.magicImport.} =
+  ## Set `n`'s `i`'th child to `child`.
+  magics.`[]=`(n, i, child)
 
 proc `[]=`*(n: NimNode, i: BackwardsIndex, child: NimNode) =
   ## Set `n`'s `i`'th child to `child`.
@@ -91,8 +96,144 @@ template `or`*(x, y: NimNode): NimNode =
   else:
     y
 
+proc add*(father, child: NimNode): NimNode {.magicImport, discardable, locks: 0.} =
+  ## Adds the `child` to the `father` node. Returns the
+  ## father node so that calls can be nested.
+  magics.add(father, child)
+
+proc add*(father: NimNode, children: varargs[NimNode]): NimNode {.magicImport, discardable, locks: 0.} =
+  ## Adds each child of `children` to the `father` node.
+  ## Returns the `father` node so that calls can be nested.
+  magics.add(father, children)
+
+proc del*(father: NimNode, idx = 0, n = 1) {.magicImport.} =
+  ## Deletes `n` children of `father` starting at index `idx`.
+  magics.del(father, idx, n)
+
+proc kind*(n: NimNode): NimNodeKind {.magicImport.} =
+  ## Returns the `kind` of the node `n`.
+  magics.kind(n)
+
+proc intVal*(n: NimNode): BiggestInt {.magicImport.} =
+  ## Returns an integer value from any integer literal or enum field symbol.
+  magics.intVal(n)
+
+proc floatVal*(n: NimNode): BiggestFloat {.magicImport.} =
+  ## Returns a float from any floating point literal.
+  magics.floatVal(n)
+
+proc symKind*(symbol: NimNode): NimSymKind {.magicImport.} =
+  magics.symKind(symbol)
+
+proc getImpl*(symbol: NimNode): NimNode {.magicImport.} =
+  ## Returns a copy of the declaration of a symbol or `nil`.
+  magics.getImpl(symbol)
+
+proc strVal*(n: NimNode): string  {.magicImport.} =
+  ## Returns the string value of an identifier, symbol, comment, or string literal.
+  ##
+  ## See also:
+  ## * `strVal= proc<#strVal=,NimNode,string>`_ for setting the string value.
+  magics.strVal(n)
+
 when (NimMajor, NimMinor, NimPatch) >= (1, 3, 5) or defined(nimSymImplTransform):
-  export magics.getImplTransformed
+  proc getImplTransformed*(symbol: NimNode): NimNode {.magicImport.} =
+    ## For a typed proc returns the AST after transformation pass; this is useful
+    ## for debugging how the compiler transforms code (e.g.: `defer`, `for`) but
+    ## note that code transformations are implementation dependent and subject to change.
+    ## See an example in `tests/macros/tmacros_various.nim`.
+    magics.getImplTransformed(symbol)
+
+proc owner*(sym: NimNode): NimNode {.magicImport.} =
+  ## Accepts a node of kind `nnkSym` and returns its owner's symbol.
+  ## The meaning of 'owner' depends on `sym`'s `NimSymKind` and declaration
+  ## context. For top level declarations this is an `nskModule` symbol,
+  ## for proc local variables an `nskProc` symbol, for enum/object fields an
+  ## `nskType` symbol, etc. For symbols without an owner, `nil` is returned.
+  ##
+  ## See also:
+  ## * `symKind proc<#symKind,NimNode>`_ to get the kind of a symbol
+  ## * `getImpl proc<#getImpl,NimNode>`_ to get the declaration of a symbol
+  magics.owner(sym)
+
+proc isInstantiationOf*(instanceProcSym, genProcSym: NimNode): bool {.magicImport.} =
+  ## Checks if a proc symbol is an instance of the generic proc symbol.
+  ## Useful to check proc symbols against generic symbols
+  ## returned by `bindSym`.
+  magics.isInstantiationOf(instanceProcSym, genProcSym)
+
+proc getType*(n: NimNode): NimNode {.magicImport.} =
+  ## With 'getType' you can access the node's `type`:idx:. A Nim type is
+  ## mapped to a Nim AST too, so it's slightly confusing but it means the same
+  ## API can be used to traverse types. Recursive types are flattened for you
+  ## so there is no danger of infinite recursions during traversal. To
+  ## resolve recursive types, you have to call 'getType' again. To see what
+  ## kind of type it is, call `typeKind` on getType's result.
+  magics.getType(n)
+
+proc getType*(n: typedesc): NimNode {.magicImport.} =
+  ## Version of `getType` which takes a `typedesc`.
+  magics.getType(n)
+
+proc typeKind*(n: NimNode): NimTypeKind {.magicImport.} =
+  ## Returns the type kind of the node 'n' that should represent a type, that
+  ## means the node should have been obtained via `getType`.
+  magics.typeKind(n)
+
+proc getTypeInst*(n: NimNode): NimNode {.magicImport.} =
+  ## Returns the `type`:idx: of a node in a form matching the way the
+  ## type instance was declared in the code.
+  runnableExamples:
+    type
+      Vec[N: static[int], T] = object
+        arr: array[N, T]
+      Vec4[T] = Vec[4, T]
+      Vec4f = Vec4[float32]
+    var a: Vec4f
+    var b: Vec4[float32]
+    var c: Vec[4, float32]
+    macro dumpTypeInst(x: typed): untyped =
+      newLit(x.getTypeInst.repr)
+    doAssert(dumpTypeInst(a) == "Vec4f")
+    doAssert(dumpTypeInst(b) == "Vec4[float32]")
+    doAssert(dumpTypeInst(c) == "Vec[4, float32]")
+  magics.getTypeInst(n)
+
+proc getTypeInst*(n: typedesc): NimNode {.magicImport.} =
+  ## Version of `getTypeInst` which takes a `typedesc`.
+  magics.getTypeInst(n)
+
+proc getTypeImpl*(n: NimNode): NimNode {.magicImport.} =
+  ## Returns the `type`:idx: of a node in a form matching the implementation
+  ## of the type. Any intermediate aliases are expanded to arrive at the final
+  ## type implementation. You can instead use `getImpl` on a symbol if you
+  ## want to find the intermediate aliases.
+  runnableExamples:
+    type
+      Vec[N: static[int], T] = object
+        arr: array[N, T]
+      Vec4[T] = Vec[4, T]
+      Vec4f = Vec4[float32]
+    var a: Vec4f
+    var b: Vec4[float32]
+    var c: Vec[4, float32]
+    macro dumpTypeImpl(x: typed): untyped =
+      newLit(x.getTypeImpl.repr)
+    let t = """
+object
+  arr: array[0 .. 3, float32]
+"""
+    doAssert(dumpTypeImpl(a) == t)
+    doAssert(dumpTypeImpl(b) == t)
+    doAssert(dumpTypeImpl(c) == t)
+  magics.getTypeImpl(n)
+
+proc signatureHash*(n: NimNode): string {.magicImport.} =
+  ## Returns a stable identifier derived from the signature of a symbol.
+  ## The signature combines many factors such as the type of the symbol,
+  ## the owning module of the symbol and others. The same identifier is
+  ## used in the back-end to produce the mangled symbol name.
+  magics.signatureHash(n)
 
 proc symBodyHash*(s: NimNode): string {.noSideEffect.} =
   ## Returns a stable digest for symbols derived not only from type signature
@@ -101,20 +242,54 @@ proc symBodyHash*(s: NimNode): string {.noSideEffect.} =
   ## magics from system module.
   discard
 
-# XXX: the error, warning, and hint magic have to be declared here for
-#      compatibility with the csources compiler; remove them after the next
-#      csources update
+proc getTypeImpl*(n: typedesc): NimNode {.magicImport.} =
+  ## Version of `getTypeImpl` which takes a `typedesc`.
+  magics.getTypeImpl(n)
 
-proc error*(msg: string, n: NimNode = nil) {.magic: "NError", benign.}
+proc `intVal=`*(n: NimNode, val: BiggestInt) {.magicImport.} =
+  magics.`intVal=`(n, val)
+proc `floatVal=`*(n: NimNode, val: BiggestFloat) {.magicImport.} =
+  magics.`floatVal=`(n, val)
+
+proc `strVal=`*(n: NimNode, val: string) {.magicImport.} =
+  ## Sets the string value of a string literal or comment.
+  ## Setting `strVal` is disallowed for `nnkIdent` and `nnkSym` nodes; a new node
+  ## must be created using `ident` or `bindSym` instead.
+  ##
+  ## See also:
+  ## * `strVal proc<#strVal,NimNode>`_ for getting the string value.
+  ## * `ident proc<#ident,string>`_ for creating an identifier.
+  ## * `bindSym proc<#bindSym%2C%2CBindSymRule>`_ for binding a symbol.
+  magics.`strVal=`(n, val)
+
+proc newNimNode*(kind: NimNodeKind, lineInfoFrom: NimNode = nil): NimNode {.
+    magicImport.} =
+  ## Creates a new AST node of the specified kind.
+  ##
+  ## The `lineInfoFrom` parameter is used for line information when the
+  ## produced code crashes. You should ensure that it is set to a node that
+  ## you are transforming.
+  magics.newNimNode(kind, lineInfoFrom)
+
+proc copyNimNode*(n: NimNode): NimNode {.magicImport.} =
+  magics.copyNimNode(n)
+
+proc copyNimTree*(n: NimNode): NimNode {.magicImport.} =
+  magics.copyNimTree(n)
+
+proc error*(msg: string, n: NimNode = nil) {.magicImport.} =
   ## Writes an error message at compile time. The optional `n: NimNode`
   ## parameter is used as the source for file and line number information in
   ## the compilation error message.
+  magics.error(msg, n)
 
-proc warning*(msg: string, n: NimNode = nil) {.magic: "NWarning", benign.}
+proc warning*(msg: string, n: NimNode = nil) {.magicImport.} =
   ## Writes a warning message at compile time.
+  magics.warning(msg, n)
 
-proc hint*(msg: string, n: NimNode = nil) {.magic: "NHint", benign.}
+proc hint*(msg: string, n: NimNode = nil) {.magicImport.} =
   ## Writes a hint message at compile time.
+  magics.hint(msg, n)
 
 proc newStrLitNode*(s: string): NimNode {.noSideEffect.} =
   ## Creates a string literal node from `s`.
@@ -136,7 +311,36 @@ proc newFloatLitNode*(f: BiggestFloat): NimNode =
   result = newNimNode(nnkFloatLit)
   result.floatVal = f
 
+
+proc newIdentNode*(i: string): NimNode {.magicImport.} =
+  ## Creates an identifier node from `i`. It is simply an alias for
+  ## `ident(string)`. Use that, it's shorter.
+  magics.newIdentNode(i)
+
+proc ident*(name: string): NimNode {.magicImport.} =
+  ## Create a new ident node from a string.
+  magics.newIdentNode(name)
+
+template bindSym*(ident: string | NimNode, rule: BindSymRule = brClosed): NimNode =
+  ## Creates a node that binds `ident` to a symbol node. The bound symbol
+  ## may be an overloaded symbol.
+  ## if `ident` is a NimNode, it must have `nnkIdent` kind.
+  ## If `rule == brClosed` either an `nnkClosedSymChoice` tree is
+  ## returned or `nnkSym` if the symbol is not ambiguous.
+  ## If `rule == brOpen` either an `nnkOpenSymChoice` tree is
+  ## returned or `nnkSym` if the symbol is not ambiguous.
+  ## If `rule == brForceOpen` always an `nnkOpenSymChoice` tree is
+  ## returned even if the symbol is not ambiguous.
+  ##
+  ## See the `manual <manual.html#macros-bindsym>`_ for more details.
+  magics.bindSym(ident, rule)
+
 when defined(nimskullHasUnaryGenSym):
+  proc genSym*(ident = ""): NimNode {.magicImport.} =
+    ## Generates a fresh symbol that is guaranteed to be unique. The symbol
+    ## needs to occur in a declaration context.
+    magics.genSym(ident)
+
   template genSym*(kind: NimSymKind = nskGenerated; ident: string): NimNode {.
     deprecated: "genSym no longer takes a `kind` parameter".} =
     ## Generates a fresh symbol that is guaranteed to be unique. The symbol
@@ -159,6 +363,17 @@ when defined(nimskullHasUnaryGenSym):
       discard kind
       genSym()
 
+else:
+  # old definition needed for bootstrapping
+  proc genSym*(kind: NimSymKind = nskLet; ident = ""): NimNode {.
+    magic: "NGenSym", noSideEffect.}
+
+proc callsite*(): NimNode {.magicImport, benign, deprecated:
+  "Deprecated since v0.18.1; use `varargs[untyped]` in the macro prototype instead".} =
+  ## Returns the AST of the invocation expression that invoked this macro.
+  # see https://github.com/nim-lang/RFCs/issues/387 as candidate replacement.
+  magics.callsite()
+
 proc toStrLit*(n: NimNode): NimNode =
   ## Converts the AST `n` to the concrete Nim code and wraps that
   ## in a string literal node.
@@ -174,6 +389,19 @@ proc `$`*(arg: LineInfo): string =
   # BUG: without `result = `, gives compile error
   result = arg.filename & "(" & $arg.line & ", " & $arg.column & ")"
 
+proc getLine(arg: NimNode): int {.magicImport.} =
+  magics.getLine(arg)
+
+proc getColumn(arg: NimNode): int {.magicImport.} =
+  magics.getColumn(arg)
+
+proc getFile(arg: NimNode): string {.magicImport.} =
+  magics.getFile(arg)
+
+proc copyLineInfo*(arg: NimNode, info: NimNode) {.magicImport.} =
+  ## Copy lineinfo from `info`.
+  magics.copyLineInfo(arg, info)
+
 proc lineInfoObj*(n: NimNode): LineInfo =
   ## Returns `LineInfo` of `n`, using absolute path for `filename`.
   result = LineInfo(filename: n.getFile, line: n.getLine, column: n.getColumn)
@@ -186,7 +414,7 @@ proc parseExpr*(s: string): NimNode {.noSideEffect.} =
   ## Compiles the passed string to its AST representation.
   ## Expects a single expression. Raises `ValueError` for parsing errors.
   var errmsg: string
-  result = parseExpr(s, errmsg)
+  result = magics.parseExpr(s, errmsg)
   if errmsg.len > 0:
     raise newException(ValueError, errmsg)
 
@@ -194,9 +422,106 @@ proc parseStmt*(s: string): NimNode {.noSideEffect.} =
   ## Compiles the passed string to its AST representation.
   ## Expects one or more statements. Raises `ValueError` for parsing errors.
   var errmsg: string
-  result = parseStmt(s, errmsg)
+  result = magics.parseStmt(s, errmsg)
   if errmsg.len > 0:
     raise newException(ValueError, errmsg)
+
+template getAst*(macroOrTemplate: untyped): NimNode =
+  ## Obtains the AST nodes returned from a macro or template invocation.
+  ## See also `genasts.genAst`.
+  ## Example:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##   macro FooMacro() =
+  ##     var ast = getAst(BarTemplate())
+  magics.getAst(macroOrTemplate)
+
+template quote*(bl: typed, op = "``"): NimNode =
+  ## Quasi-quoting operator.
+  ## Accepts an expression or a block and returns the AST that represents it.
+  ## Within the quoted AST, you are able to interpolate NimNode expressions
+  ## from the surrounding scope. If no operator is given, quoting is done using
+  ## backticks. Otherwise, the given operator must be used as a prefix operator
+  ## for any interpolated expression. The original meaning of the interpolation
+  ## operator may be obtained by escaping it (by prefixing it with itself) when used
+  ## as a unary operator:
+  ## e.g. `@` is escaped as `@@`, `&%` is escaped as `&%&%` and so on; see examples.
+  ##
+  ## A custom operator interpolation needs accent quoted (``) whenever it resolves
+  ## to a symbol.
+  ##
+  ## See also:
+  ## * `genasts <genasts.html>`_
+  # TODO: handle this properly
+  runnableExamples:
+    macro check(ex: untyped) =
+      # this is a simplified version of the check macro from the
+      # unittest module.
+
+      # If there is a failed check, we want to make it easy for
+      # the user to jump to the faulty line in the code, so we
+      # get the line info here:
+      var info = ex.lineinfo
+
+      # We will also display the code string of the failed check:
+      var expString = ex.toStrLit
+
+      # Finally we compose the code to implement the check:
+      result = quote do:
+        if not `ex`:
+          echo `info` & ": Check failed: " & `expString`
+    check 1 + 1 == 2
+
+  runnableExamples:
+    # example showing how to define a symbol that requires backtick without
+    # quoting it.
+    var destroyCalled = false
+    macro bar() =
+      let s = newTree(nnkAccQuoted, ident"=destroy")
+      # let s = ident"`=destroy`" # this would not work
+      result = quote do:
+        type Foo = object
+        # proc `=destroy`(a: var Foo) = destroyCalled = true # this would not work
+        proc `s`(a: var Foo) = destroyCalled = true
+        block:
+          let a = Foo()
+    bar()
+    doAssert destroyCalled
+
+  runnableExamples:
+    # custom `op`
+    var destroyCalled = false
+    macro bar(ident) =
+      var x = 1.5
+      result = quote("@") do:
+        type Foo = object
+        let `@ident` = 0 # custom op interpolated symbols need quoted (``)
+        proc `=destroy`(a: var Foo) =
+          doAssert @x == 1.5
+          doAssert compiles(@x == 1.5)
+          let b1 = @[1,2]
+          let b2 = @@[1,2]
+          doAssert $b1 == "[1, 2]"
+          doAssert $b2 == "@[1, 2]"
+          destroyCalled = true
+        block:
+          let a = Foo()
+    bar(someident)
+    doAssert destroyCalled
+
+    proc `&%`(x: int): int = 1
+    proc `&%`(x, y: int): int = 2
+
+    macro bar2() =
+      var x = 3
+      result = quote("&%") do:
+        var y = &%x # quoting operator
+        doAssert &%&%y == 1 # unary operator => need to escape
+        doAssert y &% y == 2 # binary operator => no need to escape
+        doAssert y == 3
+    bar2()
+  magics.quote(op, bl)
 
 proc expectKind*(n: NimNode, k: NimNodeKind) =
   ## Checks that `n` is of kind `k`. If this is not the case,
@@ -402,6 +727,31 @@ proc nestList*(op: NimNode; pack: NimNode; init: NimNode): NimNode =
   result = init
   for i in countdown(pack.len - 1, 0):
     result = newCall(op, pack[i], result)
+
+proc eqIdent*(a: string; b: string): bool {.magicImport.} =
+  ## Style insensitive comparison.
+  magics.eqIdent(a, b)
+
+proc eqIdent*(a: NimNode; b: string): bool {.magicImport.} =
+  ## Style insensitive comparison.  `a` can be an identifier or a
+  ## symbol. `a` may be wrapped in an export marker
+  ## (`nnkPostfix`) or quoted with backticks (`nnkAccQuoted`),
+  ## these nodes will be unwrapped.
+  magics.eqIdent(a, b)
+
+proc eqIdent*(a: string; b: NimNode): bool {.magicImport.} =
+  ## Style insensitive comparison.  `b` can be an identifier or a
+  ## symbol. `b` may be wrapped in an export marker
+  ## (`nnkPostfix`) or quoted with backticks (`nnkAccQuoted`),
+  ## these nodes will be unwrapped.
+  magics.eqIdent(a, b)
+
+proc eqIdent*(a: NimNode; b: NimNode): bool {.magicImport.} =
+  ## Style insensitive comparison.  `a` and `b` can be an
+  ## identifier or a symbol. Both may be wrapped in an export marker
+  ## (`nnkPostfix`) or quoted with backticks (`nnkAccQuoted`),
+  ## these nodes will be unwrapped.
+  magics.eqIdent(a, b)
 
 const collapseSymChoice = not defined(nimLegacyMacrosCollapseSymChoice)
 
@@ -993,8 +1343,11 @@ proc boolVal*(n: NimNode): bool {.noSideEffect.} =
   if n.kind == nnkIntLit: n.intVal != 0
   else: n == bindSym"true" # hacky solution for now
 
-when declared(magics.nodeId):
-  export magics.nodeId
+when defined(nimMacrosGetNodeId):
+  proc nodeID*(n: NimNode): int {.magicImport.} =
+    ## Returns the id of `n`. This proc is for the purpose to debug the
+    ## compiler only.
+    magics.nodeID(n)
 
 macro expandMacros*(body: typed): untyped =
   ## Expands one level of macro - useful for debugging.
@@ -1223,6 +1576,27 @@ proc getProjectPath*(): string = discard
   ##
   ## See also:
   ## * `getCurrentDir proc <os.html#getCurrentDir>`_
+
+proc getSize*(arg: NimNode): int {.magicImport.} =
+  ## Returns the same result as `system.sizeof` if the size is
+  ## known by the Nim compiler. Returns a negative value if the Nim
+  ## compiler does not know the size.
+  magics.getSize(arg)
+
+proc getAlign*(arg: NimNode): int {.magicImport.} =
+  ## Returns the same result as `system.alignof` if the alignment
+  ## is known by the Nim compiler. It works on `NimNode` for use
+  ## in macro context. Returns a negative value if the Nim compiler
+  ## does not know the alignment.
+  magics.getAlign(arg)
+
+proc getOffset*(arg: NimNode): int {.magicImport.} =
+  ## Returns the same result as `system.offsetof` if the offset is
+  ## known by the Nim compiler. It expects a resolved symbol node
+  ## from a field of a type. Therefore it only requires one argument
+  ## instead of two. Returns a negative value if the Nim compiler
+  ## does not know the offset.
+  magics.getOffset(arg)
 
 proc isExported*(n: NimNode): bool {.noSideEffect.} =
   ## Returns whether the symbol is exported or not.
