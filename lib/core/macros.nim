@@ -437,19 +437,11 @@ template getAst*(macroOrTemplate: untyped): NimNode =
   ##     var ast = getAst(BarTemplate())
   magics.getAst(macroOrTemplate)
 
-template quote*(bl: typed, op = "``"): NimNode =
+template quote*(bl: untyped): NimNode =
   ## Quasi-quoting operator.
   ## Accepts an expression or a block and returns the AST that represents it.
   ## Within the quoted AST, you are able to interpolate NimNode expressions
-  ## from the surrounding scope. If no operator is given, quoting is done using
-  ## backticks. Otherwise, the given operator must be used as a prefix operator
-  ## for any interpolated expression. The original meaning of the interpolation
-  ## operator may be obtained by escaping it (by prefixing it with itself) when used
-  ## as a unary operator:
-  ## e.g. `@` is escaped as `@@`, `&%` is escaped as `&%&%` and so on; see examples.
-  ##
-  ## A custom operator interpolation needs accent quoted (``) whenever it resolves
-  ## to a symbol.
+  ## from the surrounding scope, using backticks as the quoting operator.
   ##
   ## See also:
   ## * `genasts <genasts.html>`_
@@ -488,7 +480,20 @@ template quote*(bl: typed, op = "``"): NimNode =
           let a = Foo()
     bar()
     doAssert destroyCalled
+  magics.quote(bl)
 
+template quote*(op: static string, bl: untyped): NimNode =
+  ## Like `quote <#quote.t,untyped>`_, but using the provided operator for
+  ## quoting. The original meaning of the interpolation operator may be
+  ## obtained by escaping it (by prefixing it with itself) when used as a unary
+  ## operator: e.g. `@` is escaped as `@@`, `&%` is escaped as `&%&%` and so
+  ## on; see examples.
+  ##
+  ## A custom operator interpolation needs accent quoted (``) whenever it resolves
+  ## to a symbol.
+  ##
+  ## See also:
+  ## * `genasts <genasts.html>`_
   runnableExamples:
     # custom `op`
     var destroyCalled = false
