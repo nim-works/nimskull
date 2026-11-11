@@ -136,7 +136,7 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
 
   let
     spellingCandidates =
-      if f.kind in {nkSym, nkIdent}:
+      if c.mustFixSpelling and f.kind in {nkSym, nkIdent}:
         fixSpelling(c, if f.kind == nkSym: f.sym.name else: f.ident)
       else:
         @[]
