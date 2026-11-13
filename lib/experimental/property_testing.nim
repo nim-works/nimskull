@@ -239,16 +239,13 @@ proc writeStorageKind*(s: Source, kind: StorageKind) =
   s.writeRawByte(byte(ord(kind)))
 
 
-proc readStorageKind*(s: Source, expected: StorageKind): StorageKind =
-  ## Reads the current byte as a `StorageKind` and advances to the next byte.
-  ##
-  ## Structural Resilience:
-  ## If the buffer is not exhausted, it asserts that the read kind matches
-  ## `expected`. If the buffer is exhausted, it returns `expected` without
-  ## asserting, allowing the caller to return a safe default value.
-  result = cast[StorageKind](s.readRawByte())
-  if s.pos <= s.buffer.len:
-    assert result == expected, "Expected " & $expected & ", got " & $result
+proc peekStorageKind*(s: Source): Option[StorageKind] =
+  ## Returns the `StorageKind` at the current position without advancing, or
+  ## `none(StorageKind)` if the buffer is exhausted.
+  if s.pos < s.buffer.len:
+    some(cast[StorageKind](s.buffer[s.pos]))
+  else:
+    none(StorageKind)
 
 
 func bytesForRange*(rangeSize: uint64): ScalarBytes =
@@ -279,126 +276,6 @@ proc getScalarBytes*(kind: ScalarStorageKind): ScalarBytes =
   of sk2Bytes: 2
   of sk4Bytes: 4
   of sk8Bytes: 8
-
-
-proc rngNextBytes*(s: Source, bytes: ScalarBytes): uint64 =
-  ## Generate and return `bytes` worth RNG bytes.
-  result = s.rng.next()
-  if bytes < 8:
-    let mask = (1'u64 shl (bytes * 8)) - 1
-    result = result and mask
-
-
-proc rngNextUInt32(s: Source): uint32 =
-  uint32(s.rng.next() and 0xFFFFFFFF'u64)
-
-
-proc recordConst*(s: Source) =
-  ## Records or reads a constant value marker (`skConst`) in the source.
-  if s.recording:
-    s.writeStorageKind(skConst)
-  else:
-    discard s.readStorageKind(skConst)
-
-
-proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
-  ## Produces a random scalar of `kind` when recording, otherwise reads a
-  ## scalar of `kind` from the buffer.
-  ##
-  ## Structural Verification:
-  ## During replay, this uses `readStorageKind(kind)` to ensure the buffer
-  ## is structurally compatible. If the buffer is exhausted, it returns a
-  ## safe default (0) without crashing.
-  let bytes = getScalarBytes(kind)
-  if s.recording:
-    result = s.rngNextBytes(bytes)
-    s.writeStorageKind(kind)
-    s.writeRawBytes(result, bytes)
-  else:
-    discard s.readStorageKind(kind)
-    result = s.readRawBytes(bytes)
-
-
-proc recordRangeData(s: Source, rangeSize, offset: uint64,
-                     kind: ScalarStorageKind) =
-  ## Writes a naked range (no `skRange` tag) to the source, using `kind` to
-  ## size the rangeSize field.
-  s.writeStorageKind(kind)
-  s.writeRawBytes(rangeSize, getScalarBytes(kind))
-  s.writeRawBytes(offset, bytesForRange(rangeSize))
-
-
-proc readRangeData(s: Source, currentRangeSize: uint64,
-                   kind: ScalarStorageKind): uint64 =
-  ## Reads a naked range (no `skRange` tag) from the source, expecting `kind`
-  ## sized storage for the rangeSize.
-  ##
-  ## Structural Resilience:
-  ## If the buffer is exhausted, it returns a safe default offset (0).
-  let
-    tgtKind = ScalarStorageKind(s.readStorageKind(kind))
-    recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
-    rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
-  result = if rVal > currentRangeSize: currentRangeSize else: rVal
-
-
-proc recordRange*(s: Source, rangeSize, offset: uint64,
-                  kind: ScalarStorageKind) =
-  ## Records a structural range marker (`skRange`) followed by its metadata.
-  s.writeStorageKind(skRange)
-  s.recordRangeData(rangeSize, offset, kind)
-
-
-proc chooseRange*(s: Source, min, max: uint64,
-                  kind: ScalarStorageKind): uint64 =
-  ## Produces a random uint64 between `min` and `max` when recording,
-  ## otherwise reads it from the buffer.
-  ##
-  ## Structural Verification:
-  ## Replay-phase reads verify structural compatibility via `skRange` tags.
-  let rangeSize = max - min
-  if s.recording:
-    let
-      valRange =
-        if rangeSize == 0: 0'u64
-        elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
-        else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
-
-    result = min + valRange
-    s.recordRange(rangeSize, valRange, kind)
-  else:
-    discard s.readStorageKind(skRange)
-    result = min + s.readRangeData(rangeSize, kind)
-
-
-template renumerateInt64ToUint64(x: int64): uint64 =
-  ## Maps int64 to uint64 values, preserving the order of values, the reverse
-  ## of `renumerateUint64ToInt64`. This treats `(1u64 shl 63)` as the midpoint
-  ## value, meaning `0i64` becomes `(1u64 shl 63)`, `1i64` becomes
-  ## `(1u64 shl 63) + 1`, etc.
-  uint64(x) + (1u64 shl 63)
-
-
-template renumerateUint64ToInt64(x: uint64): int64 =
-  ## Maps uint64 to int64 values, preserving the order of values, the reverse
-  ## of `renumerateInt64ToUint64`. This treats `(1u64 shl 63)` as the midpoint
-  ## value, meaning `(1u64 shl 63)` becomes `0i64`, `(1u64 shl 63) + 1` becomes
-  ## `1i64`, etc.
-  cast[int64](x - (1u64 shl 63))
-
-
-proc chooseRange*(s: Source, min, max: int64,
-                  scalarKind: ScalarStorageKind): int64 =
-  ## Produces a random int64 between `min` and `max` when recording,
-  ## otherwise reads it from the buffer.
-  ##
-  ## Mapping:
-  ## Uses monotonic renumeration to map the signed range to an unsigned space
-  ## centering 0.0 for high-quality shrinking.
-  let
-    uMin = renumerateInt64ToUint64(min)
-    uMax = renumerateInt64ToUint64(max)
-  renumerateUint64ToInt64(chooseRange(s, uMin, uMax, scalarKind))
 
 
 proc decodeUint64*(buffer: seq[byte], pos: int, bytes: ScalarBytes): uint64 =
@@ -462,10 +339,153 @@ proc skipNode*(buffer: seq[byte], startPos: int): int =
   doAssert pos <= buffer.len, "skipNode pos out of bounds"
   pos
 
+
 proc skipNodes*(s: Source, count: int) =
   ## Advances the source position past `count` nodes in the stream.
   for _ in 0 ..< count:
     s.pos = skipNode(s.buffer, s.pos)
+
+
+proc readStorageKind*(s: Source, expected: StorageKind): StorageKind =
+  ## Reads the current byte as a `StorageKind` and advances to the next byte.
+  ##
+  ## Structural Resilience:
+  ## If the buffer is not exhausted, it checks whether the kind at the current
+  ## position matches `expected`. On a match, it advances past the kind byte;
+  ## on a mismatch, it skips the entire mismatched node (including any nested
+  ## children) so the stream remains aligned, and returns the mismatched kind.
+  ## If the buffer is exhausted, it advances `pos` and returns `expected`,
+  ## allowing the caller to return a safe default value.
+  let peeked = s.peekStorageKind()
+  if peeked.isSome:
+    result = peeked.unsafeGet()
+    if result == expected:
+      s.pos.inc
+    else:
+      s.pos = skipNode(s.buffer, s.pos)
+  else:
+    s.pos.inc
+    result = expected
+
+
+proc rngNextBytes*(s: Source, bytes: ScalarBytes): uint64 =
+  ## Generate and return `bytes` worth RNG bytes.
+  result = s.rng.next()
+  if bytes < 8:
+    let mask = (1'u64 shl (bytes * 8)) - 1
+    result = result and mask
+
+
+proc rngNextUInt32(s: Source): uint32 =
+  uint32(s.rng.next() and 0xFFFFFFFF'u64)
+
+
+proc recordConst*(s: Source) =
+  ## Records or reads a constant value marker (`skConst`) in the source.
+  if s.recording:
+    s.writeStorageKind(skConst)
+  else:
+    discard s.readStorageKind(skConst)
+
+
+proc chooseScalarRaw*(s: Source, kind: ScalarStorageKind): uint64 =
+  ## Produces a random scalar of `kind` when recording, otherwise reads a
+  ## scalar of `kind` from the buffer.
+  ##
+  ## Structural Verification:
+  ## During replay, this uses `readStorageKind(kind)` to ensure the buffer
+  ## is structurally compatible. If the buffer is exhausted or a different
+  ## node kind was recorded, it returns a safe default (0) without crashing.
+  let bytes = getScalarBytes(kind)
+  if s.recording:
+    result = s.rngNextBytes(bytes)
+    s.writeStorageKind(kind)
+    s.writeRawBytes(result, bytes)
+  elif s.readStorageKind(kind) == kind:
+    result = s.readRawBytes(bytes)
+
+
+proc recordRangeData(s: Source, rangeSize, offset: uint64,
+                     kind: ScalarStorageKind) =
+  ## Writes a naked range (no `skRange` tag) to the source, using `kind` to
+  ## size the rangeSize field.
+  s.writeStorageKind(kind)
+  s.writeRawBytes(rangeSize, getScalarBytes(kind))
+  s.writeRawBytes(offset, bytesForRange(rangeSize))
+
+
+proc readRangeData(s: Source, currentRangeSize: uint64,
+                   kind: ScalarStorageKind): uint64 =
+  ## Reads a naked range (no `skRange` tag) from the source, expecting `kind`
+  ## sized storage for the rangeSize.
+  ##
+  ## Structural Resilience:
+  ## If the buffer is exhausted, it returns a safe default offset (0).
+  let
+    tgtKind = ScalarStorageKind(s.readRawByte())
+    recordedRangeSize = s.readRawBytes(getScalarBytes(tgtKind))
+    rVal = s.readRawBytes(bytesForRange(recordedRangeSize))
+  result = if rVal > currentRangeSize: currentRangeSize else: rVal
+
+
+proc recordRange*(s: Source, rangeSize, offset: uint64,
+                  kind: ScalarStorageKind) =
+  ## Records a structural range marker (`skRange`) followed by its metadata.
+  s.writeStorageKind(skRange)
+  s.recordRangeData(rangeSize, offset, kind)
+
+
+proc chooseRange*(s: Source, min, max: uint64,
+                  kind: ScalarStorageKind): uint64 =
+  ## Produces a random uint64 between `min` and `max` when recording,
+  ## otherwise reads it from the buffer.
+  ##
+  ## Structural Verification:
+  ## Replay-phase reads verify structural compatibility via `skRange` tags.
+  let rangeSize = max - min
+  if s.recording:
+    let
+      valRange =
+        if rangeSize == 0: 0'u64
+        elif rangeSize == 0xFFFFFFFFFFFFFFFF'u64: s.rngNextBytes(8)
+        else: s.rngNextBytes(bytesForRange(rangeSize)) mod (rangeSize + 1)
+
+    result = min + valRange
+    s.recordRange(rangeSize, valRange, kind)
+  elif s.readStorageKind(skRange) == skRange:
+    result = min + s.readRangeData(rangeSize, kind)
+  else:
+    result = min
+
+
+template renumerateInt64ToUint64(x: int64): uint64 =
+  ## Maps int64 to uint64 values, preserving the order of values, the reverse
+  ## of `renumerateUint64ToInt64`. This treats `(1u64 shl 63)` as the midpoint
+  ## value, meaning `0i64` becomes `(1u64 shl 63)`, `1i64` becomes
+  ## `(1u64 shl 63) + 1`, etc.
+  uint64(x) + (1u64 shl 63)
+
+
+template renumerateUint64ToInt64(x: uint64): int64 =
+  ## Maps uint64 to int64 values, preserving the order of values, the reverse
+  ## of `renumerateInt64ToUint64`. This treats `(1u64 shl 63)` as the midpoint
+  ## value, meaning `(1u64 shl 63)` becomes `0i64`, `(1u64 shl 63) + 1` becomes
+  ## `1i64`, etc.
+  cast[int64](x - (1u64 shl 63))
+
+
+proc chooseRange*(s: Source, min, max: int64,
+                  scalarKind: ScalarStorageKind): int64 =
+  ## Produces a random int64 between `min` and `max` when recording,
+  ## otherwise reads it from the buffer.
+  ##
+  ## Mapping:
+  ## Uses monotonic renumeration to map the signed range to an unsigned space
+  ## centering 0.0 for high-quality shrinking.
+  let
+    uMin = renumerateInt64ToUint64(min)
+    uMax = renumerateInt64ToUint64(max)
+  renumerateUint64ToInt64(chooseRange(s, uMin, uMax, scalarKind))
 
 
 proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
@@ -490,13 +510,14 @@ proc beginArray*(s: Source, min, max: uint32): (uint32, uint32, int) =
     let actualLenPos = s.buffer.len
     s.writeRawBytes(uint64(chosenLen), 4)
     result = (chosenLen, chosenLen, actualLenPos)
-  else:
-    discard s.readStorageKind(skArray)
+  elif s.readStorageKind(skArray) == skArray:
     let
       offset = s.readRangeData(rangeSize, tgtKind)
       newLen = uint32(uint64(min) + offset)
       actualLen = uint32(s.readRawBytes(4))
     result = (newLen, actualLen, -1)
+  else:
+    result = (min, 0'u32, -1)
 
 
 proc beginFixedArray*(s: Source, len: uint32): (uint32, uint32, int) =
@@ -507,8 +528,10 @@ proc beginFixedArray*(s: Source, len: uint32): (uint32, uint32, int) =
 
 proc readGroupLength*(s: Source): uint8 =
   ## Parses a group marker and returns the number of fields
-  discard s.readStorageKind(skGroup)
-  result = uint8(s.readRawBytes(1))
+  if s.readStorageKind(skGroup) == skGroup:
+    result = uint8(s.readRawBytes(1))
+  else:
+    result = 0
 
 
 proc beginGroup*(s: Source, numElements: uint8): uint8 =
@@ -904,6 +927,19 @@ proc genEnum*[T: enum](): Gen[T] =
   genEnum[T](T.low, T.high)
 
 
+template withExhaustedIf*(s: Source, cond: bool, body: untyped): untyped =
+  ## Executes `body` if the condition, `cond` is not met, otherwise executes
+  ## `body` while treating the buffer as exhausted.
+  if cond:
+    let savedPos = s.pos
+    s.pos = s.buffer.len
+    let r = body
+    s.pos = savedPos
+    r
+  else:
+    body
+
+
 proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
   ## Create a set generator for the enum type `T` excluding the values in
   ## `exclude`.
@@ -920,11 +956,15 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
       remBits = int(maxLen) mod 64
       numChunks = numFull + (if remBits > 0: 1 else: 0)
 
-    discard s.beginFixedArray(uint32(numChunks))
+    let (_, oldLen, _) = s.beginFixedArray(uint32(numChunks))
 
-    var idx = 0
+    var
+      idx = 0
+      chunkIdx = 0
     for _ in 0 ..< numFull:
-      let bits = s.chooseScalarRaw(sk8Bytes)
+      let bits = s.withExhaustedIf(chunkIdx >= int(oldLen)):
+        s.chooseScalarRaw(sk8Bytes)
+      inc chunkIdx
       for j in 0 ..< 64:
         if (bits and (1'u64 shl j)) != 0:
           result.incl vals[idx]
@@ -936,15 +976,20 @@ proc genSet*[T: enum](minLen: uint16 = 0, exclude: set[T] = {}): Gen[set[T]] =
                elif remBits <= 16: sk2Bytes
                elif remBits <= 32: sk4Bytes
                else:               sk8Bytes
-        bits = s.chooseScalarRaw(kind)
+      let bits = s.withExhaustedIf(chunkIdx >= int(oldLen)):
+        s.chooseScalarRaw(kind)
+      inc chunkIdx
       for j in 0 ..< remBits:
         if (bits and (1'u64 shl j)) != 0:
           result.incl vals[idx]
         idx.inc
 
+    s.skipNodes(int(oldLen) - numChunks)
+
     # make sure the set always has at least `minLen` elements
     if uint16(result.len) < minLen:
-      var pos = int(s.chooseRange(0'u64, uint64(maxLen - 1), sk2Bytes))
+      var pos = s.withExhaustedIf(oldLen == 0):
+        int(s.chooseRange(0'u64, uint64(maxLen - 1), sk2Bytes))
       for i in uint16(result.len) ..< minLen:
         while vals[pos] in result:
           pos = (pos + 1) mod int(maxLen)
@@ -960,7 +1005,8 @@ proc genSeq*[T](g: sink Gen[T], minLen: uint32 = 0, maxLen: uint32 = 100): Gen[s
 
     result = newSeq[T](int(len))
     for i in 0 ..< int(len):
-      result[i] = g(s)
+      result[i] = s.withExhaustedIf(i >= int(oldLen)):
+        g(s)
     s.skipNodes(int(oldLen) - int(len))
 
 
@@ -973,7 +1019,8 @@ proc genString*(minLen: uint32 = 0, maxLen: uint32 = 100,
     let (len, oldLen, _) = s.beginArray(minLen, maxLen)
     result = newString(int(len))
     for i in 0 ..< int(len):
-      result[i] = charGen(s)
+      result[i] = s.withExhaustedIf(i >= int(oldLen)):
+        charGen(s)
     s.skipNodes(int(oldLen) - int(len))
 
 
@@ -987,7 +1034,8 @@ proc genArray*[T](g: sink Gen[T], size: static uint32): Gen[array[size, T]] =
   return proc(s: Source): array[size, T] =
     let (_, oldLen, _) = s.beginArray(size, size)
     for i in 0'u32 ..< size:
-      result[i] = g(s)
+      result[i] = s.withExhaustedIf(int(i) >= int(oldLen)):
+        g(s)
     s.skipNodes(int(oldLen) - int(size))
 
 
@@ -1528,9 +1576,11 @@ proc genTuple*[T: tuple](gen: sink T): auto =
   ## corresponding index.
   type Tuple = wrapElements(T)
   result = proc (s: Source): Tuple =
-    discard s.beginGroup(uint8(tupleLen(T)))
+    let actualLen = int(s.beginGroup(uint8(tupleLen(T))))
     forEach tupleLen(T), i:
-      result[i] = (gen[i])(s)
+      result[i] = s.withExhaustedIf(i >= actualLen):
+        (gen[i])(s)
+    s.skipNodes(actualLen - tupleLen(T))
 
 
 # MARK: Function Generators

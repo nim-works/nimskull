@@ -102,18 +102,22 @@ suite "Core Storage API":
 
   test "Primitive Byte & Kind I/O - writeStorageKind and readStorageKind":
     let s = newSource(seed = 1)
-    s.writeStorageKind(skByte)
-    s.writeStorageKind(skRange)
-    s.writeStorageKind(skGroup)
-
-    check s.buffer == @[byte(ord(skByte)), byte(ord(skRange)), byte(ord(skGroup))]
+    s.writeStorageKind(skConst)
+    s.recordRange(10, 5, skByte)
+    s.writeStorageKind(skConst)
 
     let sReplay = newSource(s.buffer)
+    check sReplay.peekStorageKind() == some(skConst)
+    check sReplay.readStorageKind(skConst) == skConst
+    check sReplay.peekStorageKind() == some(skRange)
+    # Mismatch skips the entire skRange node and positions at the trailing skConst
+    check sReplay.readStorageKind(skConst) == skRange
+    check sReplay.peekStorageKind() == some(skConst)
+    check sReplay.readStorageKind(skConst) == skConst
+    # Exhausted buffer returns none on peek and expected on readStorageKind
+    check sReplay.peekStorageKind() == none(StorageKind)
     check sReplay.readStorageKind(skByte) == skByte
     check sReplay.readStorageKind(skRange) == skRange
-    check sReplay.readStorageKind(skGroup) == skGroup
-    # Overflow reads skByte by default as it's ord(0)
-    check sReplay.readStorageKind(skByte) == skByte
 
 
   test "Multi-byte Serialization - bytesForRange and getScalarBytes":
@@ -1088,6 +1092,89 @@ suite "Combinators":
       check res.status == psFail
       check res.shrunkValue.get().len == 3
       check res.shrunkValue.get() == @[byte(0), byte(0), byte(0)]
+
+
+  test "Shrinking FlatMapped generators that morph based on conditionals":
+    let g = genBool().flatMap do (b: bool) -> Gen[int]:
+      if b:
+        genInt(1, 2)
+      else:
+        genConst(0)
+
+    let res = runProperty(
+      forAll((value: g),
+        if value != 0: psFail
+        else: psPass),
+      seed = 1
+    )
+
+    check res.status == psFail
+    check res.shrunk
+    check res.shrunkValue.get() == 1
+
+    # Exhaustive cross-product of StorageKind conversions in flatMap
+    let activeKinds = [
+      skByte, sk2Bytes, sk4Bytes, sk8Bytes,
+      skRange, skArray, skGroup, skConst
+    ]
+
+    proc genForKind(kind: StorageKind): Gen[int] =
+      case kind
+      of skByte:
+        Gen[int](proc(s: Source): int = 10 + int(s.chooseScalarRaw(skByte) and 0x7F'u64))
+      of sk2Bytes:
+        Gen[int](proc(s: Source): int = 10 + int(s.chooseScalarRaw(sk2Bytes) and 0x7F'u64))
+      of sk4Bytes:
+        Gen[int](proc(s: Source): int = 10 + int(s.chooseScalarRaw(sk4Bytes) and 0x7F'u64))
+      of sk8Bytes:
+        Gen[int](proc(s: Source): int = 10 + int(s.chooseScalarRaw(sk8Bytes) and 0x7F'u64))
+      of skNBytes:
+        genConst(10)
+      of skRange:
+        genInt(10, 500)
+      of skArray:
+        genSeq(genInt(10, 50), 1, 3).map(proc(xs: seq[int]): int = xs[0])
+      of skGroup:
+        genTuple((genInt(10, 50), genBool())).map(proc(t: (int, bool)): int = t[0])
+      of skConst:
+        genConst(10)
+
+    for k1 in activeKinds:
+      for k2 in activeKinds:
+        # 1. Morphing where only b=true (k1) fails and shrinking probes b=false (k2)
+        #    against the recorded k1 buffer before shrinking k1 and tail.
+        let morphedGen1 = genBool().flatMap(proc(b: bool): Gen[int] =
+          if b: genForKind(k1)
+          else: genForKind(k2).map(proc(x: int): int = 0)
+        )
+        let prop1 = forAll((val: morphedGen1, tail: genInt(100, 110))):
+          if val >= 10 and tail >= 105:
+            psFail
+          else:
+            psPass
+
+        let res1 = runProperty(prop1, trials = 50, seed = 1)
+        check res1.status == psFail
+        check res1.shrunk
+        check res1.shrunkValue.get() == (10, 105)
+
+        # 2. Morphing where b=true (k1) shrinks directly into b=false (k2) while
+        #    preserving stream alignment for the trailing sibling generator.
+        let morphedGen2 = genBool().flatMap(proc(b: bool): Gen[(bool, int)] =
+          if b: genForKind(k1).map(proc(x: int): (bool, int) = (true, x))
+          else: genForKind(k2).map(proc(x: int): (bool, int) = (false, x))
+        )
+        let prop2 = forAll((branchVal: morphedGen2, tail: genInt(100, 110))):
+          let (b, val) = branchVal
+          if tail >= 105 and ((b and val >= 10) or (not b and val == 10)):
+            psFail
+          else:
+            psPass
+
+        let res2 = runProperty(prop2, trials = 50, seed = 1)
+        check res2.status == psFail
+        check res2.shrunk
+        check res2.shrunkValue.get() == ((false, 10), 105)
 
 
 # MARK: Tuples & Procedures
