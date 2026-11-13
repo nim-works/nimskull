@@ -1,9 +1,5 @@
 discard """
   targets: "c js vm"
-  knownIssue.vm: '''
-    toOpenArrayByte returns an openArray[char] internally, causing a run-time
-    type error
-  '''
 """
 
 proc toSeqByte(a: openArray[byte]): seq[byte] {.noinline.} =
