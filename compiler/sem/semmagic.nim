@@ -247,7 +247,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
 
       result = newType(tyError, nextTypeId c.idgen, context).toNode(traitCall.info)
   of "stripGenericParams":
-    result = uninstantiate(operand).toNode(traitCall.info)
+    result = makeTypeDesc(c, uninstantiate(operand)).toNode(traitCall.info)
   of "supportsCopyMem":
     let t = operand.skipTypes({tyVar, tyLent, tyGenericInst, tyAlias, tySink, tyInferred})
     let complexObj = containsGarbageCollectedRef(t) or

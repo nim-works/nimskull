@@ -547,9 +547,13 @@ proc getArrayConstr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNod
 
 proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   let x = getConstExpr(m, n[0], idgen, g)
-  if x.isNil or
-      x.typ.skipTypes({tyGenericInst, tyAlias, tySink}).kind == tyTypeDesc:
+  if x.isNil:
     return
+
+  if x.typ.skipTypes({tyGenericInst, tyAlias, tySink}).kind == tyTypeDesc:
+    # the bracket expression is actually a type construction
+    # (e.g., ``Type[int]``)
+    return newNodeIT(nkType, n.info, n.typ)
 
   let y = getConstExpr(m, n[1], idgen, g)
   if y.isNil: return
@@ -836,6 +840,8 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else: break
     if i == n.len - 1:
       result = getConstExpr(m, n[i], idgen, g)
+  of nkTypeExprs:
+    result = newNodeIT(nkType, n.info, n.typ)
   else:
     discard # xxx: should we return nil for nkError?
 
