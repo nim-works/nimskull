@@ -27,7 +27,7 @@ proc checkAux(c: var CheckCtx, n: PNode): PNode =
     let s = n.sym
     case s.kind
     of skVar, skLet, skForVar, skTemp, skParam, skResult:
-      if sfGlobal notin s.flags and s.id notin c.defs:
+      if sfGlobal notin s.flags and s.id notin c.defs and s.typ.kind != tyTypeDesc:
         # a local not available in the current context
         result = n
     else:

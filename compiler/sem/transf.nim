@@ -1146,6 +1146,35 @@ proc transformCall(c: PTransf, n: PNode): PNode =
       # make the life of downstream processing easier by turning
       # `tailcall_voidcall(...)` into `return tailcall_voidcall()`
       result = newTreeI(nkReturnStmt, result.info, result)
+    elif result[0].kind == nkSym and result[0].sym.kind in routineKinds and
+         sfForceInline in result[0].sym.flags:
+      # HACK: this is too early to inline routines, as some semantic-relevant
+      #       analysis/processing - such as move analysis and destructor
+      #       injection - hasn't took place yet
+      # to get the correct line info for both the body *and* the argument
+      # expressions, the original body has to be copied and updated first,
+      # before substituting via `transform`
+      var body = skipStmtList(getBody(c.graph, result[0].sym))
+      if body.kind == nkReturnStmt:
+        body = body[0][1] # skip to result expression
+      body = copyTree(body)
+
+      proc setLineInfo(n: PNode; info: TLineInfo) =
+        n.info = info
+        for i in 0..<n.safeLen:
+          setLineInfo(n[i], info)
+
+      setLineInfo(body, result.info)
+
+      let tc = PTransCon(owner: getCurrOwner(c), mapping: newIdNodeTable())
+      pushTransCon(c, tc)
+      for i in 1..<result.len:
+        # add a mapping from the parameter symbol to the argument expression:
+        idNodeTablePut(c.transCon.mapping, result[0].sym.typ.n[i].sym,
+          result[i])
+
+      result = transform(c, body)
+      popTransCon(c)
 
 proc transformExceptBranch(c: PTransf, n: PNode): PNode =
   if n[0].isInfixAs() and not isImportedException(n[0][1].typ, c.graph.config):

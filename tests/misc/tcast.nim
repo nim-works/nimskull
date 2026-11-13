@@ -82,6 +82,12 @@ block: # cast of nil
       static:
         doAssert cast[cstring](nil).repr == "nil"
 
+block to_self_array_cast:
+  # test casting an array to its own type (effectively just copying it)
+  var x = [1, 2, 3, 4]
+  var y = cast[array[4, int]](x)
+  doAssert y == [1, 2, 3, 4]
+
 template main() =
   # xxx move all under here to get tested in VM
   block: # cast of enum
