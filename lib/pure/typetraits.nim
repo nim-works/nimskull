@@ -107,7 +107,7 @@ proc supportsZeroMem*(t: typedesc): bool {.magicImport, compileTime.} =
   ## brings the location into its "default-initialized" state. This doesn't
   ## imply that using `zeroMem`:idx: on a location already storing a value is
   ## valid.
-  magics.supportsCopyMem(t)
+  magics.supportsZeroMem(t)
 
 proc isNamedTuple*(T: typedesc): bool {.magicImport, compileTime.} =
   ## Returns true for named tuples, false for any other type.
