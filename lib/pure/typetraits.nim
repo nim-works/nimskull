@@ -33,7 +33,12 @@ runnableExamples:
   type C[T] = enum h0 = 2, h1 = 4
   assert C[float] is HoleyEnum
 
-proc name*(t: typedesc): string {.magicImport, compileTime.} =
+# note: `name` cannot be a proc, as both `name(int)` and `name(AliasOfInt)`
+# would bind to the *same* generic instance, with the procedure then returning
+# the name of whichever type the generic was instantiated with first. `name`
+# must yield the name of type alias, so this would be wrong
+
+template name*(t: typedesc): string =
   ## Returns the name of the given type.
   ##
   ## Alias for `system.\`$\`(t) <dollars.html#$,typedesc>`_ since Nim v0.20.
