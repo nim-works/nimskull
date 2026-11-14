@@ -89,6 +89,11 @@ func testLocationType(locType: PVmType, t: PVmType): AccessViolationReason =
         break
       else:
         return avrTypeMismatch
+    of akInt:
+      if t.kind == akInt and t.sizeInBytes == it.sizeInBytes:
+        # treat integers (incl. char type) of the same size as compatible
+        break
+      return avrTypeMismatch
     else:
       return avrTypeMismatch
 
