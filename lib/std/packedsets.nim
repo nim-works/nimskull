@@ -109,7 +109,7 @@ proc contains*[A](s: PackedSet[A], key: A): bool {.inline.} =
     assert B notin letters
 
   let (high, low) = split(key.toInternal)
-  s.bitmap.getOrDefault(high, {}).contains(low)
+  s.bitmap.getOrDefault(high).contains(low)
 
 proc containsOrIncl*[A](s: var PackedSet[A], key: A): bool {.inline.} =
   ## Includes `key` in the set `s` and tells if `key` was already in `s`.
