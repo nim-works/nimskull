@@ -213,7 +213,7 @@ proc missingOrExcl*[A](s: var PackedSet[A], key: A): bool {.inline.} =
     try:
       result = not s.bitmap[high].contains(low)
       s.bitmap[high].excl(low)
-      if s.bitmap[high].len == 0:
+      if s.bitmap[high] == {}:
         s.bitmap.del(high)
     except KeyError:
       unreachable()
@@ -254,7 +254,7 @@ proc excl*[A](s: var PackedSet[A], other: PackedSet[A]) =
   for high, word in other.bitmap.pairs:
     if high in s.bitmap:
       let excluded = s.bitmap[high] - word
-      if excluded.len == 0:
+      if excluded == {}:
         s.bitmap.del high
       else:
         s.bitmap[high] = excluded
@@ -312,7 +312,7 @@ proc difference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   for high, word in s1.bitmap.pairs:
     if high in s2.bitmap:
       let difference = word - s2.bitmap[high]
-      if difference.len > 0:
+      if difference != {}:
         result.bitmap[high] = difference
     else:
       result.bitmap[high] = word
@@ -331,7 +331,7 @@ proc symmetricDifference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   for high, word in s2.bitmap.pairs:
     let rword = result.bitmap.getOrDefault(high)
     let difference = (rword + word) - (rword * word)
-    if difference.len > 0:
+    if difference != {}:
       result.bitmap[high] = difference
     else:
       result.bitmap.del(high)
@@ -353,7 +353,7 @@ proc disjoint*[A](s1, s2: PackedSet[A]): bool {.inline.} =
     for high, word in s1.bitmap.pairs:
       if high in s2.bitmap:
         let intersection = s2.bitmap[high] * word
-        if intersection.len > 0:
+        if intersection != {}:
           return false
 
 proc card*[A](s: PackedSet[A]): int {.inline.} =
