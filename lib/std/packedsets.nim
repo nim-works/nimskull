@@ -31,6 +31,8 @@ type
     else:
       bitmap: Table[uint32, Word]
 
+{.push raises: [].}
+
 template internalType(A: typedesc[Ordinal]): untyped =
   ## Returns the internal type used for representation of `A`.
   when sizeof(A) > sizeof(uint32):
@@ -253,7 +255,11 @@ proc excl*[A](s: var PackedSet[A], other: PackedSet[A]) =
 
   for high, word in other.bitmap.pairs:
     if high in s.bitmap:
-      let excluded = s.bitmap[high] - word
+      let excluded =
+        try:
+          s.bitmap[high] - word
+        except KeyError:
+          unreachable()
       if excluded == {}:
         s.bitmap.del high
       else:
@@ -292,7 +298,11 @@ proc intersection*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
     result = initPackedSet[A](s1.bitmap.len)
     for high, word in s1.bitmap.pairs:
       if high in s2.bitmap:
-        let intersection = s2.bitmap[high] * word
+        let intersection =
+          try:
+            s2.bitmap[high] * word
+          except KeyError:
+            unreachable()
         if intersection != {}:
           result.bitmap[high] = intersection
 
@@ -311,7 +321,11 @@ proc difference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   result = initPackedSet[A](s1.bitmap.len)
   for high, word in s1.bitmap.pairs:
     if high in s2.bitmap:
-      let difference = word - s2.bitmap[high]
+      let difference =
+        try:
+          word - s2.bitmap[high]
+        except KeyError:
+          unreachable()
       if difference != {}:
         result.bitmap[high] = difference
     else:
@@ -352,7 +366,11 @@ proc disjoint*[A](s1, s2: PackedSet[A]): bool {.inline.} =
     result = true
     for high, word in s1.bitmap.pairs:
       if high in s2.bitmap:
-        let intersection = s2.bitmap[high] * word
+        let intersection =
+          try:
+            s2.bitmap[high] * word
+          except KeyError:
+            unreachable()
         if intersection != {}:
           return false
 
@@ -382,8 +400,11 @@ proc `<=`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
 
   result = true
   for high, word in s1.bitmap.pairs:
-    if high notin s2.bitmap or not (word <= s2.bitmap[high]):
-      return false
+    try:
+      if high notin s2.bitmap or not (word <= s2.bitmap[high]):
+        return false
+    except KeyError:
+      unreachable()
 
 proc `<`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
   ## Returns true if `s1` is a proper subset of `s2`.
@@ -412,8 +433,11 @@ proc `==`*[A](s1, s2: PackedSet[A]): bool =
 
   result = true
   for high, word in s1.bitmap.pairs:
-    if high notin s2.bitmap or word != s2.bitmap[high]:
-      return false
+    try:
+      if high notin s2.bitmap or word != s2.bitmap[high]:
+        return false
+    except KeyError:
+      unreachable()
 
 iterator items*[A](s: PackedSet[A]): A {.inline.} =
   ## Iterates over included elements of `s`.
@@ -454,3 +478,5 @@ proc isNil*[A](x: PackedSet[A]): bool {.inline, deprecated: "PackedSet can no lo
 proc assign*[A](dest: var PackedSet[A], src: sink PackedSet[A]) {.inline, deprecated: "PackedSet is now always deep copied; use `dest = src` instead".} =
   ## Copies `src` to `dest`.
   dest = src
+
+{.pop.}
