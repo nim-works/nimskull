@@ -83,11 +83,11 @@ proc toInternal[A](x: A): uint32 or uint64 {.inline.} =
   cast[internalType(A)](x)
 
 proc split[T: uint32 or uint64](key: T): tuple[high: T, low: uint8] {.inline.} =
-  ## Splits `key` into low and high portions
+  ## Splits `key` into low and high portions.
   (key shr 8, uint8(key))
 
 proc join[T: uint32 or uint64](high: T, low: uint8): T {.inline.} =
-  ## Joins high and low portions into the original value
+  ## Joins high and low portions into the original value.
   (high shl 8) or T(low)
 
 proc contains*[A](s: PackedSet[A], key: A): bool {.inline.} =
