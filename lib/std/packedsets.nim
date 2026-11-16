@@ -7,17 +7,17 @@
 # See the file "copying.txt", included in this distribution, for
 # details about copyright.
 
-import std/tables
-
 ## The `packedsets` module implements an efficient `Ordinal` set implemented as a
-## simple sparse bitmap:idx:.
+## simple sparse bitmap.
 ##
-## This bitmap is optimized for relatively low number of values (less than 1
-## million entries) and trade memory usage for time.
+## This bitmap is optimized for a relatively low number of values (less than 1
+## million entries) and trades memory usage for execution time.
 ##
 ## See also
 ## ========
 ## * `sets module <sets.html>`_ for more general hash sets
+
+import std/tables
 
 type
   Word = set[uint8]
@@ -26,19 +26,14 @@ type
   PackedSet*[A: Ordinal] = object
     ## An efficient set of `Ordinal` implemented as a sparse bitmap.
     # Bootstrap is tripped by the sizeof
-    when defined(nimKochBootstrap):
+    when sizeof(A) > sizeof(uint32):
       bitmap: Table[uint64, Word]
     else:
-      when sizeof(A) > sizeof(uint32):
-        bitmap: Table[uint64, Word]
-      else:
-        bitmap: Table[uint32, Word]
+      bitmap: Table[uint32, Word]
 
 template internalType(A: typedesc[Ordinal]): untyped =
-  ## Return the internal type used for representation of `A`.
-  when defined(nimKochBootstrap):
-    uint64
-  elif sizeof(A) > sizeof(uint32):
+  ## Returns the internal type used for representation of `A`.
+  when sizeof(A) > sizeof(uint32):
     uint64
   else:
     uint32
@@ -81,16 +76,16 @@ proc clear*[A](result: var PackedSet[A]) {.inline.} =
 
   clear result.bitmap
 
-proc toInternal[A](x: A): uint16 or uint32 or uint64 {.inline.} =
-  ## Convert `x` into the internal representation.
+proc toInternal[A](x: A): uint32 or uint64 {.inline.} =
+  ## Converts `x` into the internal representation.
   cast[internalType(A)](x)
 
 proc split[T: uint32 or uint64](key: T): tuple[high: T, low: uint8] {.inline.} =
-  ## Split `key` into low and high portions
+  ## Splits `key` into low and high portions
   (key shr 8, uint8(key))
 
 proc join[T: uint32 or uint64](high: T, low: uint8): T {.inline.} =
-  ## Join high and low portions into the original value
+  ## Joins high and low portions into the original value
   (high shl 8) or T(low)
 
 proc contains*[A](s: PackedSet[A], key: A): bool {.inline.} =
@@ -176,7 +171,7 @@ proc incl*[A](s: var PackedSet[A], other: PackedSet[A]) {.inline.} =
     assert 5 in a
 
   for high, word in other.bitmap.pairs:
-    let merged = s.bitmap.getOrDefault(high, {}) + word
+    let merged = s.bitmap.getOrDefault(high) + word
     s.bitmap[high] = merged
 
 proc toPackedSet*[A](x: openArray[A]): PackedSet[A] =
