@@ -395,9 +395,6 @@ block enums:
   testProperties(genChar())
   testProperties(genEnum[SmallEnum]())
 
-proc sortedPairs[T](t: T): auto = toSeq(t.pairs).sorted
-template sortedItems(t: untyped): untyped = sorted(toSeq(t))
-
 type Id = distinct int
 proc `$`(x: Id): string {.borrow.}
 proc `==`(a: Id, b: Id): bool {.borrow.}
