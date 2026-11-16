@@ -449,7 +449,6 @@ proc `$`*[A](s: PackedSet[A]): string =
   ## Returns the string representation of `s`.
   result.add '{'
   for value in s.items:
-    let value = cast[A](value)
     if result.len > 1:
       result.add ", "
     result.add $value
