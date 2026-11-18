@@ -90,6 +90,10 @@ proc join[T: uint32 or uint64](high: T, low: uint8): T {.inline.} =
   ## Joins high and low portions into the original value.
   (high shl 8) or T(low)
 
+proc containsOrIncl(w: var Word, v: uint8): bool {.inline.} =
+  result = v in w
+  w.incl v
+
 proc contains*[A](s: PackedSet[A], key: A): bool {.inline.} =
   ## Returns true if `key` is in `s`.
   ##
@@ -129,15 +133,7 @@ proc containsOrIncl*[A](s: var PackedSet[A], key: A): bool {.inline.} =
     assert a.containsOrIncl(4) == false
 
   let (high, low) = split(key.toInternal)
-  if high notin s.bitmap:
-    s.bitmap[high] = {low}
-    result = false
-  else:
-    try:
-      result = s.bitmap[high].contains(low)
-      s.bitmap[high].incl(low)
-    except KeyError:
-      unreachable()
+  s.bitmap.mgetOrPut(high, {}).containsOrIncl(low)
 
 proc incl*[A](s: var PackedSet[A], key: A) {.inline.} =
   ## Includes an element `key` in `s`.
@@ -155,7 +151,7 @@ proc incl*[A](s: var PackedSet[A], key: A) {.inline.} =
     assert len(a) == 1
 
   let (high, low) = split(key.toInternal)
-  s.bitmap.mgetOrPut(high, {low}).incl(low)
+  s.bitmap.mgetOrPut(high, {}).incl(low)
 
 proc incl*[A](s: var PackedSet[A], other: PackedSet[A]) {.inline.} =
   ## Includes all elements from `other` into `s`.
@@ -209,16 +205,13 @@ proc missingOrExcl*[A](s: var PackedSet[A], key: A): bool {.inline.} =
     assert a.missingOrExcl(5) == true
 
   let (high, low) = split(key.toInternal)
-  if high notin s.bitmap:
+  s.bitmap.withValue(high, value):
+    result = low notin value[]
+    value[].excl low
+    if value[] == {}:
+      s.bitmap.del high
+  do:
     result = true
-  else:
-    try:
-      result = not s.bitmap[high].contains(low)
-      s.bitmap[high].excl(low)
-      if s.bitmap[high] == {}:
-        s.bitmap.del(high)
-    except KeyError:
-      unreachable()
 
 proc excl*[A](s: var PackedSet[A], key: A) {.inline.} =
   ## Excludes `key` from the set `s`.
@@ -254,16 +247,10 @@ proc excl*[A](s: var PackedSet[A], other: PackedSet[A]) =
     assert 5 notin a
 
   for high, word in other.bitmap.pairs:
-    if high in s.bitmap:
-      let excluded =
-        try:
-          s.bitmap[high] - word
-        except KeyError:
-          unreachable()
-      if excluded == {}:
+    s.bitmap.withValue(high, value):
+      value[] = value[] - word
+      if value[] == {}:
         s.bitmap.del high
-      else:
-        s.bitmap[high] = excluded
 
 proc union*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   ## Returns the union of the sets `s1` and `s2`.
@@ -297,14 +284,9 @@ proc intersection*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   else:
     result = initPackedSet[A](s1.bitmap.len)
     for high, word in s1.bitmap.pairs:
-      if high in s2.bitmap:
-        let intersection =
-          try:
-            s2.bitmap[high] * word
-          except KeyError:
-            unreachable()
-        if intersection != {}:
-          result.bitmap[high] = intersection
+      let intersection = s2.bitmap.getOrDefault(high) * word
+      if intersection != {}:
+        result.bitmap[high] = intersection
 
 proc difference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   ## Returns the difference of the sets `s1` and `s2`.
@@ -320,16 +302,9 @@ proc difference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
 
   result = initPackedSet[A](s1.bitmap.len)
   for high, word in s1.bitmap.pairs:
-    if high in s2.bitmap:
-      let difference =
-        try:
-          word - s2.bitmap[high]
-        except KeyError:
-          unreachable()
-      if difference != {}:
-        result.bitmap[high] = difference
-    else:
-      result.bitmap[high] = word
+    let difference = word - s2.bitmap.getOrDefault(high)
+    if difference != {}:
+      result.bitmap[high] = difference
 
 proc symmetricDifference*[A](s1, s2: PackedSet[A]): PackedSet[A] {.inline.} =
   ## Returns the symmetric difference of the sets `s1` and `s2`.
@@ -365,14 +340,9 @@ proc disjoint*[A](s1, s2: PackedSet[A]): bool {.inline.} =
   else:
     result = true
     for high, word in s1.bitmap.pairs:
-      if high in s2.bitmap:
-        let intersection =
-          try:
-            s2.bitmap[high] * word
-          except KeyError:
-            unreachable()
-        if intersection != {}:
-          return false
+      let intersection = s2.bitmap.getOrDefault(high) * word
+      if intersection != {}:
+        return false
 
 proc card*[A](s: PackedSet[A]): int {.inline.} =
   ## Alias for `len() <#len,PackedSet[A]>`_.
@@ -400,11 +370,8 @@ proc `<=`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
 
   result = true
   for high, word in s1.bitmap.pairs:
-    try:
-      if high notin s2.bitmap or not (word <= s2.bitmap[high]):
-        return false
-    except KeyError:
-      unreachable()
+    if not (word <= s2.bitmap.getOrDefault(high)):
+      return false
 
 proc `<`*[A](s1, s2: PackedSet[A]): bool {.inline.} =
   ## Returns true if `s1` is a proper subset of `s2`.
@@ -433,11 +400,8 @@ proc `==`*[A](s1, s2: PackedSet[A]): bool =
 
   result = true
   for high, word in s1.bitmap.pairs:
-    try:
-      if high notin s2.bitmap or word != s2.bitmap[high]:
-        return false
-    except KeyError:
-      unreachable()
+    if word != s2.bitmap.getOrDefault(high):
+      return false
 
 iterator items*[A](s: PackedSet[A]): A {.inline.} =
   ## Iterates over included elements of `s`.
