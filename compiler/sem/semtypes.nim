@@ -981,8 +981,7 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
 
       if c.inGenericContext > 0:
         # use a new check intset here for each branch:
-        var newCheck: IntSet
-        assign(newCheck, check)
+        var newCheck = check
         var newPos = pos
         var newf = newNodeI(nkRecList, n.info)
         semRecordNodeAux(c, it[idx], newCheck, newPos, newf, rectype, hasCaseFields)
