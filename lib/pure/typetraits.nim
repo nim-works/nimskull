@@ -12,9 +12,11 @@
 ##
 ## Unstable API.
 
-import system/magics except error
+from system/magics import nil
 import std/private/since
 export system.`$` # for backward compatibility
+
+{.pragma: magicImport, stackTrace: off, lineTrace: off, inline.}
 
 type HoleyEnum* = (not Ordinal) and enum ## Enum with holes.
 type OrdinalEnum* = Ordinal and enum ## Enum without holes.
@@ -31,9 +33,94 @@ runnableExamples:
   type C[T] = enum h0 = 2, h1 = 4
   assert C[float] is HoleyEnum
 
-export magics.name, magics.arity, magics.genericHead, magics.stripGenericParams
-export magics.supportsCopyMem, magics.supportsZeroMem
-export magics.isNamedTuple
+# note: `name` cannot be a proc, as both `name(int)` and `name(AliasOfInt)`
+# would bind to the *same* generic instance, with the procedure then returning
+# the name of whichever type the generic was instantiated with first. `name`
+# must yield the name of type alias, so this would be wrong
+
+template name*(t: typedesc): string =
+  ## Returns the name of the given type.
+  ##
+  ## Alias for `system.\`$\`(t) <dollars.html#$,typedesc>`_ since Nim v0.20.
+  runnableExamples:
+    doAssert name(int) == "int"
+    doAssert name(seq[string]) == "seq[string]"
+  magics.name(t)
+
+proc arity*(t: typedesc): int {.magicImport, compileTime.} =
+  ## Returns the arity of the given type. This is the number of "type"
+  ## components or the number of generic parameters a given type `t` has.
+  runnableExamples:
+    doAssert arity(int) == 0
+    doAssert arity(seq[string]) == 1
+    doAssert arity(array[3, int]) == 2
+    doAssert arity((int, int, float, string)) == 4
+  magics.arity(t)
+
+template genericHead*(t: typedesc): typedesc =
+  ## Accepts an instantiated generic type and returns its
+  ## uninstantiated form.
+  ## A compile-time error will be produced if the supplied type
+  ## is not generic.
+  ##
+  ## **See also:**
+  ## * `stripGenericParams proc <#stripGenericParams,typedesc>`_
+  runnableExamples:
+    type
+      Foo[T] = object
+      FooInst = Foo[int]
+      Foo2 = genericHead(FooInst)
+
+    doAssert Foo2 is Foo and Foo is Foo2
+    doAssert genericHead(Foo[seq[string]]) is Foo
+    doAssert not compiles(genericHead(int))
+
+    type Generic = concept f
+      type _ = genericHead(typeof(f))
+
+    proc bar(a: Generic): typeof(a) = a
+
+    doAssert bar(Foo[string].default) == Foo[string]()
+    doAssert not compiles bar(string.default)
+
+    when false: # these don't work yet
+      doAssert genericHead(Foo[int])[float] is Foo[float]
+      doAssert seq[int].genericHead is seq
+
+  magics.genericHead(t)
+
+template stripGenericParams*(t: typedesc): typedesc =
+  ## This trait is similar to `genericHead <#genericHead,typedesc>`_, but
+  ## instead of producing an error for non-generic types, it will just return
+  ## them unmodified.
+  runnableExamples:
+    type Foo[T] = object
+
+    doAssert stripGenericParams(Foo[string]) is Foo
+    doAssert stripGenericParams(int) is int
+  magics.stripGenericParams(t)
+
+proc supportsCopyMem*(t: typedesc): bool {.magicImport, compileTime.} =
+  ## This trait returns true if the type `t` is safe to use for
+  ## `copyMem`:idx:.
+  ##
+  ## Other languages name a type like these `blob`:idx:.
+  magics.supportsCopyMem(t)
+
+proc supportsZeroMem*(t: typedesc): bool {.magicImport, compileTime.} =
+  ## This trait returns true if using `zeroMem`:idx: on a location of type `t`
+  ## brings the location into its "default-initialized" state. This doesn't
+  ## imply that using `zeroMem`:idx: on a location already storing a value is
+  ## valid.
+  magics.supportsZeroMem(t)
+
+proc isNamedTuple*(T: typedesc): bool {.magicImport, compileTime.} =
+  ## Returns true for named tuples, false for any other type.
+  runnableExamples:
+    doAssert not isNamedTuple(int)
+    doAssert not isNamedTuple((string, int))
+    doAssert isNamedTuple(tuple[name: string, age: int])
+  magics.isNamedTuple(T)
 
 template pointerBase*[T](_: typedesc[ptr T | ref T]): typedesc =
   ## Returns `T` for `ref T | ptr T`.
@@ -45,7 +132,20 @@ template pointerBase*[T](_: typedesc[ptr T | ref T]): typedesc =
     assert (var s = "abc"; s[0].addr).typeof.pointerBase is char
   T
 
-export magics.distinctBase
+template distinctBase*(T: typedesc, recursive: static bool = true): typedesc =
+  ## Returns the base type for distinct types, or the type itself otherwise.
+  ## If `recursive` is false, only the immediate distinct base will be returned.
+  ##
+  ## **See also:**
+  ## * `distinctBase template <#distinctBase.t,T,static[bool]>`_
+  runnableExamples:
+    type MyInt = distinct int
+    type MyOtherInt = distinct MyInt
+    doAssert distinctBase(MyInt) is int
+    doAssert distinctBase(MyOtherInt) is int
+    doAssert distinctBase(MyOtherInt, false) is MyInt
+    doAssert distinctBase(int) is int
+  magics.distinctBase(T, recursive)
 
 since (1, 1):
   template distinctBase*[T](a: T, recursive: static bool = true): untyped =
@@ -62,7 +162,15 @@ since (1, 1):
     else: # avoids hint ConvFromXtoItselfNotNeeded
       a
 
-  export magics.tupleLen
+  proc tupleLen*(T: typedesc[tuple]): int {.magicImport, compileTime.} =
+    ## Returns the number of elements of the tuple type `T`.
+    ##
+    ## **See also:**
+    ## * `tupleLen template <#tupleLen.t>`_
+    runnableExamples:
+      doAssert tupleLen((int, int, float, string)) == 4
+      doAssert tupleLen(tuple[name: string, age: int]) == 2
+    magics.tupleLen(T)
 
   template tupleLen*(t: tuple): int =
     ## Returns the number of elements of the tuple `t`.
@@ -100,7 +208,36 @@ since (1, 3, 5):
 
     typeof(block: (for ai in a: ai))
 
-export magics.rangeBase, magics.isCyclical
+template rangeBase*(t: typedesc): typedesc =
+  ## Returns the base type of the ``range`` type `t`. Only a single level is
+  ## skipped, that is, if the range type's base type is also a range type,
+  ## the base type is not skipped.
+  runnableExamples:
+    type
+      Range = range[1..3]
+      Nested = range[Range(1)..Range(3)]
+
+    doAssert rangeBase(Range) is int
+    doAssert rangeBase(Range) isnot range
+    doAssert rangeBase(Nested) is Range
+  magics.rangeBase(t)
+
+proc isCyclical*(t: typedesc): bool {.magicImport, compileTime.} =
+  ## Returns whether the type `t` is *potentially* able to be part of a
+  ## reference cycle when used as the type of a managed heap location.
+  runnableExamples:
+    type
+      NoCycle = object
+        x: seq[NoCycle]
+      NoCycle2 {.acyclic.} = ref object
+        x: NoCycle2
+      Cycle = ref object
+        x: Cycle
+
+    doAssert not isCyclical(NoCycle)
+    doAssert not isCyclical(NoCycle2)
+    doAssert isCyclical(Cycle)
+  magics.isCyclical(t)
 
 import std/macros
 
