@@ -68,3 +68,31 @@ static: # partial overlay in the middle of an object
   let p = o.c.asPtr(tuple[x: string, y: seq[int]])
   doAssert p.x == "c"
   doAssert p.y == [1, 2]
+
+static: # aliasing char with uint8
+  var a1 = "hi"
+  var a2 = [0x68'u8]
+  doAssert a1[0].asPtr(uint8)[] == 0x68
+  doAssert a1[0].asPtr(int8)[] == 104
+  doAssert a2[0].asPtr(char)[] == 'h'
+
+static: # aliasing uintXX with intXX & vice versa
+  var a1 = [0xFF'u8]
+  var a2 = [-1'i8]
+  doAssert a1[0].asPtr(int8)[] == -1'i8
+  doAssert a2[0].asPtr(uint8)[] == 0xFF'u8
+
+  var b1 = 0xCAFE'u16
+  var b2 = -13570'i16
+  doAssert b1.asPtr(int16)[] == -13570'i16
+  doAssert b2.asPtr(uint16)[] == 0xCAFE'u16
+
+  var c1 = 0x12345678'u32
+  var c2 = 305419896'i32
+  doAssert c1.asPtr(int32)[] == 305419896'i32
+  doAssert c2.asPtr(uint32)[] == 0x12345678'u32
+
+  var d1 = 0x9001900190019001'u64
+  var d2 = -8070010720885829631'i64
+  doAssert d1.asPtr(int64)[] == -8070010720885829631'i64
+  doAssert d2.asPtr(uint64)[] == 0x9001900190019001'u64

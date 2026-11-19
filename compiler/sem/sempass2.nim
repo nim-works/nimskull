@@ -1583,6 +1583,49 @@ proc hasRealBody(s: PSym): bool =
   ## which is not a real implementation, refs #14314
   result = {sfForward, sfImportc} * s.flags == {}
 
+proc eligibleForInlining(body: PNode, owner: PSym): bool =
+  ## Tests whether the routine body `n` is eligible for NimSkull-side inlining.
+  # note: this procedure only exists because the current inliner is very, very
+  # basic and only requires very specific code shapes to work
+  proc step(n: PNode, expectParam: var int, owner: PSym): bool =
+    case n.kind
+    of nkSym:
+      # the parameters must be used exactly once, in the order they're
+      # declared in
+      if n.sym.kind == skParam and n.sym.owner == owner and
+         n.sym.position == expectParam:
+        inc expectParam
+        true
+      else:
+        n.sym.kind == skType
+    of nkLiterals, nkNimNodeLit, nkTypeExprs:
+      true
+    of nkConv, nkHiddenSubConv, nkHiddenStdConv:
+      # only lvalue conversion are allowed
+      if compareTypes(n.typ, n[^1].typ, dcEqIgnoreDistinct):
+        step(n[^1], expectParam, owner)
+      else:
+        false
+    of nkHiddenAddr, nkHiddenDeref:
+      step(n[^1], expectParam, owner)
+    else:
+      false
+
+  var n = skipStmtList(body)
+  if n.kind == nkReturnStmt:
+    n = n[0][1] # result expression
+
+  # the statement or result expression must be a magic call
+  if n.kind in nkCallKinds and n[0].kind == nkSym and
+      n[0].sym.kind in routineKinds and n[0].sym.magic != mNone:
+    var param = 0
+    for i in 1..<n.len:
+      if not step(n[i], param, owner):
+        return false
+    param == n[0].sym.typ.len - 1 # all parameters must be used
+  else:
+    false
+
 # ------------- routines for capture analysis ------------
 
 proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
@@ -1889,6 +1932,17 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     # create the type-bound ops for the continuation type:
     let cont = s.typ.n[0][effectListLen].typ.skipTypes(skipForHooks)
     createTypeBoundOps(c.graph, c, cont, s.info, c.idgen)
+
+  if s.typ.callConv == ccInline and
+     {optLineTrace, optStackTrace} * s.options == {}:
+    var root = s.skipGenericOwner
+    while root.owner != nil:
+      root = root.owner
+
+    # for now, only allow inlining for standard library routines
+    if root.name.s == "stdlib" and eligibleForInlining(body, s):
+      # the procedure can be inlined on the NimSkull side
+      s.flags.incl sfForceInline
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   if n.kind in {nkPragma, nkMacroDef, nkTemplateDef, nkProcDef, nkFuncDef,

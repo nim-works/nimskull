@@ -1896,11 +1896,21 @@ proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
   result.typ = t
 
 proc symFromExpectedTypeNode(c: PContext, n: PNode): PSym =
-  if n.kind == nkType:
-    result = symFromType(c, n.typ, n.info)
+  var typ = n.typ
+  if typ.kind == tyTypeDesc:
+    typ = typ.base
+    # to give the apperance as if higher-kinded types would be at least partially
+    # supported (even though they're not), turn type classes into their head
+    # type. For example, a `Type` expression (where `Type[T] = ...`) might reach
+    # here as `tyCompositeTypeClass(Type, ...)`, and we want the `tyGenericBody`
+    # instance, not the composite type class
+    if typ.kind in {tyBuiltInTypeClass, tyCompositeTypeClass}:
+      typ = typ[0]
   else:
-    let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
-    result = errorSym(c, n, err)
+    localReport(c.config, n.info, reportSem rsemTypeExpected)
+    typ = errorType(c)
+
+  result = symFromType(c, typ, n.info)
 
 proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType =
   result = newOrPrevType(tyStatic, prev, c)

@@ -157,10 +157,12 @@ jobs:
         run: |
           brew update
 
-          # Downgrade to OpenSSL 3.0
-          brew unlink openssl || :
-          brew install openssl@3.0
-          brew link --overwrite openssl@3.0
+          # Downgrade to OpenSSL 3
+          HOMEBREW_NO_INSTALL_UPGRADE=1 brew install -y openssl@3
+          for formulae in $(brew list | grep '^openssl@'); do
+            brew unlink "$formulae"
+          done
+          brew link --overwrite openssl@3
 
       - name: Add Homebrew libraries to search path
         if: runner.os == 'macOS'

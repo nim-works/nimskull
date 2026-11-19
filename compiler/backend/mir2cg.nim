@@ -2569,7 +2569,7 @@ proc exprToCgir(c; env; tree; n; dest: Expr, stmts, bu) =
     var arg = c.valueToCgir(env, tree, tree.child(n, 0), bu)
     if sameType(env.types, typ, src):
       # a no-op; assign the source expression unchanged
-      stmts.putInto bu, dest, *use(arg)
+      stmts.add c.genAsgn(env, dest, arg, bu)
     elif env.types.headerFor(env.types.skip(typ), Lowered).kind in BlitTypes or
          env.types.headerFor(env.types.skip(src), Lowered).kind in BlitTypes:
       # either the target or source type is something that requires a

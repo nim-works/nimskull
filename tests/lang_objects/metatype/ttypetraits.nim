@@ -430,3 +430,13 @@ block supports_zero_mem:
   # types
   doAssert supportsZeroMem(array[1, RequiresInit]), "works now"
   doAssert supportsZeroMem((RequiresInit,)), "works now"
+
+block strip_generic_params:
+  # regression tests for `stripGenericParams` result not being usable in
+  # regular type expression contexts
+  type Generic[T] = object
+    x: T
+
+  proc test(p: stripGenericParams(Generic[int])): auto = p.x
+  
+  doAssert test(Generic[float](x: 1.5)) == 1.5
