@@ -3703,7 +3703,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
                             toInt128(0),
                   maxIdx: toInt128(
                     if diag.staticCollection.kind in nkStrLiterals:
-                      # string literals are leaves, their length is in `strVal`
                       diag.staticCollection.strVal.len - 1
                     else:
                       diag.staticCollection.len - 1)))
