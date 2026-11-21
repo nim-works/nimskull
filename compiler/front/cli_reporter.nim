@@ -3701,7 +3701,11 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
                             firstOrd(conf, diag.staticCollection.typ)
                           else:
                             toInt128(0),
-                  maxIdx: toInt128(diag.staticCollection.len - 1)))
+                  maxIdx: toInt128(
+                    if diag.staticCollection.kind in nkStrLiterals:
+                      diag.staticCollection.strVal.len - 1
+                    else:
+                      diag.staticCollection.len - 1)))
   of adSemMagicExpectTypeOrValue:
     semRep = SemReport(
       location: some diag.location,
