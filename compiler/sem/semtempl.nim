@@ -1053,9 +1053,6 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
   else:
     result = semTemplBodyDirtyKids(c, n)
 
-proc semRoutineParams(c: PContext, routine, formal, generic: PNode, kind: TSymKind): PType
-# from semstmts
-
 proc semTemplateDef(c: PContext, n: PNode): PNode =
   ## Analyse `n` a template definition producing a callable template.
   addInNimDebugUtils(c.config, "semTemplateDef", n, result)

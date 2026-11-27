@@ -318,10 +318,10 @@ proc mapType(typ: PType; indirect = false): TJSTypeKind =
   of tyGenericParam, tyGenericBody, tyGenericInvocation,
      tyNone, tyFromExpr, tyForward, tyEmpty,
      tyUntyped, tyTyped, tyTypeDesc, tyBuiltInTypeClass, tyCompositeTypeClass,
-     tyAnd, tyOr, tyNot, tyAnything, tyVoid:
+     tyAnd, tyOr, tyNot, tyAnything, tyVoid, tySignature:
     result = etyNone
   of tyGenericInst, tyInferred, tyAlias, tyUserTypeClass, tyUserTypeClassInst,
-     tySink, tyEnum:
+     tySignatureInst, tySink, tyEnum:
     result = mapType(typ.lastSon, indirect)
   of tyStatic:
     if t.n != nil: result = mapType(t.lastSon, indirect)

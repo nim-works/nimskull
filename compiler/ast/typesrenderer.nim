@@ -170,7 +170,7 @@ const
     "sink",
     "lent ", "varargs[$1]", "UncheckedArray[$1]", "Error Type",
     "BuiltInTypeClass", "UserTypeClass",
-    "UserTypeClassInst", "CompositeTypeClass", "inferred",
+    "UserTypeClassInst", "Signature", "SignatureInst", "CompositeTypeClass", "inferred",
     "and", "or", "not", "any", "static", "TypeFromExpr",
     "void"]
 

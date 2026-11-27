@@ -329,6 +329,14 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
     else:
       result = mapTypeToBracket("concept", mNone, t, info)
       result.add t.n.copyTree
+  of tySignature:
+    result = newTree(nkCall, newIdentNode(cache.getIdent("signature"), info))
+    # TODO: add the 'self' type variable identifier/symbol
+    # TODO: add the body
+  of tySignatureInst:
+    # XXX: there's no syntax to create a resolved signature that uses a given
+    #      set of bindings
+    unreachable("missing")
   of tyCompositeTypeClass:
     result = mapTypeToBracket("compositeTypeClass", mNone, t, info)
   of tyAnd: result = mapTypeToBracket("and", mAnd, t, info)

@@ -921,7 +921,18 @@ proc replaceTypeParamsInType*(c: PContext, pt: TIdTable, t: PType): PType =
     else:
       result = t.exactReplica
       result.n = n
-  of tyGenericInst, tyInferred, tyTypeClasses - AndOrNot, tyError:
+  #[
+  of tySignature:
+    let n = replaceTypeVarsInBody(c, pt, t.n)
+    if n != t.n:
+      result = t.exactReplica
+      result.n = n
+
+    for i in 0..<t.len:
+      update(i): replaceTypeParamsInType(c, pt, t[i])
+  ]#
+  of tyGenericInst, tyInferred, tyTypeClasses - AndOrNot, tySignatureInst,
+     tyError:
     # resolved types and meta types that don't contain type variables
     result = t
   of IntegralTypes, tyVoid, tyPointer, tyString, tyCstring,
@@ -1086,7 +1097,7 @@ proc containsUnboundTypeVar(pt: TIdTable, t: PType): bool =
   of tyGenericInst, tyInferred:
     result = containsUnboundTypeVar(pt, t[^1])
   of tyNone, tyEmpty, tyError, IntegralTypes, tyNil, tyUntyped, tyTyped,
-     tyPointer, tyString, tyCstring, tyForward, tyVoid:
+     tyPointer, tyString, tyCstring, tyForward, tyVoid, tySignatureInst:
     # neither a type variables nor can it contain one
     result = false
 
