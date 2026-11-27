@@ -199,6 +199,7 @@ var LWIP_NSC_IPV6_ADDR_STATE_CHANGED* {.importc: "LWIP_NSC_IPV6_ADDR_STATE_CHANG
 var IF_NAMESIZE* {.importc: "IF_NAMESIZE", header: "<net/if.h>".}: cint
 
 # <sys/socket.h>
+const IPPROTO_DEFAULT* = cint(0)
 var IPPROTO_IP* {.importc: "IPPROTO_IP", header: "<sys/socket.h>".}: cint
 var IPPROTO_IPV6* {.importc: "IPPROTO_IPV6", header: "<sys/socket.h>".}: cint
 var IPPROTO_ICMP* {.importc: "IPPROTO_ICMP", header: "<sys/socket.h>".}: cint
