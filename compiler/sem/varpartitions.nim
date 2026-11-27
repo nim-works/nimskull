@@ -359,6 +359,40 @@ proc pathExpr(node: PNode; owner: PSym): PNode =
           break
       else:
         break
+    of nkElifExpr, nkElifBranch, nkElseExpr, nkElse, nkExceptBranch, nkOfBranch:
+      n = n.lastSon
+    of nkIfExpr, nkIfStmt, nkTryStmt, nkCaseStmt:
+      block samePathCheck:
+        let firstExpr =
+          case n.kind
+          of nkTryStmt:
+            n[0] # First element is try body
+          of nkCaseStmt:
+            n[1].lastSon # First branch is the second element
+          else:
+            n[0].lastSon
+        let firstValidPath = pathExpr(firstExpr, owner)
+        # The first expression should be a valid path
+        if firstValidPath == nil:
+          break samePathCheck
+
+        let remainderStart = if n.kind == nkCaseStmt: 2 else: 1
+        for idx in remainderStart ..< n.len:
+          # Only check branches with a type, as no types implies noreturn for
+          # expressions
+          if not n[idx].lastSon.typ.isEmptyType():
+            # If the first path is not a symbol, then we currently can't check
+            # if other paths points to the same resource, so bail.
+            if firstValidPath.kind != nkSym:
+              break samePathCheck
+
+            let path = pathExpr(n[idx], owner)
+            if path.kind != nkSym or path.sym.itemId != firstValidPath.sym.itemId:
+              break samePathCheck
+
+        result = firstValidPath
+
+      break
     else:
       break
   # borrowFromConstExpr(n) is correct here because we need 'node'
