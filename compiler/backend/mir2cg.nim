@@ -2826,8 +2826,6 @@ proc stmtToCgir(c; env; tree; n; stmts; bu) =
   of mnkRaise:
     c.emitLineTrace(env, c.prc.body.source[tree[n].info].info, stmts, bu)
     c.emitRaise(env, tree[tree.last(n)], stmts, bu)
-  of mnkContinue:
-    c.emitRaise(env, tree[tree.last(n)], stmts, bu)
   of mnkEmit, mnkAsm:
     c.emitLineTrace(env, c.prc.body.source[tree[n].info].info, stmts, bu)
     stmts.add c.emitToCgir(env, tree, n, bu)
@@ -3070,6 +3068,8 @@ proc toTree(c; env; tree; list: seq[Stmt], i: int, stmts, bu) =
   of Raise:
     c.useSourceLoc(tree[list[i].n].info, bu)
     c.emitRaise(env, tree[tree.last(list[i].n)], stmts, bu)
+  of Continue:
+    c.emitRaise(env, tree[tree.last(list[i].n)], stmts, bu)
   of Dispatch:
     c.useSourceLoc(tree[list[i].n].info, bu)
     if isSimpleCase(tree, list[i].n):
@@ -3286,7 +3286,7 @@ proc procToCgir(c; env; sym: PSym): StringId =
 
   # create the structured control-flow view and use it to guide translation
   var list = toStructured(c.prc.body.code)
-  optimize(list)
+  optimize(c.prc.body.code, list)
   if hasExit(c.prc.body.code):
     # the body is wrapped in a block, which is used as the target for both
     # `Return` and `Unwind`
